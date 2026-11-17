@@ -16,13 +16,19 @@ import java.security.KeyPairGenerator;
 import java.security.KeyStore;
 import java.security.PrivateKey;
 import java.security.cert.Certificate;
+import java.util.concurrent.TimeUnit;
 
-/** Persistent AndroidKeystore ADB identity; never persist six-digit pairing codes. */
+/** AndroidKeyStore ADB identity; six-digit pairing codes never persist. */
 final class AdbConnectionManager extends AbsAdbConnectionManager {
-    private static final String KEY_ALIAS = "berry_fcm_adb_identity";
+    // Legacy identity only allowed PKCS1; TLS 1.3 requires RSA-PSS to sign handshake.
+    // Use a new alias, retaining the old key for safe migration.
+    private static final String KEY_ALIAS = "berry_fcm_adb_identity_v2";
     private static AdbConnectionManager instance;
     private final PrivateKey privateKey;
     private final Certificate certificate;
+    private String activeTransport = "";
+    private String staticHost = "";
+    private int staticPort;
 
     static synchronized AdbConnectionManager get(Context context) throws Exception {
         if (instance == null) instance = new AdbConnectionManager(context.getApplicationContext());
@@ -31,15 +37,19 @@ final class AdbConnectionManager extends AbsAdbConnectionManager {
 
     private AdbConnectionManager(Context context) throws Exception {
         setApi(Build.VERSION.SDK_INT);
+        setTimeout(10, TimeUnit.SECONDS);
         KeyStore store = KeyStore.getInstance("AndroidKeyStore");
         store.load(null);
         if (!store.containsAlias(KEY_ALIAS)) {
-            KeyPairGenerator generator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_RSA, "AndroidKeyStore");
+            KeyPairGenerator generator =
+                    KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_RSA, "AndroidKeyStore");
             KeyGenParameterSpec spec = new KeyGenParameterSpec.Builder(KEY_ALIAS,
                     KeyProperties.PURPOSE_SIGN | KeyProperties.PURPOSE_VERIFY)
                     .setKeySize(2048)
-                    .setDigests(KeyProperties.DIGEST_SHA1, KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA512)
-                    .setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1)
+                    .setDigests(KeyProperties.DIGEST_SHA1, KeyProperties.DIGEST_SHA256,
+                            KeyProperties.DIGEST_SHA384, KeyProperties.DIGEST_SHA512)
+                    .setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1,
+                            KeyProperties.SIGNATURE_PADDING_RSA_PSS)
                     .build();
             generator.initialize(spec);
             generator.generateKeyPair();
@@ -47,27 +57,37 @@ final class AdbConnectionManager extends AbsAdbConnectionManager {
         privateKey = (PrivateKey) store.getKey(KEY_ALIAS, null);
         certificate = store.getCertificate(KEY_ALIAS);
         if (privateKey == null || certificate == null)
-            throw new IllegalStateException("无法创建 ADB AndroidKeyStore 身份");
+            throw new IllegalStateException("无法创建 AndroidKeyStore ADB 身份");
     }
 
     @NonNull @Override protected PrivateKey getPrivateKey() { return privateKey; }
     @NonNull @Override protected Certificate getCertificate() { return certificate; }
-    @NonNull @Override protected String getDeviceName() { return "BerryFCM-Guardian"; }
+    @NonNull @Override protected String getDeviceName() { return "BerryFCM"; }
 
     synchronized boolean pairLocal(int pairingPort, String code) throws Exception {
         disconnectSession();
-        // The pairing port is discovered via mDNS from this same device.
         return pair("127.0.0.1", pairingPort, code);
     }
 
     synchronized boolean autoConnectLocal(Context context) throws Exception {
+        if ("wireless".equals(activeTransport) && isConnected()) return true;
         disconnectSession();
-        return autoConnect(context.getApplicationContext(), 8000);
+        boolean connected = connectTls(context.getApplicationContext(), 8000);
+        if (connected) activeTransport = "wireless";
+        return connected;
     }
 
     synchronized boolean connectStatic(String host, int port) throws Exception {
+        if ("static".equals(activeTransport) && port == staticPort
+                && host.equals(staticHost) && isConnected()) return true;
         disconnectSession();
-        return connect(host, port);
+        boolean connected = connect(host, port);
+        if (connected) {
+            activeTransport = "static";
+            staticHost = host;
+            staticPort = port;
+        }
+        return connected;
     }
 
     synchronized String shell(String command) throws Exception {
@@ -88,12 +108,12 @@ final class AdbConnectionManager extends AbsAdbConnectionManager {
     }
 
     synchronized void disconnectSession() {
+        activeTransport = "";
         try { disconnect(); } catch (Exception ignored) { }
     }
 
     @Override public synchronized void close() {
-        // AbsAdbConnectionManager.close() destroys the private key, which belongs
-        // to AndroidKeyStore. Preserve it; disconnect only the active session.
+        // Do not destroy the AndroidKeyStore private key.
         disconnectSession();
     }
 }

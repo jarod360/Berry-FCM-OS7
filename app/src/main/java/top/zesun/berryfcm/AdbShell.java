@@ -6,5 +6,6 @@ final class AdbShell implements PrivilegeShell {
     private final AdbConnectionManager adb;
     AdbShell(Context context) throws Exception { adb = AdbConnectionManager.get(context); }
     @Override public String execute(String command) throws Exception { return adb.shell(command); }
-    @Override public void close() { adb.disconnectSession(); }
+    // The ADB session belongs to the shared connection manager, not this shell wrapper.
+    @Override public void close() { }
 }

@@ -19,7 +19,7 @@
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:allowBackup="false"
-        android:label="BerryFCM Guardian"
+        android:label="BerryFCM"
         android:theme="@style/AppTheme"
         android:supportsRtl="true">
         <activity android:name=".UpdateActivity" android:exported="false" />

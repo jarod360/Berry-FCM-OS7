@@ -5,3 +5,5 @@ Berry-FCM-OS7 includes or references the following third-party components:
 - FCM Socket 443 matching design was informed by the public FCMFix ColorOS project (https://github.com/ByteJuno/fcmfix-coloros, MIT); no LSPosed hook source is copied into this project.
 
 The original Berry-FCM KernelSU module LICENSE is retained in the module package.
+
+- Google Material Icons (https://github.com/google/material-design-icons), Apache-2.0. Selected SVG paths are converted to Android VectorDrawable resources for in-app module/navigation icons. The BerryFCM adaptive launcher icon is original to this repository.

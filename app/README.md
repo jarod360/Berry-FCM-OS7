@@ -2,7 +2,7 @@
 
 统一目标与验收：[PRODUCT_PLAN.md](../docs/PRODUCT_PLAN.md) · 当前交接：[HANDOFF.md](../docs/HANDOFF.md) · [签名约定](../docs/SIGNING.md)
 
-普通 Android APK，包名 **top.zesun.berryfcm**。以 Root 或用户主动配对的 ADB Shell 读取 GMS FCM Socket，维护应用 stopped 状态，并使用原生 Android 前台服务与用户设置提高后台运行可靠性。不是第三方无障碍服务管理器。
+普通 Android APK，桌面名称 **BerryFCM**，包名 **top.zesun.berryfcm**。以 Root 或用户主动配对的 ADB Shell 读取 GMS FCM Socket，维护应用 stopped 状态，并使用原生 Android 前台服务与用户设置提高后台运行可靠性。不是第三方无障碍服务管理器。
 
 ## 导航模块
 
@@ -56,3 +56,7 @@
 ## 启动器图标
 
 新版以 `res/mipmap-anydpi-v26/ic_launcher.xml` 自适应图标为主：纯蓝背景，白色信号弧线+圆点，不使用渐变或复杂装饰；支持圆形遮罩和 Android 13+ 单色主题图标。新图标需重新云编译，手机桌面缓存可能在安装更新后短时显示旧图标。
+
+## 旧测试版在线升级路径
+
+当前 alpha.36 的旧更新器只搜索 `BerryFCM-Guardian-v...` 格式资产。为了保证初次过渡，新签名 Release 工作流保留**同包双文件名**的 Release 资产：旧更新器读取旧名，新更新器优先使用新 `BerryFCM-v...`。同一个 APK、同一个证书、递增 versionCode、同一个包名，无需卸载重装。前提：必须有实际发布的 GitHub Release；普通 Actions Artifact 不会显示为可更新版本。安装需用户确认系统安装器，无法静默升级。

@@ -32,6 +32,12 @@ public final class MonitorActivity extends Ui {
         enabled.setChecked(prefs.monitorEnabled());
         control.addView(enabled);
         enabled.setOnCheckedChangeListener((b, value) -> {
+            if (value && !prefs.shellRecentlyVerified()) {
+                enabled.setChecked(false);
+                error("请先进入授权中心验证 Root / ADB Shell");
+                go(AuthActivity.class);
+                return;
+            }
             prefs.monitorEnabled(value);
             if (value) FcmMonitorService.start(this);
             else if (!prefs.guardEnabled()) FcmMonitorService.stop(this);
@@ -68,7 +74,9 @@ public final class MonitorActivity extends Ui {
         long age = sample == 0 ? -1 : System.currentTimeMillis() / 1000 - sample;
         String lastError = FcmMonitorService.lastError(this);
         String state = j.optString("fcm_state", "never_seen");
-        if (age < 0 || age > 90 || !lastError.isEmpty()) state = "unknown（采样过期或出错）";
+        if (!prefs.shellRecentlyVerified()) state = "unknown（当前 Root / ADB Shell 未验证）";
+        else if (age < 0 || age > 90 || !lastError.isEmpty())
+            state = "unknown（采样过期或出错）";
         current.setText("观测状态：" + state
                 + "\n采样时间：" + time(sample) + (age < 0 ? "" : "（" + age + " 秒前）")
                 + "\nSocket 证据：" + j.optString("fcm_transport", "无")

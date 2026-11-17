@@ -35,6 +35,7 @@ public final class UpdateActivity extends Ui {
     private static final String CERT_SHA256 = "BB328497280F72FE6662E84D7D0D0B15BAF425872B9B360287ED120529D97615";
     private static final Pattern NUMBER = Pattern.compile("alpha[.-]([0-9]+)\\.apk$");
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private boolean checkedOnOpen;
     private TextView details, notes;
     private Button download, install;
     private String apkUrl, apkName, digest;
@@ -102,10 +103,13 @@ public final class UpdateActivity extends Ui {
                         JSONObject a = assets.getJSONObject(j);
                         String name = a.optString("name", "");
                         Matcher matcher = NUMBER.matcher(name);
-                        if (!name.startsWith("BerryFCM-Guardian-") || !matcher.find()) continue;
+                        boolean compatible = name.startsWith("BerryFCM-Guardian-v")
+                                || name.startsWith("BerryFCM-v");
+                        if (!compatible || !matcher.find()) continue;
                         int n = Integer.parseInt(matcher.group(1));
                         String url = a.optString("browser_download_url", "");
-                        if (n > best && url.startsWith(REPO + "/releases/download/")) {
+                        if ((n > best || (n == best && name.startsWith("BerryFCM-v")))
+                                && url.startsWith(REPO + "/releases/download/")) {
                             best = n;
                             asset = a;
                             release = item;
@@ -235,6 +239,13 @@ public final class UpdateActivity extends Ui {
         StringBuilder s = new StringBuilder();
         for (byte b : data) s.append(String.format(Locale.ROOT, "%02X", b & 255));
         return s.toString();
+    }
+    @Override protected void onResume() {
+        super.onResume();
+        if (!checkedOnOpen) {
+            checkedOnOpen = true;
+            checkRelease();
+        }
     }
     @Override protected void onDestroy() { worker.shutdownNow(); super.onDestroy(); }
 }

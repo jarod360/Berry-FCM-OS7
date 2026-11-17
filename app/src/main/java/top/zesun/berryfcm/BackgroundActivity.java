@@ -64,7 +64,17 @@ public final class BackgroundActivity extends Ui {
         check.setTextColor(ink);
         check.setChecked(checked);
         box.addView(check);
-        check.setOnCheckedChangeListener((b, value) -> change.apply(value));
+        check.setOnCheckedChangeListener((b, value) -> {
+            boolean privileged = label.contains("FCM 持续监控")
+                    || label.contains("守护所选应用");
+            if (privileged && value && !prefs.shellRecentlyVerified()) {
+                check.setChecked(false);
+                error("请先进入授权中心验证 Root / ADB Shell");
+                go(AuthActivity.class);
+                return;
+            }
+            change.apply(value);
+        });
     }
     private void syncService() {
         if (prefs.monitorEnabled() || prefs.guardEnabled()) FcmMonitorService.start(this);

@@ -39,7 +39,7 @@ public final class SettingsActivity extends Ui {
         line(quick, "自动恢复", "恢复的是 FCM 后台监控和选中的应用守护，不管理其他软件的无障碍服务。", null);
 
         LinearLayout about = card("项目与升级", "正式更新来源是此项目 GitHub Releases。Actions Artifact 不等于 Release。");
-        button(about, "检查 GitHub Release 在线更新", () -> go(UpdateActivity.class), true);
+        button(about, "检查在线更新", () -> go(UpdateActivity.class), true);
         button(about, "查看项目主页", () -> openUrl("https://github.com/jarod360/Berry-FCM-OS7"), false);
         button(about, "查看问题反馈 / Issues", () -> openUrl("https://github.com/jarod360/Berry-FCM-OS7/issues"), false);
         String version = "未知";

@@ -100,3 +100,14 @@
 - 可能的 ADB 共享连接互相干扰、输出上限，**未实机复现，不为理论风险增加新会话层**；列入后续实机检查。
 
 **状态：已通过 [APK Actions #44143876578](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44143876578)：守护名单回归测试、Gradle Debug/Release、固定签名、apksigner 及上传全部成功，产物 `BerryFCM-Guardian-v0.1.0-alpha.36`。** 这不是手机实机验收。下一步继续确认新 UI 和 OriginOS ADB 通知栏配对，不要求用户测试旧版。
+
+
+## 9. 2026-11-18 后续版本：OriginOS 真实报错、UI 与升级兼容
+
+- 用户新截图：原无线配对报 `Read error: ssl=... RSA routines:OPENSSL_internal:internal error`；首页授权状态和 FCM 展示顺序错误，授权页纵向展示四种模式的全部表单且验证按钮在配对之前。
+- 修复基于源码的高概率 TLSv1.3/RSA-PSS 不兼容：新 AndroidKeyStore RSA 身份 `berry_fcm_adb_identity_v2` 同时允许 PKCS1、PSS；保留旧 alias；**新身份需要重新进行系统无线配对**。暂未实机验证不宣称修复成功。
+- UI：授权卡先行、Shell 状态新鲜度/错误、无权限时历史数据不误报；授权方式横向单选、只显示所选操作，USB 为说明非 Shell 模式；自动配对后通过 `id` 验证 uid；重要功能按钮无授权时引导授权。底部导航和功能行引入 Google Material Icons（Apache-2.0）；启动器由 Wi-Fi 弧线换成 FCM 消息通知图形。
+- 确认了库与监控共用 ADB 会话的冲突：Shell wrapper 不再擅自断开共享会话，静态/无线会话明确区分；服务真正执行 Shell 后更新验证时间。
+- 应用显示名及新 APK 文件名为 `BerryFCM`，包名 `top.zesun.berryfcm` 和固定证书保持不变。为使旧 alpha.36 内置更新器仍能在线检测，**首个新 GitHub prerelease 必须同时上传旧名称兼容 APK 资产和新短名称 APK 资产**（二者相同签名内容）；本轮 Actions 工作流已做准备。旧版更新器只识别旧名称是有源码证据的限制。
+- **发布约束**：普通 push 产生 Actions Artifact；不会自动成为 Release。必须在 CI 完成且得到真实设备准入后手动发起 `publish_release=true` 的 workflow_dispatch。用户现在没有 Release 可供在线更新；首版正式发布前仍需从 Actions 手动安装一次或通过首次发布的旧名称资产更新。
+- 本轮只通过 GitHub 修改仓库与 Actions 验证，不改用户电脑 C 盘。APK 真机 TLS、OriginOS mDNS、通知栏行为、锁屏后台、旧版覆盖安装尚待逐项核实。

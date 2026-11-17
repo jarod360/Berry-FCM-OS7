@@ -45,6 +45,12 @@ public final class GuardActivity extends Ui {
         running.setChecked(prefs.guardEnabled());
         actions.addView(running);
         running.setOnCheckedChangeListener((view, value) -> {
+            if (value && !prefs.shellRecentlyVerified()) {
+                running.setChecked(false);
+                error("请先进入授权中心验证 Root / ADB Shell");
+                go(AuthActivity.class);
+                return;
+            }
             prefs.guardEnabled(value);
             if (value) FcmMonitorService.start(this);
             else if (!prefs.monitorEnabled()) FcmMonitorService.stop(this);

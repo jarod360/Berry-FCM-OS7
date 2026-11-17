@@ -7,11 +7,13 @@ import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowInsets;
 import android.widget.Button;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -91,14 +93,43 @@ abstract class Ui extends Activity {
 
     protected void title(String title, String description) {
         header.removeAllViews();
-        header.addView(text(title, 24, true, ink));
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView icon = symbol(symbolFor(title), accent, 27);
+        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(dp(27), dp(27));
+        iconParams.rightMargin = dp(11);
+        row.addView(icon, iconParams);
+        LinearLayout words = new LinearLayout(this);
+        words.setOrientation(LinearLayout.VERTICAL);
+        words.addView(text(title, 23, true, ink));
         if (description != null && !description.isEmpty()) {
-            TextView sub = text(description, 12, false, muted);
-            sub.setPadding(0, dp(6), 0, 0);
-            header.addView(sub);
+            TextView caption = text(description, 12, false, muted);
+            caption.setPadding(0, dp(5), 0, 0);
+            words.addView(caption);
         }
+        row.addView(words);
+        header.addView(row);
     }
 
+    private int symbolFor(String label) {
+        if (label.contains("诊断")) return R.drawable.ic_bf_diagnostics;
+        if (label.contains("更新") || label.contains("升级")) return R.drawable.ic_bf_update;
+        if (label.contains("授权") || label.contains("配对")) return R.drawable.ic_bf_auth;
+        if (label.contains("保活") || label.contains("电池") || label.contains("后台")) return R.drawable.ic_bf_battery;
+        if (label.contains("守护")) return R.drawable.ic_bf_guard;
+        if (label.contains("设置") || label.contains("主题")) return R.drawable.ic_bf_settings;
+        if (label.contains("FCM") || label.contains("监控") || label.contains("连接")) return R.drawable.ic_bf_fcm;
+        if (label.contains("概览") || label.contains("首页")) return R.drawable.ic_bf_home;
+        return R.drawable.ic_bf_fcm;
+    }
+    private ImageView symbol(int drawable, int tint, int size) {
+        ImageView image = new ImageView(this);
+        image.setImageResource(drawable);
+        image.setImageTintList(ColorStateList.valueOf(tint));
+        image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        image.setContentDescription(null);
+        return image;
+    }
     protected TextView text(String value, int size, boolean bold, int color) {
         TextView t = new TextView(this);
         t.setText(value);
@@ -135,25 +166,50 @@ abstract class Ui extends Activity {
         b.setText(title);
         b.setTextSize(14);
         b.setTextColor(primary ? Color.WHITE : ink);
-        b.setBackgroundTintList(ColorStateList.valueOf(primary ? 0xff365ed6 : (dark ? 0xff2c3b58 : 0xffe9eef8)));
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(46));
-        p.topMargin = dp(8);
-        box.addView(b, p);
+        GradientDrawable shape = new GradientDrawable();
+        shape.setColor(primary ? accent : (dark ? 0xff2c3b58 : 0xffe9eef8));
+        shape.setCornerRadius(dp(12));
+        b.setBackground(new RippleDrawable(ColorStateList.valueOf(dark ? 0x55ffffff : 0x22000000),
+                shape, null));
+        b.setStateListAnimator(null);
+        b.setElevation(0);
+        b.setMinimumHeight(0);
+        b.setMinHeight(0);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(48));
+        params.topMargin = dp(8);
+        box.addView(b, params);
         b.setOnClickListener(v -> action.run());
         return b;
     }
     protected void line(LinearLayout box, String label, String detail, Runnable action) {
         LinearLayout entry = new LinearLayout(this);
-        entry.setOrientation(LinearLayout.VERTICAL);
-        entry.setPadding(0, dp(10), 0, dp(10));
-        entry.addView(text(label + (action == null ? "" : "  ›"), 15, true, ink));
+        entry.setGravity(Gravity.CENTER_VERTICAL);
+        entry.setOrientation(LinearLayout.HORIZONTAL);
+        entry.setPadding(dp(2), dp(11), dp(2), dp(11));
+        ImageView icon = symbol(symbolFor(label), accent, 22);
+        LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(dp(22), dp(22));
+        ip.rightMargin = dp(12);
+        entry.addView(icon, ip);
+        LinearLayout words = new LinearLayout(this);
+        words.setOrientation(LinearLayout.VERTICAL);
+        words.addView(text(label, 14, true, ink));
         if (detail != null && !detail.isEmpty()) {
-            TextView d = text(detail, 12, false, muted);
-            d.setPadding(0, dp(3), 0, 0);
-            entry.addView(d);
+            TextView note = text(detail, 12, false, muted);
+            note.setPadding(0, dp(3), 0, 0);
+            words.addView(note);
+        }
+        entry.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
+        if (action != null) {
+            TextView arrow = text("›", 21, false, muted);
+            arrow.setPadding(dp(8), 0, 0, 0);
+            entry.addView(arrow);
         }
         box.addView(entry);
-        if (action != null) entry.setOnClickListener(v -> action.run());
+        if (action != null) {
+            entry.setBackground(new RippleDrawable(
+                    ColorStateList.valueOf(dark ? 0x44ffffff : 0x15000000), null, null));
+            entry.setOnClickListener(v -> action.run());
+        }
     }
     protected int dp(int px) { return (int) (px * getResources().getDisplayMetrics().density + .5f); }
     protected void go(Class<? extends Activity> page) { startActivity(new Intent(this, page)); }
@@ -163,14 +219,22 @@ abstract class Ui extends Activity {
         Class<?>[] pages = {MainActivity.class, MonitorActivity.class, GuardActivity.class,
                 BackgroundActivity.class, SettingsActivity.class};
         String[] names = {"概览", "FCM", "守护", "保活", "设置"};
+        int[] icons = {R.drawable.ic_bf_home, R.drawable.ic_bf_fcm,
+                R.drawable.ic_bf_guard, R.drawable.ic_bf_battery, R.drawable.ic_bf_settings};
         for (int i = 0; i < pages.length; i++) {
             Class<?> target = pages[i];
-            TextView tab = text(names[i], 12, target.isInstance(this), muted);
-            if (target.isInstance(this)) tab.setTextColor(accent);
-            tab.setGravity(Gravity.CENTER);
-            tab.setPadding(dp(2), dp(9), dp(2), dp(9));
-            nav.addView(tab, new LinearLayout.LayoutParams(0, dp(44), 1));
-            tab.setOnClickListener(v -> {
+            boolean selected = target.isInstance(this);
+            LinearLayout item = new LinearLayout(this);
+            item.setOrientation(LinearLayout.VERTICAL);
+            item.setGravity(Gravity.CENTER);
+            ImageView image = symbol(icons[i], selected ? accent : muted, 22);
+            item.addView(image, new LinearLayout.LayoutParams(dp(21), dp(21)));
+            TextView label = text(names[i], 11, selected, selected ? accent : muted);
+            label.setGravity(Gravity.CENTER);
+            label.setPadding(0, dp(4), 0, 0);
+            item.addView(label);
+            nav.addView(item, new LinearLayout.LayoutParams(0, dp(56), 1));
+            item.setOnClickListener(v -> {
                 if (!target.isInstance(this)) {
                     Intent intent = new Intent(this, target.asSubclass(Activity.class));
                     intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
@@ -179,4 +243,5 @@ abstract class Ui extends Activity {
             });
         }
     }
+
 }

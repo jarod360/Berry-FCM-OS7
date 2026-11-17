@@ -123,6 +123,7 @@ public final class FcmMonitorService extends Service {
                     installScript(p, mode);
                     installedMode = mode;
                     installed = true;
+                    adbConnected = false;
                 }
                 String prefix = monitorPrefix(mode);
                 String result = execute(p, mode, prefix + "monitor >/dev/null 2>&1 || exit 9; "
@@ -217,16 +218,23 @@ public final class FcmMonitorService extends Service {
         if (AppPrefs.ROOT.equals(mode)) {
             File output = File.createTempFile("berryfcm-", ".txt", getCacheDir());
             try {
-                Process process = new ProcessBuilder("su", "-c", command)
+                Process process = new ProcessBuilder("su", "-c", "id -u; " + command)
                         .redirectErrorStream(true).redirectOutput(output).start();
                 if (!process.waitFor(25, TimeUnit.SECONDS)) {
                     process.destroyForcibly();
                     throw new IllegalStateException("Root Shell 25 秒超时");
                 }
-                String text = new String(Files.readAllBytes(output.toPath()), StandardCharsets.UTF_8);
+                String raw = new String(Files.readAllBytes(output.toPath()), StandardCharsets.UTF_8);
+                int firstLine = raw.indexOf('\n');
+                if (firstLine < 0 || !"0".equals(raw.substring(0, firstLine).trim())) {
+                    prefs.shellFailed("Root UID 验证失败");
+                    throw new IllegalStateException("未取得 Root Shell，请在 KernelSU/Magisk 中授权");
+                }
+                String text = raw.substring(firstLine + 1);
                 if (process.exitValue() != 0)
                     throw new IllegalStateException("Root Shell 失败（退出码 "
                             + process.exitValue() + "）：" + text.trim());
+                prefs.shellVerified("uid=0(root)");
                 return text;
             } finally { output.delete(); }
         }
@@ -237,13 +245,26 @@ public final class FcmMonitorService extends Service {
             boolean ok = AppPrefs.WIRELESS.equals(mode)
                     ? adb.autoConnectLocal(this)
                     : adb.connectStatic(prefs.host(), prefs.staticPort());
-            if (!ok) throw new IllegalStateException("ADB Shell 不可用；请开启无线调试并检查配对");
+            if (!ok) {
+                prefs.shellFailed("ADB Shell 未连接；请在授权中心检查配对");
+                throw new IllegalStateException("ADB Shell 不可用；请开启无线调试并检查配对");
+            }
+            String identity = adb.shell("id").trim();
+            if (!identity.contains("uid=2000")) {
+                prefs.shellFailed("ADB Shell 身份异常：" + identity);
+                throw new IllegalStateException("ADB Shell 身份验证失败");
+            }
+            prefs.shellVerified(identity);
             adbConnected = true;
         }
-        try { return adb.shell(command); }
-        catch (Exception error) {
+        try {
+            String result = adb.shell(command);
+            if (prefs.shellRecentlyVerified()) prefs.shellVerified(prefs.shellIdentity());
+            return result;
+        } catch (Exception error) {
             adbConnected = false;
             adb.disconnectSession();
+            prefs.shellFailed(error.getMessage());
             throw error;
         }
     }

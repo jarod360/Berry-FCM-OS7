@@ -1,4 +1,4 @@
-# Berry-FCM-OS7 · BerryFCM Guardian
+# Berry-FCM-OS7 · BerryFCM
 
 面向 Android / OriginOS 的 **FCM 连接观察、受控重连、应用 stopped 状态守护与后台设置诊断**。同一个 GitHub 仓库维护 **APK** 和 **KernelSU** 两个独立交付物：优先完善 APK，实机稳定后将通用改进回移 KernelSU。
 
@@ -39,3 +39,9 @@ Android API 优先，Root/ADB Shell 只做确有权限需求的功能。无法�
 ## 开源参考
 
 [Shizuku](https://github.com/RikkaApps/Shizuku)（通知栏无线 ADB 配对）、[GKD](https://github.com/gkd-kit/gkd)（模块导航/后台服务经验）、[FCMFix ColorOS](https://github.com/ByteJuno/fcmfix-coloros)（mtalk Socket 识别边界）、[vivo-guardian](https://github.com/Lokside/vivo-guardian)（OriginOS 后台限制）、[libadb-android](https://github.com/MuntashirAkon/libadb-android)（ADB 客户端）。借鉴适用实现，不直接照搬界面。
+
+## 新版外观与在线更新兼容
+
+APP 桌面名称及新版安装包文件名已缩短为 **BerryFCM**。底部导航与各功能模块使用 Apache-2.0 的 [Google Material Icons](https://github.com/google/material-design-icons) 矢量图标，启动器是原创的 FCM 消息通知图形，不再使用 Wi-Fi 弧线。
+
+旧 alpha.36 的在线更新检查器只认 `BerryFCM-Guardian-v...`，因此**首个新正式 prerelease 会同时附上旧名字兼容文件和 `BerryFCM-v...` 短名字文件，两份 APK 内容与固定签名相同**；新版本更新器兼容两者并优先使用新名字。GitHub Actions 普通构建仅提供测试 Artifact；未人工发布 GitHub Release 前，现有 APP 无法发现更新。

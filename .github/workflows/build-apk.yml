@@ -153,14 +153,16 @@ jobs:
           APK=app/build/outputs/apk/release/app-release.apk
           test -s "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK"
+          cp "$APK" "dist/BerryFCM-v0.1.0-alpha.${BUILD_NUMBER}.apk"
+          # Legacy alias is necessary for alpha.36 updater compatibility.
           cp "$APK" "dist/BerryFCM-Guardian-v0.1.0-alpha.${BUILD_NUMBER}.apk"
 
       - name: Upload stable-signed APK
         if: steps.signing.outputs.available == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: BerryFCM-Guardian-v0.1.0-alpha.${{ github.run_number }}
-          path: dist/BerryFCM-Guardian-v0.1.0-alpha.${{ github.run_number }}.apk
+          name: BerryFCM-v0.1.0-alpha.${{ github.run_number }}
+          path: dist/BerryFCM-v0.1.0-alpha.${{ github.run_number }}.apk
           if-no-files-found: error
           retention-days: 90
 
@@ -185,14 +187,14 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: BerryFCM-Guardian-v0.1.0-alpha.${{ github.run_number }}
+          name: BerryFCM-v0.1.0-alpha.${{ github.run_number }}
           path: release
       - name: Confirm signed APK artifact is present
         env:
           BUILD_NUMBER: ${{ github.run_number }}
         run: |
           set -Eeuo pipefail
-          apk="release/BerryFCM-Guardian-v0.1.0-alpha.${BUILD_NUMBER}.apk"
+          apk="release/BerryFCM-v0.1.0-alpha.${BUILD_NUMBER}.apk"
           test -s "$apk"
       - name: Create GitHub prerelease
         env:
@@ -203,7 +205,9 @@ jobs:
         run: |
           set -Eeuo pipefail
           tag="v0.1.0-alpha.${BUILD_NUMBER}"
-          apk="release/BerryFCM-Guardian-v0.1.0-alpha.${BUILD_NUMBER}.apk"
-          gh release create "$tag" "$apk" --target "$TARGET_SHA" --prerelease \
+          apk="release/BerryFCM-v0.1.0-alpha.${BUILD_NUMBER}.apk"
+          legacy="release/BerryFCM-Guardian-v0.1.0-alpha.${BUILD_NUMBER}.apk"
+          cp "$apk" "$legacy"
+          gh release create "$tag" "$apk" "$legacy" --target "$TARGET_SHA" --prerelease \
             --title "BerryFCM Guardian ${tag}" \
             --notes "BerryFCM fixed-signature prerelease. See docs/HANDOFF.md and docs/PRODUCT_PLAN.md for features, limits, and device validation."

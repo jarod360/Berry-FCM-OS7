@@ -65,13 +65,11 @@ public final class AdbPairingService extends Service {
             String code = value == null ? "" : value.toString().trim();
             // If mDNS is blocked by the ROM, permit "37123:123456" entirely
             // inside the notification, without switching back from Developer Options.
-            if (selectedPort <= 0) {
-                java.util.regex.Matcher fallback = java.util.regex.Pattern.compile(
-                        "^([0-9]{2,5})[ :#/]([0-9]{6})$").matcher(code);
-                if (fallback.matches()) {
-                    selectedPort = Integer.parseInt(fallback.group(1));
-                    code = fallback.group(2);
-                }
+            java.util.regex.Matcher fallback = java.util.regex.Pattern.compile(
+                    "^([0-9]{2,5})[ :#/]([0-9]{6})$").matcher(code);
+            if (fallback.matches()) {
+                selectedPort = Integer.parseInt(fallback.group(1));
+                code = fallback.group(2);
             }
             if (!code.matches("[0-9]{6}") || selectedPort <= 0 || selectedPort > 65535) {
                 publish("请输入六位码；若未发现端口，请输入“端口:六位码”", true, selectedPort);
@@ -158,14 +156,27 @@ public final class AdbPairingService extends Service {
             String state;
             try {
                 boolean connected = adb.autoConnectLocal(this);
-                state = connected ? "配对成功，ADB Shell 已连接"
-                        : "配对成功，但 ADB Shell 未连接：确认无线调试仍开启";
+                if (connected) {
+                    String identity = adb.shell("id").trim();
+                    if (!identity.contains("uid=2000"))
+                        throw new IllegalStateException("ADB 身份不是 Shell：" + identity);
+                    new AppPrefs(this).shellVerified(identity);
+                    state = "配对成功，ADB Shell 已验证";
+                } else {
+                    new AppPrefs(this).shellFailed("ADB 配对已完成，Shell 尚未连接");
+                    state = "配对成功，但 Shell 未连接；请确认无线调试仍开启";
+                }
             } catch (Exception exception) {
-                state = "配对成功；连接待验证：" + exception.getMessage();
+                new AppPrefs(this).shellFailed(exception.getMessage());
+                state = "配对成功，但 Shell 验证失败：" + exception.getMessage();
             }
             complete(state);
         } catch (Exception error) {
-            complete("配对失败：" + error.getMessage());
+            String message = String.valueOf(error.getMessage());
+            new AppPrefs(this).shellFailed(message);
+            if (message.contains("RSA routines") || message.contains("SSL library")) {
+                complete("配对失败：TLS 身份握手异常。请核对配对端口，使用新版 RSA-PSS 身份重新配对");
+            } else complete("配对失败：" + message);
         }
     }
 

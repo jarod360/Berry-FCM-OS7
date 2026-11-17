@@ -17,7 +17,11 @@ final class AppPrefs {
         p = context.getSharedPreferences("berry_fcm_guardian", Context.MODE_PRIVATE);
     }
     String mode() { return p.getString("mode", WIRELESS); }
-    void mode(String value) { p.edit().putString("mode", value).apply(); }
+    void mode(String value) {
+        if (!value.equals(mode())) {
+            p.edit().putString("mode", value).putLong("shell_verified_at", 0).apply();
+        }
+    }
     String host() { return p.getString("host", "127.0.0.1"); }
     void host(String value) { p.edit().putString("host", value).apply(); }
     int pairPort() { return p.getInt("pair_port", 0); }
@@ -45,6 +49,23 @@ final class AppPrefs {
     }
     void guardTargets(Set<String> targets) {
         p.edit().putStringSet("guard_targets", new HashSet<>(targets)).apply();
+    }
+    long shellVerifiedAt() { return p.getLong("shell_verified_at", 0); }
+    String shellMode() { return p.getString("shell_mode", ""); }
+    String shellIdentity() { return p.getString("shell_identity", ""); }
+    String shellError() { return p.getString("shell_error", ""); }
+    boolean shellRecentlyVerified() {
+        long age = System.currentTimeMillis() - shellVerifiedAt();
+        return mode().equals(shellMode()) && age >= 0 && age < 120000;
+    }
+    void shellVerified(String identity) {
+        p.edit().putLong("shell_verified_at", System.currentTimeMillis())
+                .putString("shell_mode", mode()).putString("shell_identity", identity)
+                .remove("shell_error").apply();
+    }
+    void shellFailed(String message) {
+        p.edit().putLong("shell_verified_at", 0).putString("shell_mode", mode())
+                .putString("shell_error", message == null ? "Shell 连接失败" : message).apply();
     }
     String pairingStatus() { return p.getString("pairing_status", "尚未配对"); }
     void pairingStatus(String value) { p.edit().putString("pairing_status", value).apply(); }
