@@ -1,43 +1,52 @@
-# BerryFCM Guardian APK — 当前技术基线
+# BerryFCM Guardian · Android APK
 
-**最新产品规划与权限分工**：[../docs/PRODUCT_PLAN.md](../docs/PRODUCT_PLAN.md)  
-**实时交接与已验证构建**：[../docs/HANDOFF.md](../docs/HANDOFF.md)
+统一目标与验收：[PRODUCT_PLAN.md](../docs/PRODUCT_PLAN.md) · 当前交接：[HANDOFF.md](../docs/HANDOFF.md) · [签名约定](../docs/SIGNING.md)
 
-## 目前实际已有的代码
+普通 Android APK，包名 **top.zesun.berryfcm**。以 Root 或用户主动配对的 ADB Shell 读取 GMS FCM Socket，维护应用 stopped 状态，并使用原生 Android 前台服务与用户设置提高后台运行可靠性。不是第三方无障碍服务管理器。
 
-- Android 应用包名 `top.zesun.berryfcm`，`minSdk=26`，`targetSdk=35`，Gradle JDK 17；`app/build.gradle` 使用稳定签名配置。
-- `AdbConnectionManager.java` 利用 [libadb-android](https://github.com/MuntashirAkon/libadb-android) 和 AndroidKeyStore 保存配对身份，支持用户显式配对、mDNS 连接与静态 TCP 连接；`RootShell.java` 是单独的 Root 通道。
-- `FcmMonitorService.java` 使用 Android 前台服务调度后台 Shell；`assets/fcm-monitor.sh` 复用 KSU FCM Socket 状态机并记录连接时间线；`BootReceiver.java` 尝试在系统允许时恢复服务。
-- `MonitorActivity.java` 现已具有初步连接时间线、前台服务开关、后台优化与系统设置跳转，但布局及流程尚未按最终方案重构。
-- `MainActivity.java` 中仍有早期的 **第三方无障碍服务管理**，`AccessibilityOps.java`、`RestoreService.java`、`RestoreTileService.java` 为旧功能基础。它们不等于 KSU 的守护应用 stopped 名单。最新范围已决定**删除第三方无障碍服务管理逻辑**，改为 FCM 应用守护。自动恢复与磁贴改做 FCM 相关操作；这是待实施的代码重构，不是已完成。
-- Android APK 当前 **尚没有** Shizuku 风格的通知栏输入 ADB 配对码、完整 OriginOS 独立设置页、最近任务隐藏切换、正式 GitHub Releases 应用内升级。不要把“已有设计”当成“已经实现”。
+## 导航模块
 
-## 授权与可靠性边界
+| 页面 | 核心操作 |
+| --- | --- |
+| 概览 \`MainActivity\` | 观测状态、采样年龄、已观测断联、授权按钮与各模块导航 |
+| 授权 \`AuthActivity\` | 无线 ADB mDNS 发现、Shizuku 风格通知栏 RemoteInput 六位码、Root、静态 TCP、Shell UID 验证 |
+| FCM \`MonitorActivity\` | 用户开启后台采样、Socket 证据/未知/过期、事件时间线、请求重连 |
+| 守护 \`GuardActivity\` | 应用扫描、搜索、多选/已选置顶、系统应用过滤、stopped 检测与修复、自动守护 |
+| 保活 \`BackgroundActivity\` | FGS/开机启动、DeviceIdle 与 AppOps、GMS Doze 与后台网络白名单、OriginOS 设置跳转、最近任务隐藏 |
+| 诊断 \`DiagnosticsActivity\` | Google 原生 FCM Diagnostics、mtalk 端口可达性、GMS 策略、监控历史分享 |
+| 设置 \`SettingsActivity\` | 浅色/深色/跟随系统、添加 FCM Quick Settings Tile、项目主页 |
+| 更新 \`UpdateActivity\` | GitHub Release 版本比较、APK 下载、包名/签名/版本验证、调用系统安装器 |
 
-- ADB Shell 授权需要首次配对（或电脑外部 ADB、Root）；`WRITE_SECURE_SETTINGS` 只是一种设置管理权限，**不等于永久 ADB Shell，更不等于直接具有读取 GMS Socket 的系统权限**。
-- 随用户关闭无线调试、进入网络受限状态或厂商杀进程，后台 Shell 可能不可用。监控必须将此记录为未知/采样空白，而不是误报断联。
-- Android FGS 不保证不可终止；系统可能要求通知，不能以“隐藏最近任务卡片”代替后台运行权限。
-- ADB 配对码、会话密钥和其它授权材料不进入日志或仓库。
+## 无线调试通知栏配对
 
-## 构建与发布
+1. 在首页点 **进入授权中心**，保持「无线 ADB」模式。
+2. 点 **开始通知栏配对（自动发现端口）**。系统如询问通知或附近设备权限，请允许。
+3. 打开手机开发者选项 → 无线调试 → 使用配对码配对设备。
+4. 停留在该系统页面，**下拉通知栏**，在 BerryFCM 通知中点输入六位配对码。
+5. 检查通知中的配对结果，回 APK「验证当前 Root / ADB Shell 能力」。mDNS 发现失败时可在授权页输入备用配对端口，仍在通知栏输入六位码。
 
-GitHub Actions [Build Android APK](https://github.com/jarod360/Berry-FCM-OS7/actions/workflows/build-apk.yml)：先 Debug 编译，再以固定 P12 签名 Release、验证证书和上传 APK Artifact。**最新已确认通过的构建**：[Run #44132037143](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44132037143)，产物 `BerryFCM-Guardian-v0.1.0-alpha.26`。用户不需要重新设置 Secrets。
+配对身份保存在 AndroidKeyStore，但配对码不保存。手机关闭无线调试、ROM 杀死 Shell 或重启后，**持久身份不代表当前 ADB Shell 有效**。APP 不能静默打开系统无线调试。
 
-正式 GitHub Release、应用内在线检查升级和 OriginOS 目标手机实机验收列在 [产品计划](../docs/PRODUCT_PLAN.md)，**尚未完成**。
+## 后台与权限边界
 
-## 2026-11-18 实机反馈与下一版阻断项
+- \`FcmMonitorService\`：独立于页面的前台服务，计划每 15 秒采样；\`BootReceiver\` 在系统许可且用户设置开启时恢复服务；\`FcmTileService\` 用 Android TileService 实现下拉检测/入口。**三者均不需要 AccessibilityService**。
+- Socket 证据仅说明 TCP 层观察；ADB Shell 未暴露 GMS UID、未知 DNS、脚本失败或采样过期时不报告已连接。几秒断联可能漏检。
+- \`GuardOps\` 仅针对用户选中的应用与 GMS 检测 stopped，并受控调用系统解停命令；不同 ROM 上 ADB Shell 可能无该权限，必须以实际回读为准。
+- Android 标准 Doze/AppOps 可使用授权 Shell 修改；GMS 白名单及计量网络的撤销只针对 BerryFCM 记录为自己添加的项目。
+- OriginOS 的自启/关联启动/允许后台高耗电/最近任务锁定提供系统页入口，缺少可靠私有接口时不可伪装为自动开关。隐藏最近任务卡片不是隐藏进程。
+- Android 11+ 通过 \`QUERY_ALL_PACKAGES\` 支持用户浏览/选择已安装应用。若以后上架 Google Play，需要再审查商店的包可见性政策；目前交付渠道为 GitHub Release。
+- 用户主动选择监测时，前台服务通知可降低干扰但不能保证永久隐藏或永久不被杀。
 
-1. 当前首页输入六位无线 ADB 配对码的方式不可用：必须改成独立授权页开启通知栏 RemoteInput，切到系统无线调试后在下拉通知直接输入。
-2. 主界面标题压住状态栏，须修复 Android/OriginOS 安全区域布局。
-3. 首页只保留授权入口按钮；FCM 监控、应用守护、后台保活、设置及关于各自成模块。
-4. 不管理任何第三方无障碍服务；旧 `WRITE_SECURE_SETTINGS` 用途需移除。应用守护扫描的是普通应用包名及 stopped 状态。
-5. 保留**FCM 监控/守护开机自动恢复**和**系统快捷设置磁贴**，都使用 Android 标准 API，不需要 AccessibilityService。磁贴由用户添加到下拉快捷栏。
-6. 先完成模块/配对/布局再发布测试 APK，不能要求用户继续测试当前不可操作的授权界面。
+## 旧功能移除
 
-## 新版模块化 APK（源码更新中，尚未实机验收）
+原 \`AccessibilityOps.java\`、\`RestoreService.java\`、\`RestoreTileService.java\` 与对应的第三方无障碍服务扫描/恢复、\`WRITE_SECURE_SETTINGS\` 用途已经删除。**不要把“应用停止状态守护”和“他人无障碍服务管理”混淆。** 原配置没有自动映射为新的应用守护名单，避免误启用不相干权限。
 
-从旧的无障碍服务管理长页面迁移为八模块导航：`MainActivity` 首页概览、`AuthActivity` ADB/Root 授权、`MonitorActivity` FCM 状态、`GuardActivity` 应用守护、`BackgroundActivity` 电池与厂商后台设置、`DiagnosticsActivity` 诊断、`SettingsActivity` 外观/磁贴、`UpdateActivity` GitHub Release 检查与签名升级。
+## 构建、签名与更新
 
-通知栏配对使用 `AdbPairingService` 的 Android mDNS `_adb-tls-pairing._tcp.` 和 RemoteInput；用户可以停留在系统无线调试页下拉通知输入配对码。UI 使用 WindowInsets 修正状态栏重叠。
+- GitHub Actions [Build Android APK](https://github.com/jarod360/Berry-FCM-OS7/actions/workflows/build-apk.yml) 执行 Shell 状态机模拟测试、APK 模块结构检查、Debug 编译、固定证书 Release 签名、apksigner 验签和 Artifact 上传。
+- 已经验证过的模块化 APK 构建：[Run #44139303543](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44139303543)（alpha.30）；**后续代码变更必须重新跑 CI 才能称为已验证**。
+- \`workflow_dispatch.publish_release\` 默认关闭；普通 push 只上传测试 Artifact，等设备功能验收后由用户显式发起受控 GitHub prerelease。更新页面只检查正式 Release。
+- 正式签名证书 SHA-256：\`BB328497280F72FE6662E84D7D0D0B15BAF425872B9B360287ED120529D97615\`。不重新生成密钥、不在仓库记录 P12/密码，不再让用户填写已成功使用的四项 Secrets。
+- 同包名、同签名、\`versionCode\` 递增才允许覆盖安装。APK 首次安装、ADB 配对、后台过夜及 GitHub 覆盖升级仍需要目标 OriginOS 实机测试。
 
-**首轮模块化 APK 编译/签名已通过 Actions #44138228340；追加权限和发布校验还需下一次 Actions。用户测试准入：先完成模块互通及开发者检查，再提供测试步骤。** 无障碍服务扫描/自动恢复旧功能不再属于新版需求；自动恢复和快捷磁贴服务于 FCM 监测与应用守护，无需 AccessibilityService。
+**准入原则**：先完成页面模块与对应实际代码、通过 GitHub Actions，再交用户安装；不要要求测试已知不可用的旧授权流程。

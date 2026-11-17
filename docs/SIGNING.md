@@ -37,3 +37,5 @@
 ### Release 流水线（新增设计，待 Actions 验证）
 
 `Build Android APK` 增加手动 `workflow_dispatch` 的 `publish_release` 布尔输入，默认关闭。仅用户显式勾选后，下载同次通过签名验证的 APK Artifact，并以相同 run_number 发布 `v0.1.0-alpha.N` GitHub prerelease。普通 `push` 仅产生 Actions Artifact，不向 APK 更新接口提供半成品。
+
+> 最近已验证的模块化 APK 固定签名构建：[Actions #44139303543](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44139303543)（alpha.30）。后续 KSU 功能追平提交仍须重新编译和验签。公开证书指纹及四个 Secrets 不变。

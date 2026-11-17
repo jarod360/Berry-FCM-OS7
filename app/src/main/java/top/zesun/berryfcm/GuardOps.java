@@ -12,6 +12,17 @@ final class GuardOps {
     private static final Pattern PACKAGE = Pattern.compile("[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)+");
     private GuardOps() {}
 
+    static String heartbeatCommand() {
+        // A completed broadcast only means the request was accepted, not that
+        // FCM has reconnected or delivered a push message.
+        return "am broadcast --user 0 -a com.google.android.intent.action.MCS_HEARTBEAT "
+                + "-p com.google.android.gms 2>&1; "
+                + "am broadcast --user 0 -a com.google.android.gms.gcm.ACTION_HEARTBEAT_NOW "
+                + "-p com.google.android.gms 2>&1; "
+                + "am broadcast --user 0 -a com.google.android.gcm.intent.SEND "
+                + "-n com.google.android.gms/.gcm.GcmSenderProxy 2>&1";
+    }
+
     static String command(Set<String> selected, boolean repair) {
         List<String> items = new ArrayList<>(selected);
         if (!items.contains(GMS)) items.add(GMS);

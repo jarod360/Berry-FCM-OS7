@@ -37,7 +37,9 @@ public final class BackgroundActivity extends Ui {
         button(android, "查看系统电池优化列表", () -> BackgroundSettings.batteryList(this), false);
         button(android, "打开应用设置（通知 / 电池）", () -> BackgroundSettings.details(this), false);
         button(android, "单独放行 GMS 的 Doze", () -> gmsPolicy(true), false);
-        button(android, "撤销 GMS Doze 放行（请确认原始状态）", () -> gmsPolicy(false), false);
+        button(android, "撤销 BerryFCM 添加的 GMS Doze 放行", () -> gmsPolicy(false), false);
+        button(android, "放行 GMS 后台计量网络", () -> gmsNetwork(true), false);
+        button(android, "撤销 BerryFCM 添加的后台网络放行", () -> gmsNetwork(false), false);
 
         LinearLayout vendor = card("OriginOS 后台管理", "自启动、关联启动、允许后台高耗电通常为厂商私有开关，不能把打开设置页当成自动授权成功。");
         button(vendor, "自启动：打开 OriginOS 设置", () -> BackgroundSettings.autostart(this), true);
@@ -94,6 +96,18 @@ public final class BackgroundActivity extends Ui {
             }
         });
     }
+    private void gmsNetwork(boolean allow) {
+        policy.setText("正在检查 GMS UID 和后台计量网络规则…");
+        worker.execute(() -> {
+            try (PrivilegeShell shell = PrivilegeAccess.open(this)) {
+                String result = BackgroundSettings.gmsBackgroundNetwork(this, shell, allow);
+                runOnUiThread(() -> policy.setText(result));
+            } catch (Exception error) {
+                runOnUiThread(() -> policy.setText("策略检查或修改失败：" + error.getMessage()));
+            }
+        });
+    }
+
     @Override protected void onResume() {
         super.onResume();
         renderPolicy();

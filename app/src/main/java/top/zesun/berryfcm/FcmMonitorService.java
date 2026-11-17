@@ -151,6 +151,10 @@ public final class FcmMonitorService extends Service {
             lastGuardAt = now;
             try {
                 String report = execute(p, p.mode(), GuardOps.command(p.guardTargets(), true));
+                if (report.contains("|restored")) {
+                    report += "\n已修复应用，已请求 GMS 心跳（非连接成功证明）：\n"
+                            + execute(p, p.mode(), GuardOps.heartbeatCommand());
+                }
                 getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE).edit()
                         .putString("report", report).putLong("last_run", System.currentTimeMillis()).apply();
             } catch (Throwable error) {

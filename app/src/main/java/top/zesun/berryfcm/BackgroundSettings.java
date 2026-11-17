@@ -39,6 +39,38 @@ final class BackgroundSettings {
         return allow ? "GMS 已加入 Doze 白名单（由 BerryFCM 添加，可撤销）"
                      : "已撤销 BerryFCM 添加的 GMS Doze 白名单";
     }
+    static String gmsBackgroundNetwork(android.content.Context context,
+                                        PrivilegeShell shell, boolean allow) throws Exception {
+        String uidOutput = shell.execute("cmd package list packages -U com.google.android.gms 2>&1");
+        java.util.regex.Matcher uidMatch = java.util.regex.Pattern.compile(
+                "uid:([0-9]+)").matcher(uidOutput);
+        if (!uidMatch.find()) throw new IllegalStateException("无法通过 PackageManager 取得 GMS UID");
+        String uid = uidMatch.group(1);
+        android.content.SharedPreferences own = context.getSharedPreferences(
+                "berry_fcm_policy_ownership", android.content.Context.MODE_PRIVATE);
+        String before = shell.execute("cmd netpolicy list restrict-background-whitelist 2>&1");
+        boolean exists = containsUid(before, uid);
+        if (allow && exists) return "GMS 已经放行后台计量数据，未修改现有策略";
+        if (!allow && (!own.getBoolean("net_owned", false)
+                || !uid.equals(own.getString("net_uid", ""))))
+            return "拒绝撤销：该 UID 的后台数据白名单并非由 BerryFCM 添加";
+        String operation = "cmd netpolicy " + (allow ? "add" : "remove")
+                + " restrict-background-whitelist " + uid;
+        shell.execute(operation);
+        String after = shell.execute("cmd netpolicy list restrict-background-whitelist 2>&1");
+        if (containsUid(after, uid) != allow)
+            throw new IllegalStateException("GMS 后台数据白名单复检未通过");
+        own.edit().putBoolean("net_owned", allow)
+                .putString("net_uid", allow ? uid : "").apply();
+        return allow ? "GMS UID " + uid + " 后台计量数据已放行（可撤销）"
+                     : "已撤销 BerryFCM 添加的 GMS 后台数据放行";
+    }
+
+    private static boolean containsUid(String text, String uid) {
+        return java.util.regex.Pattern.compile("(?<![0-9])"
+                + java.util.regex.Pattern.quote(uid) + "(?![0-9])").matcher(text).find();
+    }
+
     static boolean batteryExempt(Activity activity) {
         PowerManager service = activity.getSystemService(PowerManager.class);
         return service != null && service.isIgnoringBatteryOptimizations(activity.getPackageName());

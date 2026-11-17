@@ -21,6 +21,7 @@ public final class DiagnosticsActivity extends Ui {
 
         LinearLayout network = card("网络检查", "TCP 握手不等于 GMS 已认证，也不能证明无代理：测试遵循当前设备路由。");
         button(network, "检查 mtalk.google.com TCP 5228 / 5229 / 5230", this::checkNetwork, true);
+        button(network, "检查 GMS Doze / 后台网络 / 通知权限", this::checkPolicies, false);
         results = text("尚未运行诊断", 13, false, muted);
         results.setTextIsSelectable(true);
         results.setPadding(0, dp(8), 0, 0);
@@ -54,6 +55,25 @@ public final class DiagnosticsActivity extends Ui {
             }
         });
     }
+    private void checkPolicies() {
+        results.setText("正在回读 GMS 系统策略…");
+        worker.execute(() -> {
+            try (PrivilegeShell shell = PrivilegeAccess.open(this)) {
+                String command = "echo '== Doze ==' ; cmd deviceidle whitelist 2>&1 | "
+                        + "grep -F com.google.android.gms || true; "
+                        + "echo '== DataSaver ==' ; cmd netpolicy get restrict-background 2>&1; "
+                        + "echo '== Background Network ==' ; "
+                        + "cmd netpolicy list restrict-background-whitelist 2>&1; "
+                        + "echo '== GMS Notifications ==' ; "
+                        + "cmd appops get com.google.android.gms POST_NOTIFICATION 2>&1";
+                String output = shell.execute(command);
+                runOnUiThread(() -> results.setText(output));
+            } catch (Exception error) {
+                runOnUiThread(() -> results.setText("诊断失败：" + error.getMessage()));
+            }
+        });
+    }
+
     private void shareEvents() {
         String report = "BerryFCM 状态诊断\n"
                 + "监控错误：" + FcmMonitorService.lastError(this) + "\n"

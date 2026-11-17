@@ -51,7 +51,10 @@ public final class GuardActivity extends Ui {
         });
         button(actions, "检查所选应用的 stopped 状态", () -> runCheck(false), false);
         button(actions, "尝试修复所选应用", () -> runCheck(true), true);
-        report = text("尚未检查", 12, false, muted);
+        button(actions, "监视 90 秒（每 15 秒检查）", this::watchNinetySeconds, false);
+        button(actions, "手动请求 GMS 心跳", this::requestHeartbeat, false);
+        report = text(getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE)
+                .getString("report", "尚未检查"), 12, false, muted);
         report.setTextIsSelectable(true);
         report.setPadding(0, dp(7), 0, 0);
         actions.addView(report);
@@ -168,6 +171,41 @@ public final class GuardActivity extends Ui {
             }
         });
     }
+    private void requestHeartbeat() {
+        report.setText("正在请求 GMS 心跳…");
+        worker.execute(() -> {
+            try (PrivilegeShell shell = PrivilegeAccess.open(this)) {
+                String output = shell.execute(GuardOps.heartbeatCommand());
+                runOnUiThread(() -> report.setText("心跳广播结果（不是推送送达证明）\n" + output));
+            } catch (Exception error) {
+                runOnUiThread(() -> report.setText("心跳请求失败：" + error.getMessage()));
+            }
+        });
+    }
+
+    private void watchNinetySeconds() {
+        report.setText("正在运行 90 秒巡检；离开页面会中止本次交互测试");
+        worker.execute(() -> {
+            try (PrivilegeShell shell = PrivilegeAccess.open(this)) {
+                for (int i = 0; i < 7; i++) {
+                    String result = shell.execute(GuardOps.command(prefs.guardTargets(), true));
+                    if (result.contains("|restored")) {
+                        result += "\n已修复应用，尝试请求 GMS 心跳：\n"
+                                + shell.execute(GuardOps.heartbeatCommand());
+                    }
+                    final int sample = i + 1;
+                    final String current = result;
+                    runOnUiThread(() -> report.setText("巡检 " + sample + "/7\n" + current));
+                    if (i < 6) Thread.sleep(15000);
+                }
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+            } catch (Exception error) {
+                runOnUiThread(() -> report.setText("巡检异常：" + error.getMessage()));
+            }
+        });
+    }
+
     @Override protected void onDestroy() {
         worker.shutdownNow();
         super.onDestroy();
