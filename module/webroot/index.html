@@ -147,7 +147,7 @@ footer{padding-bottom:18px}
  }
  async function loadEvents(){
    try{const r=await exec('/system/bin/sh '+MON+' events');if(r.code!==0)throw Error(r.stderr||'读取失败');
-     const labels={connection_up:'连接建立',connection_down:'检测到断联',connection_not_seen:'尚未观察到连接',connection_restored:'连接恢复',socket_replaced:'Socket 更换',reconnect_requested:'重连请求',reconnect_failed:'重连失败',reconnect_skipped:'跳过重连',observation_unknown:'状态未知',reboot:'设备重启'};
+     const labels={connection_up:'首次观察到连接',connection_down:'首次观察到连接缺失',connection_not_seen:'尚未观察到连接',connection_restored:'再次观察到连接',socket_replaced:'Socket 更换',reconnect_requested:'重连请求',reconnect_failed:'重连失败',reconnect_skipped:'跳过重连',observation_unknown:'状态未知',reboot:'设备重启'};
      const lines=r.stdout.trim().split(/\r?\n/).filter(Boolean).map(line=>{const p=line.split('|');return p.length>=3?`${fullTime(Number(p[0]))}  ${labels[p[1]]||p[1]}  ${p.slice(2).join('|')}`:line;});
      $('fcmEvents').textContent=lines.length?lines.reverse().join('\n'):'暂无连接事件';
    }catch(e){$('fcmEvents').textContent='读取事件失败：'+e.message;}
@@ -158,7 +158,7 @@ footer{padding-bottom:18px}
    row('proc',j.gcm_persistent===1?'good':'bad',j.gcm_persistent===1?'运行中':'未运行');
    const fstate=j.fcm_state||'unknown',connected=fstate==='connected',missing=Number(j.fcm_missing_seconds||0);
    const transport=j.fcm_transport==='tcp443'?'TCP 443（mtalk 地址候选）':j.fcm_transport||'—';
-   const statusText={connected:'已观察到 Socket：'+transport,connecting:'检测到连接尝试，尚未建立',disconnected:j.fcm_last_seen>0?'未观察到 FCM 连接':'尚未观察到首次连接',unknown:'无法确认（本轮检测不可用）',stale:'采样已过期，状态未知',never_seen:'等待首次观察'};
+   const statusText={connected:'已观察到 Socket：'+transport,connecting:'检测到 Socket 连接尝试，尚未建立',disconnected:j.fcm_last_seen>0?'未观察到可信 Socket':'尚未观察到首次连接',unknown:'无法确认（本轮检测不可用）',stale:'采样已过期，状态未知',never_seen:'等待首次观察'};
    const stateColor=connected?(j.fcm_transport==='tcp443'?'warn':'good'):fstate==='disconnected'&&j.fcm_last_seen>0?'bad':'warn';
    row('mcs',stateColor,statusText[fstate]||'无法确认');
    row('miss',connected?'good':stateColor,connected?'0 秒':(fstate==='disconnected'||fstate==='connecting')?durationText(missing):'—');
@@ -171,12 +171,14 @@ footer{padding-bottom:18px}
    else if(fstate==='disconnected'&&j.fcm_last_seen>0){verdict=missing>=120?'连续未观察到连接，等待/已触发恢复':'首次观察到连接消失';}
    else if(fstate==='disconnected'){verdict=missing>=120?'尚未观察到连接，已达到重连门槛':'尚未观察到 FCM 长连接';}
    $('verdict').textContent=verdict;$('verdict').dataset.state=color;
-   $('connectionHint').textContent=connected?'已连接':fstate==='connecting'?'连接中':fstate==='disconnected'?'未观察到':fstate==='stale'?'采样过期':'待确认';
+   $('connectionHint').textContent=connected?'已观察到 Socket':fstate==='connecting'?'连接尝试中':fstate==='disconnected'?'未观察到':fstate==='stale'?'采样过期':'待确认';
    $('connNote').textContent=connected
-     ?`GMS UID 已观察到 ${transport}：${j.fcm_remote||'远端未知'}。这证明 Socket 存在，不等于消息一定送达。`
+     ?(j.fcm_transport==='tcp443'
+       ?`GMS UID 已观察到 mtalk 地址匹配的 TCP 443 候选：${j.fcm_remote||'远端未知'}。地址匹配不是 MCS 认证证明。`
+       :`GMS UID 已观察到专用端口 Socket：${j.fcm_remote||'远端未知'}。Socket 存在不等于 MCS 已认证或消息一定送达。`)
      :fstate==='unknown'?'检测权限、UID 或 mtalk DNS 地址不可用；本轮不累计断联时间，也不会据此自动重连。'
      :fstate==='stale'?'监控采样超过 120 秒未更新，可能受深度 Doze 或服务暂停影响；不能把陈旧状态当作当前断联。'
-     :'当前未观察到已建立的可信 FCM Socket；普通 GMS HTTPS 443 不会被计为 FCM。断联起点是首次检测到缺失的采样时刻。';
+     :'当前未观察到可信 FCM Socket；普通 GMS HTTPS 443 不会被计为 FCM。断联时间记录的是首次缺失采样时刻，实际断开发生在上次在线采样与本次采样之间（正常采样间隔约 30 秒）。';
    row('doze',j.doze===1?'good':'warn',j.doze===1?'已放行':j.doze===0?'未放行':'无法读取');
    row('data',j.data_saver===1?'warn':j.data_saver===0?'good':'warn',j.data_saver===1?'已启用':j.data_saver===0?'未启用':'未知');
    row('net',j.net_allowed===1?'good':'warn',j.net_allowed===1?'已放行':j.net_allowed===0?'未放行':'无法读取');
