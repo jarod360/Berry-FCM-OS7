@@ -93,7 +93,7 @@ public final class MainActivity extends Activity {
         Button connect = button("连接当前授权方式并检测", true);
         connect.setOnClickListener(v -> connectCurrentMode());
         connection.addView(connect);
-        connection.addView(text("无线 ADB 首次需要在系统开发者选项中开启无线调试，并输入配对屏幕上的 IP、配对端口和配对码。配对成功后，系统保存配对关系；重启后仍需无线调试处于开启状态，APK 才能重新连接。", 12, false));
+        connection.addView(text("首次通过 Root / 无线 ADB / 静态 ADB 连接后，应用会尝试授予自身 WRITE_SECURE_SETTINGS。若系统允许，该授权跨重启保留，之后不必每次开机重新连接 ADB；若 ROM 拒绝，则仍需 Root / ADB Shell 通道。无线 ADB 仍要求系统无线调试开启才能重新建立 Shell 会话。", 12, false));
 
         LinearLayout servicesCard = card(root, "可管理的无障碍服务");
         servicesCard.addView(text("勾选需要由本工具维护的服务。应用时只替换本工具上次管理的条目，保留其它无障碍服务。", 12, false));
@@ -125,7 +125,12 @@ public final class MainActivity extends Activity {
         autoCard.addView(tile);
 
         LinearLayout usb = card(root, "USB / 外部 ADB 说明");
-        usb.addView(text("手机 APK 不能把自己当成电脑端 USB ADB 主机，也不能在没有用户授权时自行打开 USB 调试。可先用电脑 USB 连接手机，在电脑执行 adb tcpip 5555，再回到本应用选择“静态端口”，地址填写 127.0.0.1、端口填写 5555。该 TCP 端口通常只在当前启动周期有效，重启后可能需要重新执行。\n\n也可以选择“手动”，由系统设置页面启用/关闭无障碍服务。USB/外部模式只提供初始化说明，不伪装成 APK 内部已建立的 ADB 会话。", 12, false));
+        usb.addView(text("手机 APK 不能把自己当成电脑端 USB ADB 主机。可先用电脑 USB 连接手机，在电脑执行：adb shell pm grant top.zesun.berryfcm android.permission.WRITE_SECURE_SETTINGS。回到本应用后点击“检查一次性授权状态”，若显示已授权，之后可直接由 APK 写入无障碍设置，通常不需要每次开机重新连接 ADB。\n\n如果一次性授权被 ROM 拒绝，可在电脑执行 adb tcpip 5555，再选择“静态端口”，地址填写 127.0.0.1、端口填写 5555，通过 Shell 会话完成操作。该端口通常只在当前启动周期有效。也可选择“手动”跳转系统无障碍设置。", 12, false));
+        Button grantStatus = button("检查一次性授权状态", false);
+        grantStatus.setOnClickListener(v -> show(AccessibilityOps.hasPersistentPermission(this)
+                ? "WRITE_SECURE_SETTINGS 已授权；可跨重启使用，无需每次重新连接 ADB。"
+                : "尚未获得 WRITE_SECURE_SETTINGS；请使用 Root、无线/静态 ADB 或电脑 USB ADB 完成首次授权。"));
+        usb.addView(grantStatus);
         Button dev = button("打开开发者选项", false);
         dev.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)));
         usb.addView(dev);
@@ -209,7 +214,8 @@ public final class MainActivity extends Activity {
         if (id != -1) {
             String mode = String.valueOf(((RadioButton) modes.findViewById(id)).getTag());
             prefs.mode(mode);
-            if ((AppPrefs.MANUAL.equals(mode) || AppPrefs.EXTERNAL.equals(mode)) && autoRestore != null) {
+            if ((AppPrefs.MANUAL.equals(mode) || AppPrefs.EXTERNAL.equals(mode))
+                    && autoRestore != null && !AccessibilityOps.hasPersistentPermission(this)) {
                 autoRestore.setChecked(false);
                 prefs.autoRestore(false);
             }
@@ -273,8 +279,11 @@ public final class MainActivity extends Activity {
             AdbConnectionManager adb = AdbConnectionManager.get(this);
             boolean ok = adb.pairAndConnect(this, h, port, code);
             if (!ok) throw new IllegalStateException("配对或后续连接未成功");
-            return adb.shell("id");
-        }, result -> { prefs.mode(AppPrefs.WIRELESS); show("无线 ADB 已连接\n" + result); });
+            String id = adb.shell("id");
+            String grant = adb.shell("pm grant top.zesun.berryfcm android.permission.WRITE_SECURE_SETTINGS 2>&1; echo GRANT_EXIT:$?");
+            return id + "\n" + grant + "\nAPK 持久授权：" +
+                    (AccessibilityOps.hasPersistentPermission(this) ? "已授予" : "未授予（仍可通过 ADB Shell 操作）");
+        }, result -> { prefs.mode(AppPrefs.WIRELESS); show("无线 ADB 初始化完成\n" + result); });
         pairCode.setText("");
     }
 
@@ -286,12 +295,19 @@ public final class MainActivity extends Activity {
             return;
         }
         if (AppPrefs.EXTERNAL.equals(mode)) {
-            show("USB/外部模式需要先通过电脑 ADB 初始化。请阅读下方 USB / 外部 ADB 说明。");
+            show(AccessibilityOps.hasPersistentPermission(this)
+                    ? "一次性 WRITE_SECURE_SETTINGS 授权已存在；当前不需要 ADB 会话。"
+                    : "请按下方说明先用电脑 USB ADB 执行一次 pm grant。");
             return;
         }
         runAsync(() -> {
-            try (PrivilegeShell shell = openShell(mode)) { return shell.execute("id; settings get secure accessibility_enabled"); }
-        }, result -> show("授权通道可用\n" + result));
+            try (PrivilegeShell shell = openShell(mode)) {
+                String id = shell.execute("id");
+                String grant = shell.execute("pm grant top.zesun.berryfcm android.permission.WRITE_SECURE_SETTINGS 2>&1; echo GRANT_EXIT:$?");
+                return id + "\n" + grant + "\nAPK 持久授权：" +
+                        (AccessibilityOps.hasPersistentPermission(this) ? "已授予" : "未授予（当前 Shell 通道仍可操作）");
+            }
+        }, result -> show("授权通道检测完成\n" + result));
     }
 
     private void applySelected() {
@@ -299,24 +315,42 @@ public final class MainActivity extends Activity {
         Set<String> selected = checkedComponents();
         prefs.selected(selected);
         String mode = currentMode();
-        if (AppPrefs.MANUAL.equals(mode) || AppPrefs.EXTERNAL.equals(mode)) {
-            show("手动/USB 外部模式不提供 APK 内部 Shell。请先切换 Root、无线 ADB 或静态端口完成授权。");
+        if ((AppPrefs.MANUAL.equals(mode) || AppPrefs.EXTERNAL.equals(mode))
+                && !AccessibilityOps.hasPersistentPermission(this)) {
+            show("尚无一次性授权。请先使用 Root / ADB，或通过电脑 USB ADB 执行 pm grant。");
             return;
         }
         runAsync(() -> {
+            Set<String> previous = prefs.managed();
+            if (AccessibilityOps.hasPersistentPermission(this)) {
+                return applySelectedServices(null, previous, selected);
+            }
             try (PrivilegeShell shell = openShell(mode)) {
-                Set<String> previous = prefs.managed();
-                String output = shell.execute(AccessibilityOps.applyCommand(previous, selected));
-                String verify = shell.execute(AccessibilityOps.readEnabledCommand());
-                int enabled = 0;
-                for (String component : selected) if (verify.contains(component)) enabled++;
-                for (String component : previous) if (!selected.contains(component) && verify.contains(component))
-                    throw new IllegalStateException("系统仍返回已取消的服务：" + component);
-                if (enabled != selected.size()) throw new IllegalStateException("系统未确认全部目标服务，实际 " + enabled + "/" + selected.size());
-                prefs.managed(selected);
-                return "已提交并复查：" + enabled + "/" + selected.size() + " 个目标服务可见\n" + output.trim() + "\n" + verify.trim();
+                return applySelectedServices(shell, previous, selected);
             }
         }, result -> show(result));
+    }
+
+    private String applySelectedServices(PrivilegeShell shell, Set<String> previous, Set<String> selected) throws Exception {
+        String output = "";
+        if (!AccessibilityOps.hasPersistentPermission(this) && shell != null) {
+            output = shell.execute("pm grant top.zesun.berryfcm android.permission.WRITE_SECURE_SETTINGS 2>&1; echo GRANT_EXIT:$?");
+        }
+        String verify;
+        if (AccessibilityOps.hasPersistentPermission(this)) {
+            if (!AccessibilityOps.applyDirect(this, previous, selected))
+                throw new IllegalStateException("系统未确认 Secure Settings 写入成功");
+            verify = AccessibilityOps.readEnabledDirect(this);
+            output += "\n使用已持久化 WRITE_SECURE_SETTINGS 授权";
+        } else if (shell != null) {
+            output += "\n" + shell.execute(AccessibilityOps.applyCommand(previous, selected));
+            verify = shell.execute(AccessibilityOps.readEnabledCommand());
+        } else {
+            throw new IllegalStateException("没有可用的 Root / ADB Shell 或 WRITE_SECURE_SETTINGS 授权");
+        }
+        AccessibilityOps.verifyEnabled(verify, previous, selected);
+        prefs.managed(selected);
+        return "已应用并复查：" + selected.size() + " 个目标服务\n" + output.trim() + "\n" + verify.trim();
     }
 
     private interface Work { String run() throws Exception; }
