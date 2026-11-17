@@ -46,7 +46,7 @@
 - 通过 `cmd package list packages -U com.google.android.gms`，回退 `pm` / `dumpsys`，读取 GMS UID。
 - `ss -tnpe` 仅接受 GMS UID 所属 TCP Socket；使用 `uid % 100000` 兼容 Android 次用户 UID 表示。
 - 已建立 TCP 5228 / 5229 / 5230 作为 MCS Socket 观察证据。
-- TCP 443 仅在远端 IP 匹配 mtalk DNS 地址，或本次启动周期内在 5228–5230 上实际学习到的远端地址时，才作为 FCM 候选。
+- TCP 443 仅在远端 IP 匹配 mtalk DNS 地址，或本启动周期内从**已建立** 5228–5230 Socket 学到的远端 IP 时，才作为候选；SYN-SENT 不会学习信任地址。mtalk DNS 匹配仍只是候选，不证明 MCS 已认证。
 - 任意 GMS HTTPS 443 不计作 FCM。UID / ss 不可读，或存在未验证 443 且无法建立 mtalk 地址证据时，状态可为 `unknown`；unknown 不累计断联、不触发自动重连。
 - 该方法只能观察 Socket，不能直接证明 MCS 完成认证或推送可达。必须与 Google 原生 FCM Diagnostics 和真实推送交叉验证。
 
@@ -65,7 +65,7 @@
 - 之后重新观察到可信 Socket 的恢复时间、累计 outage 次数、Socket 更换次数。
 - 最近采样时间和采样新鲜度。
 
-持续时长使用 `/proc/uptime` monotonic 时间，显示时间使用 epoch wall-clock。重启后清除上一启动周期的活动计时，不将旧连接时长延续到新启动周期。
+持续时长使用 `/proc/uptime` monotonic 时间，显示时间使用 epoch wall-clock。连接时间是首次采样观察到 Socket 的时刻，断联时间是首次采样观察到 Socket 缺失的时刻；实际变化发生在相邻采样之间，正常约有一个 30 秒采样周期误差，Doze 可能进一步延迟。重启后清除上一启动周期的活动计时，不将旧连接时长延续到新启动周期。
 
 ### 3.4 自动重连
 
@@ -112,22 +112,22 @@
 - USB / 外部：仅说明由电脑 USB ADB 初始化的路径；APK 不是电脑端 USB ADB Host。
 - 手动：跳转系统无障碍设置。
 
-开机恢复默认关闭。只有用户明确选中的服务才会写入；Root / ADB Shell 不可用时不能静默启用第三方无障碍服务。
+开机恢复默认关闭。只有用户明确选中的服务才会写入；优先使用持久 `WRITE_SECURE_SETTINGS` 直接写入，否则使用 Root / ADB Shell；没有任一授权时不能静默启用第三方无障碍服务。
 
-**尚未验证：** APK 尚未通过 GitHub Actions 云编译；ADB 库版本、Android 13+ 磁贴 API、Foreground Service 声明、OriginOS 开机恢复和无障碍服务实际启用流程均需根据构建 / 实机结果修复。当前 APK 尚未集成 KSU 版完整 FCM Socket 时间线；普通 APK 权限本身无法替代 Root / ADB Shell 读取其它 UID Socket。后续如要在 Root / ADB 模式复用 FCM monitor，应把 Shell 监控脚本作为明确授权后的执行模块接入，不能在普通模式宣称支持。
+**构建状态：** 之前三次 APK Actions 失败，根因为缺少 `androidx.annotation` 依赖和调用不存在的 `Conscrypt.PROVIDER_NAME`；已增加依赖并改为 `Conscrypt.newProvider().getName()`，等待新一轮 Actions 验证。ADB 库版本、Android 13+ 磁贴 API、Foreground Service 声明、OriginOS 开机恢复和无障碍服务实际启用流程仍需实机验证。当前 APK 尚未集成 KSU 版完整 FCM Socket 时间线；普通 APK 权限本身无法替代 Root / ADB Shell 读取其它 UID Socket。一次性 `WRITE_SECURE_SETTINGS` 是否能在目标 OriginOS 版本授予和跨重启保留，仍需实机验证。后续如要在 Root / ADB 模式复用 FCM monitor，应把 Shell 监控脚本作为明确授权后的执行模块接入，不能在普通模式宣称支持。
 
 ## 5. GitHub Actions
 
 - `.github/workflows/build-ksu.yml`：main 对 `module/**` / `tests/**` 的提交或手动运行时执行 Shell 语法、状态机 smoke test、WebUI JavaScript 检查，并打包 `BerryFCM-KSU-v0.5.3-test.zip`。
-- `.github/workflows/build-apk.yml`：main 对 `app/**` / Gradle 文件的提交或手动运行时，使用 JDK 17、Android SDK 35、Gradle 8.11.1 构建 `BerryFCM-Guardian-v0.1.0-alpha-debug.apk`。
-- 两个工作流分别上传 Artifact，保留 30 天。
-- APK 当前为 debug build，不是生产发布签名包。实机验收前不发布正式 Release。
+- `.github/workflows/build-apk.yml`：先运行 Debug 编译检查；四项固定签名 Secrets 可用时，再构建并验证 PKCS12 Release APK。Debug APK 不上传。
+- KSU Artifact 保留 30 天；固定签名 APK Artifact 保留 90 天。
+- `docs/SIGNING.md` 说明四项 Secrets 与 keystore 安全保管。APK `applicationId` 固定为 `top.zesun.berryfcm`，`versionCode` 使用 APK 工作流递增 `run_number`，所有发布包必须使用同一 keystore 签名，确保覆盖升级。
 
 ## 6. 下一步开发顺序
 
-1. 初始化仓库并推送当前完整源码；确认 `main` 出现初始提交。
-2. 检查两个 Actions Run；先修复真实云编译错误，不凭猜测修改。
-3. 下载 KSU ZIP、APK，检查包内文件和签名 / 安装情况。
+1. 检查两个 Actions Run；先修复真实云编译错误，不凭猜测修改。
+2. 将 `berryfcm-release.p12` 保存到 `D:\Codex\Berry-FCM-OS7\signing\`，配置四项 GitHub Actions Secrets，再触发固定签名 APK 构建。
+3. 下载 KSU ZIP、固定签名 APK，检查包内文件和证书指纹 / 安装情况；连续两次 APK 构建验证可覆盖升级。
 4. KSU 实机：正常 Wi-Fi、受限 Wi-Fi、移动网络、仅 443、DNS 不可用、网络切换、锁屏 Doze；与原生 Diagnostics 对照连接 / 断联时间线。
 5. 验证 120 秒触发门槛、300 秒冷却、广播结果、真实恢复事件和 unknown 安全行为。
 6. APK 实机：Root、无线 ADB 首次配对、重启后 mDNS 重连、静态端口、USB 初始化说明、服务多选 / 取消、保留其它服务、开机恢复、磁贴、通知权限和 OriginOS 后台限制。
