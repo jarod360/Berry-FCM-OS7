@@ -114,7 +114,7 @@
 
 开机恢复默认关闭。只有用户明确选中的服务才会写入；优先使用持久 `WRITE_SECURE_SETTINGS` 直接写入，否则使用 Root / ADB Shell；没有任一授权时不能静默启用第三方无障碍服务。
 
-**构建状态（2026-11-17 已核对）：** APK Actions Run #12 的 Android 源码编译检查成功，Release 签名和 Artifact 上传步骤当时因四项 Secrets 尚未设置而跳过。用户已在本地新建正式 P12，但目前**尚未核实 Secrets 是否已配置、Java keytool 能否按 alias 读取及 Release APK 是否生成**。KSU Actions Run #9 成功，已生成 `BerryFCM-KSU-v0.5.4-test.zip`。ADB 库版本、Android 13+ 磁贴 API、Foreground Service 声明、OriginOS 开机恢复和无障碍服务实际启用流程仍需实机验证。当前 APK 尚未集成 KSU 版完整 FCM Socket 时间线；普通 APK 权限本身无法替代 Root / ADB Shell 读取其它 UID Socket。后续若在 APK 的 Root / ADB 授权模式复用 FCM monitor，应明确显示当前授权能力；普通模式只能显示 `unknown / 无权读取`，不能伪装为已断联。一次性 `WRITE_SECURE_SETTINGS` 是否能在目标 OriginOS 版本授予和跨重启保留，仍需实机验证。
+**构建状态（2026-11-17 最新已核对）：** APK Actions Run #13（ID 44099052326）Debug 源码编译通过，工作流整体成功；但 Release APK 构建、验签、上传步骤全部 `skipped`，Artifacts 为零，说明运行时所需的四项签名 Secrets 尚未完整配置。用户已在本地生成正式 P12，仍需 Java keytool 确认 alias 并设置仓库 Secrets，才能生成可安装的固定签名 APK。KSU Actions Run #9 成功，已生成 `BerryFCM-KSU-v0.5.4-test.zip`。ADB 库版本、Android 13+ 磁贴 API、Foreground Service 声明、OriginOS 开机恢复和无障碍服务实际启用流程仍需实机验证。当前 APK 尚未集成 KSU 版完整 FCM Socket 时间线；普通 APK 权限本身无法替代 Root / ADB Shell 读取其它 UID Socket。后续若在 APK 的 Root / ADB 授权模式复用 FCM monitor，应明确显示当前授权能力；普通模式只能显示 `unknown / 无权读取`，不能伪装为已断联。一次性 `WRITE_SECURE_SETTINGS` 是否能在目标 OriginOS 版本授予和跨重启保留，仍需实机验证。
 
 ## 5. GitHub Actions
 
@@ -125,7 +125,7 @@
 
 ## 6. 下一步开发顺序
 
-1. 已完成：检查 KSU Actions Run #9 成功、APK Actions Run #12 编译成功；APK Release 因签名 Secrets 缺失未生成。
+1. 已完成：KSU Actions Run #9 构建成功；APK Actions Run #13 编译成功，但 Release 签名/Artifact 缺席（Secrets 未完整设置）。已提交固定签名证书指纹校验。
 2. **禁止再次生成密钥。** 用户已在 `D:\Codex\Berry-FCM-Signing` 生成正式 P12；用 Java `keytool` 检查证书指纹及 alias，并从同一 P12 配置四项 GitHub Actions Secrets。
 3. 重跑 APK workflow，确认 Release APK Artifact 已生成并核对签名证书 SHA-256 与 `D6506E38…84E5ECA` 一致；使用相同包名、递增 versionCode 和同一证书，连续两次 APK 构建做覆盖升级验证。
 4. KSU 实机：正常 Wi-Fi、受限 Wi-Fi、移动网络、仅 443、DNS 不可用、网络切换、锁屏 Doze；与原生 Diagnostics 对照连接 / 断联时间线。
