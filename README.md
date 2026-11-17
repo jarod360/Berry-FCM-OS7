@@ -49,16 +49,20 @@ APK 当前聚焦授权与无障碍服务管理；尚未接入 KSU 版完整 FCM 
 
 详细说明：[`app/README.md`](app/README.md)。
 
-## APK 固定签名密钥（首次配置一次，必须保管）
+## APK 固定签名密钥（一次配置，长期复用）
 
-**目前仓库没有提交或公开发布任何 Release keystore。** APK 工作流此前只完成源码编译检查，没有生成可分发的签名 APK。为保证以后所有版本覆盖安装，必须先在自己的 Windows 电脑生成唯一密钥：
+**已经在用户的 Windows 设备生成正式 PKCS12 密钥**，保存在 `D:\Codex\Berry-FCM-Signing\berryfcm-release.p12`；本地验证 RSA 3072、私钥存在。证书 SHA-256：
 
-1. 将仓库克隆到 `D:\Codex\Berry-FCM-OS7`。
-2. 在 PowerShell 执行 `powershell -ExecutionPolicy Bypass -File .\tools\New-BerryFCMSigningKey.ps1`。脚本只在密钥不存在时创建 `signing\berryfcm-release.p12`，并生成本地密码记录 `SIGNING-SETUP.txt`；不会覆盖已有密钥。
-3. 脚本会把 keystore Base64 复制到剪贴板。按 [`docs/SIGNING.md`](docs/SIGNING.md) 配置四项 GitHub Actions Secrets：`BERRYFCM_KEYSTORE_BASE64`、`BERRYFCM_KEYSTORE_PASSWORD`、`BERRYFCM_KEY_ALIAS`、`BERRYFCM_KEY_PASSWORD`。
-4. 之后所有 APK Release 构建都使用同一 PKCS12 密钥。**不要重新生成密钥，不要提交密钥或密码文件。** 丢失密钥将无法覆盖安装同包名的旧 APK。
+```text
+D6506E38980A564BE06C101247AB54AA045AB565C2A5E935E7D47918084E5ECA
+```
 
-包名固定为 `top.zesun.berryfcm`，`versionCode` 使用递增的 APK workflow `run_number`。若此前安装过由其他签名密钥签名的同包名 APK，第一次切换可能需要卸载旧包；从首次安装固定密钥版本开始，后续均可覆盖升级。
+**不要再运行密钥生成脚本，不要使用其他密钥。** 仓库的 APK 工作流已经固定证书指纹，防止意外使用其他证书构建无法覆盖升级的 APK。
+
+接下来只需：① 用 Java `keytool` 复核现有 P12 的 `berryfcm` 别名；② 从**这份现有 P12** 配置 GitHub Actions 的四项 Repository secrets；③ 重新运行 APK Actions，验证签名和可覆盖升级。操作步骤见 [`docs/SIGNING.md`](docs/SIGNING.md)。
+
+正式 APK 包名为 `top.zesun.berryfcm`，Release `versionCode` 使用递增的 Actions 运行编号。仅发布固定签名的 Release APK；Debug APK 只用于编译检查，不作为安装包分发。密钥和密码只能保存在本地与加密 Secrets 中，不能提交到 Git。
+
 
 ## GitHub Actions 云编译
 
@@ -79,7 +83,7 @@ app/                          Android APK 源码
  .github/workflows/           两个独立云编译工作流
 ```
 
-仓库内的 `tools/New-BerryFCMSigningKey.ps1` 用于首次生成固定 APK 签名密钥；只运行一次，已有密钥时脚本会拒绝覆盖。详细步骤见 [`docs/SIGNING.md`](docs/SIGNING.md)。
+`tools/New-BerryFCMSigningKey.ps1` 仅用于尚无密钥的新安装；当前用户已在 `D:\Codex\Berry-FCM-Signing` 生成正式密钥，**不要再次运行**。详细配置见 [`docs/SIGNING.md`](docs/SIGNING.md)。
 
 ## 本地检查
 
