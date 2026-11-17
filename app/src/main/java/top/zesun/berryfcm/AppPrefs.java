@@ -85,6 +85,11 @@ final class AppPrefs {
         p.edit().putLong("shell_verified_at", 0).putString("shell_mode", mode())
                 .putString("shell_error", reason).apply();
     }
+    /** Pairing identity persists; a 120-second Shell probe is not the authorization itself. */
+    boolean adbPaired() {
+        return p.getBoolean("adb_paired", pairingStatus().startsWith("配对成功"));
+    }
+    void markAdbPaired() { p.edit().putBoolean("adb_paired", true).apply(); }
     String pairingStatus() { return p.getString("pairing_status", "尚未配对"); }
     void pairingStatus(String value) { p.edit().putString("pairing_status", value).apply(); }
 }

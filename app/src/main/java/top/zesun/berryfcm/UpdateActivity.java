@@ -14,6 +14,7 @@ import android.provider.Settings;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.view.View;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
@@ -43,22 +44,23 @@ public final class UpdateActivity extends Ui {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        title("GitHub Release 更新", "固定签名 · 安全覆盖升级");
-        LinearLayout panel = card("版本检查", "应用不会静默安装。只使用本项目 GitHub Release 官方 APK。");
-        details = text("当前版本号：" + localVersion() + "\n尚未检查 Release", 14, false, ink);
+        title("版本更新", "检查 · 下载 · 签名校验 · 安装");
+        LinearLayout panel = card("检查更新", "只从官方 GitHub Releases 下载；安装需系统确认。");
+        details = text("当前版本：0.1.0-alpha." + localVersion() + "\n尚未检查更新", 14, false, ink);
         panel.addView(details);
-        button(panel, "检查最新 Release", this::checkRelease, true);
-        download = button(panel, "下载 APK", this::downloadApk, false);
-        download.setEnabled(false);
-        install = button(panel, "校验并交给系统安装", this::verifyInstall, false);
-        install.setEnabled(getPreferences(MODE_PRIVATE).getLong("id", 0) > 0);
-        notes = text("更新说明尚未加载", 12, false, muted);
+        button(panel, "检查新版本", this::checkRelease, true);
+        download = button(panel, "下载新版 APK", this::downloadApk, false);
+        download.setVisibility(View.GONE);
+        install = button(panel, "校验并安装下载的 APK", this::verifyInstall, false);
+        install.setVisibility(getPreferences(MODE_PRIVATE).getLong("id", 0) > 0 ? View.VISIBLE : View.GONE);
+        LinearLayout releaseNotes = disclosure(panel, "版本更新说明", false);
+        notes = text("尚无更新说明", 12, false, muted);
         notes.setTextIsSelectable(true);
         notes.setPadding(0, dp(16), 0, 0);
-        panel.addView(notes);
-        LinearLayout help = card("发布来源", "仓库目前可能只有 Actions Artifact。只有正式 Release 才进入在线更新检查。");
-        button(help, "浏览全部 GitHub Releases", () -> startActivity(
-                new Intent(Intent.ACTION_VIEW, Uri.parse(REPO + "/releases"))), false);
+        releaseNotes.addView(notes);
+        LinearLayout help = card("更新来源", "测试版 Actions Artifact 不属于正式在线更新。");
+        line(help, "查看 GitHub Releases", "官方已发布版本", () -> startActivity(
+                new Intent(Intent.ACTION_VIEW, Uri.parse(REPO + "/releases"))));
     }
 
     private int localVersion() {
@@ -76,7 +78,7 @@ public final class UpdateActivity extends Ui {
                 conn.setConnectTimeout(10000);
                 conn.setReadTimeout(10000);
                 conn.setRequestProperty("Accept", "application/vnd.github+json");
-                conn.setRequestProperty("User-Agent", "BerryFCM-Guardian");
+                conn.setRequestProperty("User-Agent", "BerryFCM");
                 if (conn.getResponseCode() != 200)
                     throw new IllegalStateException("GitHub API HTTP " + conn.getResponseCode());
                 byte[] content;
@@ -122,7 +124,7 @@ public final class UpdateActivity extends Ui {
                     if (selected == null) {
                         details.setText("尚无正式签名的 Release APK；当前版本号：" + localVersion());
                         notes.setText("Actions 构建产物不作为自动更新来源。");
-                        download.setEnabled(false);
+                        download.setVisibility(View.GONE);
                         return;
                     }
                     remoteVersion = releaseNumber;
@@ -135,10 +137,10 @@ public final class UpdateActivity extends Ui {
                             + "\nRelease 版本号：" + remoteVersion
                             + "\n" + (newer ? "发现新版本" : "已是最新版本或本机版本更高"));
                     notes.setText("更新说明\n" + current.optString("body", "暂无更新说明"));
-                    download.setEnabled(newer);
+                    download.setVisibility(newer ? View.VISIBLE : View.GONE);
                 });
             } catch (Exception error) {
-                runOnUiThread(() -> { details.setText("检查更新失败：" + error.getMessage()); download.setEnabled(false); });
+                runOnUiThread(() -> { details.setText("检查更新失败：" + error.getMessage()); download.setVisibility(View.GONE); });
             } finally { if (conn != null) conn.disconnect(); }
         });
     }
@@ -158,7 +160,8 @@ public final class UpdateActivity extends Ui {
             long id = getSystemService(DownloadManager.class).enqueue(req);
             getPreferences(MODE_PRIVATE).edit().putLong("id", id)
                     .putString("name", apkName).putString("digest", digest).apply();
-            install.setEnabled(true);
+            download.setVisibility(View.GONE);
+            install.setVisibility(View.VISIBLE);
             details.setText("APK 已提交系统下载管理器。下载完成后返回此页校验安装。");
         } catch (Exception error) { details.setText("下载失败：" + error.getMessage()); }
     }

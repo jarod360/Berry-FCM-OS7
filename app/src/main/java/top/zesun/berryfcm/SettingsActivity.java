@@ -8,21 +8,26 @@ import android.os.Bundle;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
+import android.view.View;
 
 public final class SettingsActivity extends Ui {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        title("设置与关于", "外观 · 快捷操作 · 版本更新");
-        LinearLayout style = card("外观主题", "选择后立即应用到各个页面。");
+        title("设置", "主题、快捷操作与版本");
+        LinearLayout style = card("外观", "选择主题后立即应用到所有页面。");
         RadioGroup theme = new RadioGroup(this);
-        theme.setOrientation(RadioGroup.VERTICAL);
+        theme.setOrientation(RadioGroup.HORIZONTAL);
         for (String[] choice : new String[][]{
                 {"system", "跟随系统"}, {"light", "浅色"}, {"dark", "深色"}}) {
             RadioButton b = new RadioButton(this);
+            b.setId(View.generateViewId());
             b.setText(choice[1]);
+            b.setTextSize(13);
             b.setTextColor(ink);
+            b.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            b.setMinHeight(dp(48));
             b.setTag(choice[0]);
-            theme.addView(b);
+            theme.addView(b, new LinearLayout.LayoutParams(0, dp(54), 1));
             if (prefs.theme().equals(choice[0])) b.setChecked(true);
         }
         theme.setOnCheckedChangeListener((group, id) -> {
@@ -34,14 +39,15 @@ public final class SettingsActivity extends Ui {
         });
         style.addView(theme);
 
-        LinearLayout quick = card("下拉快捷设置", "由系统确认添加 BerryFCM 磁贴。监控开启时点击执行一次检查；监控关闭则打开监控页。");
-        button(quick, "请求添加 BerryFCM FCM 监控磁贴", this::addTile, true);
+        LinearLayout quick = card("快捷设置", "磁贴由系统添加。监控开启时点击立即检查，否则打开监控页面。");
+        button(quick, "添加 FCM 快捷磁贴", this::addTile, false);
+        line(quick, "授权与连接", "更换 Root / ADB 方式或重新配对", () -> go(AuthActivity.class));
         line(quick, "自动恢复", "恢复的是 FCM 后台监控和选中的应用守护，不管理其他软件的无障碍服务。", null);
 
-        LinearLayout about = card("项目与升级", "正式更新来源是此项目 GitHub Releases。Actions Artifact 不等于 Release。");
-        button(about, "检查在线更新", () -> go(UpdateActivity.class), true);
-        button(about, "查看项目主页", () -> openUrl("https://github.com/jarod360/Berry-FCM-OS7"), false);
-        button(about, "查看问题反馈 / Issues", () -> openUrl("https://github.com/jarod360/Berry-FCM-OS7/issues"), false);
+        LinearLayout about = card("版本与更新", "在线更新只检查 GitHub Releases，不读取 Actions 测试包。");
+        button(about, "检查新版本", () -> go(UpdateActivity.class), true);
+        line(about, "项目主页", "GitHub · 源码与版本说明", () -> openUrl("https://github.com/jarod360/Berry-FCM-OS7"));
+        line(about, "反馈问题", "GitHub Issues", () -> openUrl("https://github.com/jarod360/Berry-FCM-OS7/issues"));
         String version = "未知";
         try { version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName; }
         catch (Exception ignored) {}

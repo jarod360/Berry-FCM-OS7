@@ -156,31 +156,21 @@ public final class AdbPairingService extends Service {
         try {
             AdbConnectionManager adb = AdbConnectionManager.get(this);
             if (!adb.pairLocal(selectedPort, code))
-                throw new IllegalStateException("配对未成功，检查配对码或端口");
-            new AppPrefs(this).mode(AppPrefs.WIRELESS);
-            String state;
-            try {
-                boolean connected = adb.autoConnectLocal(this);
-                if (connected) {
-                    String identity = adb.shell("id").trim();
-                    if (!identity.contains("uid=2000"))
-                        throw new IllegalStateException("ADB 身份不是 Shell：" + identity);
-                    new AppPrefs(this).shellVerified(identity);
-                    state = "配对成功，ADB Shell 已验证";
-                } else {
-                    new AppPrefs(this).shellFailed("ADB 配对已完成，Shell 尚未连接");
-                    state = "配对成功，但 Shell 未连接；请确认无线调试仍开启";
-                }
-            } catch (Exception exception) {
-                new AppPrefs(this).shellFailed(exception.getMessage());
-                state = "配对成功，但 Shell 验证失败：" + exception.getMessage();
-            }
-            complete(state);
+                throw new IllegalStateException("配对未成功，请核对配对码及端口");
+            AppPrefs prefs = new AppPrefs(this);
+            prefs.mode(AppPrefs.WIRELESS);
+            prefs.markAdbPaired();
+            prefs.pairingStatus("配对成功，监控正在自动连接");
+            // Pairing is a one-time identity exchange. The foreground monitor
+            // owns automatic TLS connection, UID validation and sampling retries.
+            prefs.monitorEnabled(true);
+            FcmMonitorService.start(this);
+            complete("配对成功，已启动监控；后台将自动连接并采样");
         } catch (Exception error) {
             String message = String.valueOf(error.getMessage());
             new AppPrefs(this).shellFailed(message);
             if (message.contains("RSA routines") || message.contains("SSL library")) {
-                complete("配对失败：TLS 身份握手异常。请核对配对端口，使用新版 TLS 身份重新配对");
+                complete("配对失败：TLS 握手异常，请检查系统无线调试并重试");
             } else complete("配对失败：" + message);
         }
     }

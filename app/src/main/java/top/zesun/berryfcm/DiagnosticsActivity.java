@@ -16,19 +16,20 @@ public final class DiagnosticsActivity extends Ui {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        title("诊断与日志", "连接证据 · 网络可达性 · 权限错误");
-        LinearLayout status = card("原生诊断", "Google FCM Diagnostics 可用于对照短暂断连；页面是否导出取决于 GMS 版本。");
-        button(status, "打开 Google 原生 FCM Diagnostics", () -> openGoogle(this), true);
-        button(status, "查看 BerryFCM FCM 监控详情", () -> go(MonitorActivity.class), false);
-
-        LinearLayout network = card("网络检查", "基础 TCP 测试无需 Root / ADB，使用 BerryFCM 自身网络路由；不代表 Google Play 服务已认证或能收到推送。");
-        button(network, "检查 mtalk.google.com TCP 5228 / 5229 / 5230", this::checkNetwork, true);
-        button(network, "检查 GMS Doze / 后台网络 / 通知权限", this::checkPolicies, false);
-        results = text("尚未运行诊断", 13, false, muted);
+        title("网络诊断", "不依赖 Shell 的基础检查与高级诊断");
+        LinearLayout network = card("基础网络检查", "无需 Root / ADB，只测试本应用的 TCP 连接，不代表 GMS 推送已恢复。");
+        button(network, "检测 mtalk.google.com 连接", this::checkNetwork, true);
+        results = text("尚未执行检测", 13, false, muted);
         results.setTextIsSelectable(true);
-        results.setPadding(0, dp(8), 0, 0);
+        results.setPadding(0, dp(12), 0, dp(5));
         network.addView(results);
-        button(network, "分享最近监控事件 / 错误", this::shareEvents, false);
+
+        LinearLayout diagnostics = card("更多诊断", "系统策略检测需要已授权的 Root / ADB Shell。");
+        line(diagnostics, "Google FCM Diagnostics", "打开系统原生连接诊断", () -> openGoogle(this));
+        line(diagnostics, "监控记录", "查看 FCM Socket、断联事件", () -> go(MonitorActivity.class));
+        LinearLayout extra = disclosure(diagnostics, "高级 · 策略检查 / 分享日志", false);
+        button(extra, "检查 GMS Doze / 后台网络 / 通知策略", this::checkPolicies, false);
+        button(extra, "分享监控事件与错误", this::shareEvents, false);
     }
 
     static void openGoogle(Activity activity) {

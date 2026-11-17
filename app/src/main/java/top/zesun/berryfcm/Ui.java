@@ -26,6 +26,7 @@ abstract class Ui extends Activity {
     private LinearLayout header;
     private LinearLayout nav;
     private boolean dark;
+    private boolean secondaryPage;
     protected int ink, muted, surface, panel, accent;
 
     @Override protected void onCreate(Bundle state) {
@@ -55,6 +56,8 @@ abstract class Ui extends Activity {
                 | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
                 | (dark ? 0 : View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR));
 
+        secondaryPage = this instanceof AuthActivity || this instanceof DiagnosticsActivity
+                || this instanceof UpdateActivity;
         frame = new LinearLayout(this);
         frame.setOrientation(LinearLayout.VERTICAL);
         frame.setBackgroundColor(surface);
@@ -74,7 +77,8 @@ abstract class Ui extends Activity {
         nav.setPadding(dp(5), dp(5), dp(5), dp(5));
         nav.setBackgroundColor(panel);
         frame.addView(nav);
-        buildNavigation();
+        if (secondaryPage) nav.setVisibility(View.GONE);
+        else buildNavigation();
         setContentView(frame);
         frame.setOnApplyWindowInsetsListener((v, insets) -> {
             int top, bottom;
@@ -95,22 +99,34 @@ abstract class Ui extends Activity {
         header.removeAllViews();
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        ImageView icon = symbol(symbolFor(title), accent, 27);
-        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(dp(27), dp(27));
-        iconParams.rightMargin = dp(11);
-        row.addView(icon, iconParams);
+        if (secondaryPage) {
+            TextView back = text("‹", 32, false, ink);
+            back.setGravity(Gravity.CENTER);
+            back.setContentDescription("返回上一页");
+            back.setFocusable(true);
+            back.setClickable(true);
+            LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(dp(48), dp(48));
+            bp.rightMargin = dp(4);
+            row.addView(back, bp);
+            back.setOnClickListener(v -> finish());
+        } else {
+            ImageView icon = symbol(symbolFor(title), accent, 27);
+            LinearLayout.LayoutParams iconParams =
+                    new LinearLayout.LayoutParams(dp(27), dp(27));
+            iconParams.rightMargin = dp(11);
+            row.addView(icon, iconParams);
+        }
         LinearLayout words = new LinearLayout(this);
         words.setOrientation(LinearLayout.VERTICAL);
-        words.addView(text(title, 23, true, ink));
+        words.addView(text(title, 22, true, ink));
         if (description != null && !description.isEmpty()) {
             TextView caption = text(description, 12, false, muted);
-            caption.setPadding(0, dp(5), 0, 0);
+            caption.setPadding(0, dp(3), 0, 0);
             words.addView(caption);
         }
-        row.addView(words);
+        row.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
         header.addView(row);
     }
-
     private int symbolFor(String label) {
         if (label.contains("诊断")) return R.drawable.ic_bf_diagnostics;
         if (label.contains("更新") || label.contains("升级")) return R.drawable.ic_bf_update;
@@ -142,16 +158,17 @@ abstract class Ui extends Activity {
     protected LinearLayout card(String heading, String description) {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(16), dp(17), dp(16), dp(16));
+        box.setPadding(dp(16), dp(16), dp(16), dp(16));
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(panel);
-        drawable.setCornerRadius(dp(18));
+        drawable.setCornerRadius(dp(16));
+        drawable.setStroke(dp(1), dark ? 0xff28354c : 0xffe4e9f2);
         box.setBackground(drawable);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
         lp.bottomMargin = dp(12);
         content.addView(box, lp);
         if (heading != null) {
-            box.addView(text(heading, 17, true, ink));
+            box.addView(text(heading, 16, true, ink));
             if (description != null && !description.isEmpty()) {
                 TextView desc = text(description, 12, false, muted);
                 desc.setPadding(0, dp(7), 0, dp(9));
@@ -211,6 +228,44 @@ abstract class Ui extends Activity {
             entry.setOnClickListener(v -> action.run());
         }
     }
+    /** Progressive disclosure for infrequent or technical controls. */
+    protected LinearLayout disclosure(LinearLayout parent, String caption, boolean expanded) {
+        TextView trigger = text("", 14, true, accent);
+        trigger.setGravity(Gravity.CENTER_VERTICAL);
+        trigger.setPadding(dp(4), dp(10), dp(4), dp(10));
+        trigger.setMinHeight(dp(48));
+        trigger.setClickable(true);
+        trigger.setFocusable(true);
+        parent.addView(trigger);
+        LinearLayout details = new LinearLayout(this);
+        details.setOrientation(LinearLayout.VERTICAL);
+        parent.addView(details);
+        details.setVisibility(expanded ? View.VISIBLE : View.GONE);
+        trigger.setText(caption + (expanded ? "  ▴" : "  ▾"));
+        trigger.setContentDescription(caption + (expanded ? "，点击收起" : "，点击展开"));
+        trigger.setOnClickListener(v -> {
+            boolean opening = details.getVisibility() != View.VISIBLE;
+            details.setVisibility(opening ? View.VISIBLE : View.GONE);
+            trigger.setText(caption + (opening ? "  ▴" : "  ▾"));
+            trigger.setContentDescription(caption + (opening ? "，点击收起" : "，点击展开"));
+        });
+        return details;
+    }
+
+    protected void factRow(LinearLayout parent, String label, String value) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.TOP);
+        row.setPadding(0, dp(5), 0, dp(5));
+        TextView name = text(label, 13, false, muted);
+        row.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView detail = text(value, 13, true, ink);
+        detail.setGravity(Gravity.END);
+        detail.setTextAlignment(View.TEXT_ALIGNMENT_VIEW_END);
+        detail.setMaxLines(3);
+        row.addView(detail, new LinearLayout.LayoutParams(0, -2, 1.2f));
+        parent.addView(row);
+    }
     protected int dp(int px) { return (int) (px * getResources().getDisplayMetrics().density + .5f); }
     protected void go(Class<? extends Activity> page) { startActivity(new Intent(this, page)); }
     protected void error(String info) { android.widget.Toast.makeText(this, info, android.widget.Toast.LENGTH_LONG).show(); }
@@ -218,26 +273,40 @@ abstract class Ui extends Activity {
     private void buildNavigation() {
         Class<?>[] pages = {MainActivity.class, MonitorActivity.class, GuardActivity.class,
                 BackgroundActivity.class, SettingsActivity.class};
-        String[] names = {"概览", "FCM", "守护", "保活", "设置"};
+        String[] names = {"概览", "监控", "守护", "保活", "设置"};
         int[] icons = {R.drawable.ic_bf_home, R.drawable.ic_bf_fcm,
                 R.drawable.ic_bf_guard, R.drawable.ic_bf_battery, R.drawable.ic_bf_settings};
+        nav.setPadding(dp(6), dp(7), dp(6), dp(7));
         for (int i = 0; i < pages.length; i++) {
             Class<?> target = pages[i];
             boolean selected = target.isInstance(this);
             LinearLayout item = new LinearLayout(this);
             item.setOrientation(LinearLayout.VERTICAL);
             item.setGravity(Gravity.CENTER);
+            item.setMinimumHeight(dp(56));
+            item.setClickable(true);
+            item.setFocusable(true);
+            item.setContentDescription(names[i] + (selected ? "，当前页面" : ""));
+            if (selected) {
+                GradientDrawable pill = new GradientDrawable();
+                pill.setCornerRadius(dp(14));
+                pill.setColor(dark ? 0xff2b3b61 : 0xffe5ecff);
+                item.setBackground(pill);
+            }
             ImageView image = symbol(icons[i], selected ? accent : muted, 22);
-            item.addView(image, new LinearLayout.LayoutParams(dp(21), dp(21)));
+            item.addView(image, new LinearLayout.LayoutParams(dp(22), dp(22)));
             TextView label = text(names[i], 11, selected, selected ? accent : muted);
             label.setGravity(Gravity.CENTER);
             label.setPadding(0, dp(4), 0, 0);
             item.addView(label);
-            nav.addView(item, new LinearLayout.LayoutParams(0, dp(56), 1));
+            LinearLayout.LayoutParams itemParams = new LinearLayout.LayoutParams(0, dp(58), 1);
+            itemParams.leftMargin = dp(2);
+            itemParams.rightMargin = dp(2);
+            nav.addView(item, itemParams);
             item.setOnClickListener(v -> {
                 if (!target.isInstance(this)) {
                     Intent intent = new Intent(this, target.asSubclass(Activity.class));
-                    intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+                    intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
                     startActivity(intent);
                 }
             });

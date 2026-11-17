@@ -1,7 +1,7 @@
 package top.zesun.berryfcm;
 
 import android.os.Bundle;
-import android.widget.CheckBox;
+import android.widget.Switch;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import java.util.concurrent.ExecutorService;
@@ -13,8 +13,8 @@ public final class BackgroundActivity extends Ui {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        title("后台保活与授权", "系统服务 · 电池策略 · OriginOS");
-        LinearLayout service = card("自动运行", "后台状态独立于首页；系统强行停止仍可能中断，未采样时间会标记为未知。");
+        title("后台保活", "运行策略与系统权限");
+        LinearLayout service = card("运行方式", "前台服务和系统设置只能提高可靠性，无法保证永不被停止。");
         toggle(service, "FCM 持续监控", prefs.monitorEnabled(), value -> {
             prefs.monitorEnabled(value);
             syncService();
@@ -29,48 +29,52 @@ public final class BackgroundActivity extends Ui {
             syncService();
         });
 
-        LinearLayout android = card("Android 后台权限", "优先使用系统授权接口；ADB Shell 优化完成后会回读当前配置。");
+        LinearLayout android = card("系统后台权限", "优先完成系统电池授权，再按需使用 Root / ADB 修改策略。");
         policy = text("", 13, false, muted);
         android.addView(policy);
-        button(android, "一键放行 BerryFCM 后台策略（ADB / Root）", this::optimize, true);
-        button(android, "撤销本版 BerryFCM 添加的后台策略", this::restoreOwn, false);
-        button(android, "打开忽略电池优化授权", () -> BackgroundSettings.requestBattery(this), false);
-        button(android, "查看系统电池优化列表", () -> BackgroundSettings.batteryList(this), false);
+        button(android, "打开忽略电池优化授权", () -> BackgroundSettings.requestBattery(this), true);
         button(android, "打开应用设置（通知 / 电池）", () -> BackgroundSettings.details(this), false);
-        button(android, "单独放行 GMS 的 Doze", () -> gmsPolicy(true), false);
-        button(android, "撤销 BerryFCM 添加的 GMS Doze 放行", () -> gmsPolicy(false), false);
-        button(android, "放行 GMS 后台计量网络", () -> gmsNetwork(true), false);
-        button(android, "撤销 BerryFCM 添加的后台网络放行", () -> gmsNetwork(false), false);
+        LinearLayout androidExtra = disclosure(android, "高级 · Shell 策略与撤销", false);
+        button(androidExtra, "放行 BerryFCM 后台策略", this::optimize, false);
+        button(androidExtra, "撤销本版添加的后台策略", this::restoreOwn, false);
+        button(androidExtra, "查看系统电池优化列表", () -> BackgroundSettings.batteryList(this), false);
+        button(androidExtra, "单独放行 GMS 的 Doze", () -> gmsPolicy(true), false);
+        button(androidExtra, "撤销 BerryFCM 添加的 GMS Doze 放行", () -> gmsPolicy(false), false);
+        button(androidExtra, "放行 GMS 后台计量网络", () -> gmsNetwork(true), false);
+        button(androidExtra, "撤销 BerryFCM 添加的后台网络放行", () -> gmsNetwork(false), false);
 
-        LinearLayout vendor = card("OriginOS 后台管理", "自启动、关联启动、允许后台高耗电通常为厂商私有开关，不能把打开设置页当成自动授权成功。");
-        button(vendor, "打开 OriginOS 启动管理", () -> BackgroundSettings.autostart(this), true);
-        line(vendor, "自启动 / 关联启动", "在系统启动管理内分别检查。尚无经证实可直达“关联启动”的独立入口，不能把同一页面重复伪装成两个入口。", null);
-        button(vendor, "后台高耗电：进入应用信息", () -> BackgroundSettings.details(this), false);
-        line(vendor, "最近任务锁定", "打开系统最近任务列表，找到 BerryFCM 卡片并从菜单锁定。此开关没有可验证的标准 Android 接口，需要手动操作。", null);
-        toggle(vendor, "隐藏 BerryFCM 最近任务卡片", prefs.hideRecents(), value -> {
+        LinearLayout vendor = card("OriginOS 设置", "厂商自启动、关联启动和高耗电开关需要在系统中手动确认。");
+        button(vendor, "打开启动管理", () -> BackgroundSettings.autostart(this), true);
+        button(vendor, "打开 BerryFCM 应用信息", () -> BackgroundSettings.details(this), false);
+        LinearLayout vendorExtra = disclosure(vendor, "最近任务与手动设置说明", false);
+        line(vendorExtra, "自启动 / 关联启动", "在系统启动管理中逐项检查，页面打开不代表已经授权。", null);
+        line(vendorExtra, "最近任务锁定", "进入系统最近任务页面，通过 BerryFCM 任务卡片菜单手动锁定。", null);
+        toggle(vendorExtra, "隐藏最近任务卡片", prefs.hideRecents(), value -> {
             if (RecentTasks.apply(this, value)) {
                 prefs.hideRecents(value);
-                error(value ? "任务卡片已请求隐藏；可在此关闭隐藏" : "已恢复任务卡片显示");
-            } else error("系统未确认修改最近任务，保持原设置");
+                error(value ? "已请求隐藏卡片；需要时可回到此处恢复" : "已请求显示任务卡片");
+            } else error("系统未确认卡片操作，保持原设置");
         });
-        line(vendor, "注意", "隐藏任务卡片并不隐藏后台进程或 Android 前台服务提示。", null);
+        line(vendorExtra, "说明", "隐藏最近任务卡片不隐藏后台进程，也不关闭前台服务通知。", null);
         renderPolicy();
     }
 
     private interface Change { void apply(boolean value); }
     private void toggle(LinearLayout box, String label, boolean checked, Change change) {
-        CheckBox check = new CheckBox(this);
+        Switch check = new Switch(this);
         check.setText(label);
         check.setTextSize(14);
+        check.setMinHeight(dp(50));
         check.setTextColor(ink);
         check.setChecked(checked);
         box.addView(check);
         check.setOnCheckedChangeListener((b, value) -> {
             boolean privileged = label.contains("FCM 持续监控")
                     || label.contains("守护所选应用");
-            if (privileged && value && !prefs.shellRecentlyVerified()) {
+            if (privileged && value && AppPrefs.WIRELESS.equals(prefs.mode())
+                    && !prefs.adbPaired()) {
                 check.setChecked(false);
-                error("请先进入授权中心验证 Root / ADB Shell");
+                error("首次使用需要先完成无线 ADB 配对");
                 go(AuthActivity.class);
                 return;
             }
@@ -89,8 +93,10 @@ public final class BackgroundActivity extends Ui {
         policy.setText("忽略系统电池优化："
                 + (BackgroundSettings.batteryExempt(this) ? "已确认" : "未开启／未确认")
                 + "\n通知权限：" + (notificationEnabled ? "已开启" : "未开启／未确认")
-                + "\nRoot / ADB Shell：" + (prefs.shellRecentlyVerified()
-                        ? "近期验证通过" : "当前未验证")
+                + "\n连接方式：" + (AppPrefs.WIRELESS.equals(prefs.mode())
+                        ? prefs.adbPaired() ? "无线 ADB 配对已保存（后台自动连接）" : "尚未无线配对"
+                        : AppPrefs.ROOT.equals(prefs.mode()) ? "Root（后台按需验证）"
+                        : "静态 ADB TCP（后台按需连接）")
                 + "\nOriginOS 自启动、关联启动与后台高耗电：需在系统页面手动确认");
     }
     private void optimize() {

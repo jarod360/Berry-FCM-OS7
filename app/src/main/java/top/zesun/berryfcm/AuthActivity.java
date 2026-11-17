@@ -26,13 +26,14 @@ public final class AuthActivity extends Ui {
     private TextView status, detail;
     private String selected;
     private boolean checking;
+    private int pendingPairPort = -1;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         selected = prefs.mode();
-        title("授权中心", "选择授权方式，完成连接后验证 Shell");
+        title("连接授权", "选择一种连接方式，按照步骤操作");
 
-        LinearLayout card = card("当前连接", "是否可用以最近一次实际 Shell 验证为准。");
+        LinearLayout card = card("当前授权状态", "只有真正运行 Shell 并返回身份后才算验证成功。");
         status = text("检查状态中", 20, true, ink);
         card.addView(status);
         detail = text("", 12, false, muted);
@@ -40,7 +41,7 @@ public final class AuthActivity extends Ui {
         detail.setPadding(0, dp(5), 0, dp(1));
         card.addView(detail);
 
-        LinearLayout chooser = card("授权方式", "横向切换；仅显示选中方式的操作流程。");
+        LinearLayout chooser = card("选择连接方式", "初次使用推荐无线 ADB；已 Root 的设备可直接授权。");
         HorizontalScrollView scroll = new HorizontalScrollView(this);
         scroll.setHorizontalScrollBarEnabled(false);
         tabs = new LinearLayout(this);
@@ -48,7 +49,7 @@ public final class AuthActivity extends Ui {
         scroll.addView(tabs);
         chooser.addView(scroll);
 
-        LinearLayout steps = card("操作步骤", null);
+        LinearLayout steps = card("按顺序操作", null);
         instructions = new LinearLayout(this);
         instructions.setOrientation(LinearLayout.VERTICAL);
         steps.addView(instructions);
@@ -69,6 +70,8 @@ public final class AuthActivity extends Ui {
             bg.setColor(active ? 0xff365ed6 : (surface == 0xfff4f6fa ? 0xffebeff8 : 0xff293650));
             bg.setCornerRadius(dp(12));
             tab.setBackground(bg);
+            tab.setFocusable(true);
+            tab.setContentDescription(LABELS[i] + (active ? "，当前选中" : "，点击切换"));
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-2, dp(42));
             params.rightMargin = dp(7);
             tabs.addView(tab, params);
@@ -99,45 +102,67 @@ public final class AuthActivity extends Ui {
     }
 
     private void wireless() {
-        step("1 · 开始配对通知", "启动监听，尝试自动发现本机 ADB 配对端口。");
-        button(instructions, "开始通知栏配对", () -> beginPair(0), true);
-        step("2 · 在系统中生成配对码",
-                "打开开发者选项 → 无线调试 → 使用配对码配对设备，保持此页面打开。");
-        button(instructions, "打开开发者选项 / 无线调试", this::openDevelopers, false);
-        step("3 · 从通知栏完成配对",
-                "在系统无线调试界面下拉通知栏，向 BerryFCM 通知提交六位配对码，无需切回应用。");
-        if (prefs.pairingStatus().startsWith("配对成功")
-                || (AppPrefs.WIRELESS.equals(prefs.shellMode()) && prefs.shellVerifiedAt() > 0)) {
-            button(instructions, "重新连接 / 验证 ADB Shell", this::checkShell, false);
+        if (prefs.adbPaired()) {
+            step("已保存配对身份", "正常不必再次配对，也不需要每两分钟手动验证。后台自动重连并采样。");
+            button(instructions, "启动 / 立即检查 FCM 监控", () -> {
+                prefs.monitorEnabled(true);
+                FcmMonitorService.start(this);
+                FcmMonitorService.checkNow(this);
+                go(MonitorActivity.class);
+            }, true);
+            LinearLayout repair = disclosure(instructions, "重新配对 / 无线调试设置", false);
+            wirelessSteps(repair);
+        } else {
+            wirelessSteps(instructions);
         }
+    }
 
-        step("备用方式", "如果自动发现失败，在通知中输入“端口:六位码”。");
-        TextView fallbackToggle = text("手动输入配对端口  ›", 13, true, accent);
-        fallbackToggle.setPadding(0, dp(9), 0, dp(7));
-        instructions.addView(fallbackToggle);
-        LinearLayout fallback = new LinearLayout(this);
-        fallback.setOrientation(LinearLayout.VERTICAL);
-        fallback.setVisibility(View.GONE);
-        instructions.addView(fallback);
+    private void wirelessSteps(LinearLayout parent) {
+        stepIn(parent, "1 · 开始并打开无线调试",
+                "点击后启动配对通知并跳到系统无线调试；打开“使用配对码配对设备”。");
+        button(parent, "开始配对并打开无线调试", () -> beginPair(0), true);
+        stepIn(parent, "2 · 在通知栏输入六位码",
+                "停留在系统配对码页面，下拉通知栏输入六位码。BerryFCM 会自动搜索配对端口。");
+        stepIn(parent, "3 · 自动运行",
+                "配对成功后自动连接并开启 FCM 采样，不必返回再点授权或连接。");
+        LinearLayout fallback = disclosure(parent, "端口无法发现？手动输入", false);
+        stepFallback(fallback);
+        button(fallback, "只打开无线调试设置", this::openWirelessDebugging, false);
+        button(fallback, "取消配对通知", () -> {
+            AdbPairingService.stop(this);
+            status.setText("配对已取消");
+            detail.setText("可重新开始。");
+        }, false);
+    }
+
+    private void stepIn(LinearLayout parent, String label, String description) {
+        TextView heading = text(label, 14, true, ink);
+        heading.setPadding(0, dp(10), 0, dp(3));
+        parent.addView(heading);
+        parent.addView(text(description, 12, false, muted));
+    }
+
+    private void stepFallback(LinearLayout fallback) {
+        TextView tip = text("自动发现端口失败时，可直接在通知栏输入“端口:六位码”，例如 37123:123456。",
+                12, false, muted);
+        tip.setPadding(0, dp(5), 0, dp(8));
+        fallback.addView(tip);
         EditText pairingPort = field(fallback, "系统配对页面显示的端口", "", true);
-        button(fallback, "按指定端口开始通知栏配对", () -> {
+        button(fallback, "指定端口开始配对", () -> {
             int port = parsePort(pairingPort.getText().toString());
             if (port == 0) { error("请输入有效配对端口"); return; }
             beginPair(port);
         }, false);
-        fallbackToggle.setOnClickListener(v -> fallback.setVisibility(
-                fallback.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE));
-        button(instructions, "取消配对通知", () -> AdbPairingService.stop(this), false);
     }
 
     private void root() {
-        step("通过 KernelSU / Magisk 授权",
+        step("申请 Root Shell",
                 "系统 Root 管理器可能弹出授权请求。只有 Shell 执行 id 返回 uid=0 才算完成。");
         button(instructions, "申请并验证 Root Shell", this::checkShell, true);
     }
 
     private void tcp() {
-        step("连接已有 ADB TCP 端口",
+        step("验证已经开放的 ADB TCP 端口",
                 "需已开启 adbd TCP 服务；仅填写地址不会启用系统无线调试。");
         EditText host = field(instructions, "ADB 主机地址", prefs.host(), false);
         EditText port = field(instructions, "ADB 端口", String.valueOf(prefs.staticPort()), true);
@@ -155,7 +180,7 @@ public final class AuthActivity extends Ui {
     private void usb() {
         step("在电脑上初始化 ADB TCP", "USB 连接必须先经系统授权。手机 APK 本身不能授予持续 Shell 权限。");
         step("电脑执行", "adb tcpip 5555");
-        step("返回 APP", "切到 ADB TCP，连接 127.0.0.1:5555 并验证。重启后端口可能关闭。");
+        step("返回 BerryFCM", "切换到 ADB TCP，填写本机 127.0.0.1 和实际开放的端口后验证。重启后可能失效。");
         button(instructions, "切换到 ADB TCP", () -> {
             selected = AppPrefs.STATIC;
             prefs.mode(selected);
@@ -186,39 +211,76 @@ public final class AuthActivity extends Ui {
     }
 
     private void beginPair(int manualPort) {
-        if (Build.VERSION.SDK_INT < 30) { error("无线配对需要 Android 11 或更新版本"); return; }
-        if (Build.VERSION.SDK_INT >= 33
-                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 120);
-            error("请先允许通知权限，再次点击开始配对");
+        pendingPairPort = manualPort;
+        if (Build.VERSION.SDK_INT < 30) {
+            error("系统不支持 Android 11 无线 ADB 配对");
             return;
         }
         if (Build.VERSION.SDK_INT >= 33
-                && checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED) {
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                        != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 120);
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES)
+                        != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.NEARBY_WIFI_DEVICES}, 121);
-            error("请先允许附近设备权限，再次点击开始配对");
             return;
         }
         android.app.NotificationManager manager = getSystemService(android.app.NotificationManager.class);
         if (manager == null || !manager.areNotificationsEnabled()) {
-            error("通知权限已关闭；请在系统设置中开启以便从通知栏输入配对码");
+            error("请先开启 BerryFCM 通知权限，才能从通知栏输入配对码");
             startActivity(new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
                     .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName()));
             return;
         }
         try {
             AdbPairingService.begin(this, manualPort);
-            status.setText("等待系统配对码");
-            detail.setText("先在无线调试页面生成配对码，再下拉系统通知栏提交。");
+            status.setText("正在等待配对码");
+            detail.setText("系统无线调试页面打开后，选择使用配对码配对设备，并下拉通知栏输入。");
+            pendingPairPort = -1;
+            openWirelessDebugging();
         } catch (RuntimeException e) {
             status.setText("无法开始配对");
             detail.setText(String.valueOf(e.getMessage()));
         }
     }
 
-    private void openDevelopers() {
-        try { startActivity(new Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)); }
-        catch (RuntimeException e) { startActivity(new Intent(Settings.ACTION_SETTINGS)); }
+    @Override public void onRequestPermissionsResult(
+            int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode != 120 && requestCode != 121) return;
+        if (grantResults.length == 0 || grantResults[0] != PackageManager.PERMISSION_GRANTED) {
+            pendingPairPort = -1;
+            error("配对通知所需权限未授予，无法自动继续");
+            return;
+        }
+        if (pendingPairPort >= 0) beginPair(pendingPairPort);
+    }
+
+    private void openWirelessDebugging() {
+        // Some OEM Settings export this shortcut; fall back to the official
+        // Developer Options intent with the hint used by Shizuku.
+        try {
+            Intent direct = new Intent(Intent.ACTION_MAIN);
+            direct.setClassName("com.android.settings",
+                    "com.android.settings.Settings$WirelessDebuggingActivity");
+            startActivity(direct);
+            return;
+        } catch (RuntimeException ignored) { }
+        try {
+            Intent developer = new Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS);
+            developer.putExtra(":settings:fragment_args_key", "toggle_adb_wireless");
+            Bundle arguments = new Bundle();
+            arguments.putString(":settings:fragment_args_key", "toggle_adb_wireless");
+            developer.putExtra(":settings:show_fragment_args", arguments);
+            startActivity(developer);
+        } catch (RuntimeException error) {
+            error("无法直接打开无线调试，请在系统设置中进入开发者选项");
+            try { startActivity(new Intent(Settings.ACTION_SETTINGS)); }
+            catch (RuntimeException ignored) { }
+        }
     }
 
     private void checkShell() {
@@ -245,8 +307,21 @@ public final class AuthActivity extends Ui {
 
     private void renderStatus() {
         if (status == null) return;
+        if (AppPrefs.EXTERNAL.equals(selected)) {
+            status.setText("电脑 USB · 初始化指引");
+            detail.setText("这不是 APK 的授权模式。电脑启用 ADB TCP 后，回到 ADB TCP 标签连接验证。");
+            return;
+        }
         String mode = prefs.mode();
-        if (prefs.shellRecentlyVerified()) {
+        if (AppPrefs.WIRELESS.equals(selected) && prefs.adbPaired()) {
+            status.setText("配对已完成");
+            String monitorError = FcmMonitorService.lastError(this);
+            detail.setText(prefs.monitorEnabled()
+                    ? monitorError.isEmpty()
+                        ? "后台监控已开启，连接由服务自动维护；具体采样结果请到监控页查看。"
+                        : "最近采样异常：" + monitorError + "\n可到监控页检查，无需重新配对。"
+                    : "配对身份仍保留，监控尚未启用。点击下方按钮启动即可。");
+        } else if (prefs.shellRecentlyVerified()) {
             status.setText("Shell 已验证");
             detail.setText(mode + " · " + prefs.shellIdentity()
                     + "\n此结果只证明近期 Shell 可用，GMS Socket 权限仍须单独验证。");

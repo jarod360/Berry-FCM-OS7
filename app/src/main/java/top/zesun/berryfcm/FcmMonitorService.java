@@ -66,6 +66,15 @@ public final class FcmMonitorService extends Service {
     static String lastError(Context context) {
         return context.getSharedPreferences(SNAPSHOT, MODE_PRIVATE).getString("error", "");
     }
+    static long lastAttemptAt(Context context) {
+        return context.getSharedPreferences(SNAPSHOT, MODE_PRIVATE).getLong("attempt_time", 0);
+    }
+    static long lastStartAt(Context context) {
+        return context.getSharedPreferences(SNAPSHOT, MODE_PRIVATE).getLong("service_start_time", 0);
+    }
+    static String lastAttemptState(Context context) {
+        return context.getSharedPreferences(SNAPSHOT, MODE_PRIVATE).getString("attempt_state", "pending");
+    }
 
     @Override public void onCreate() {
         super.onCreate();
@@ -101,6 +110,8 @@ public final class FcmMonitorService extends Service {
         }
         startForeground(NOTIFICATION_ID, notification());
         if (!scheduled) {
+            getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
+                    .putLong("service_start_time", System.currentTimeMillis()).apply();
             scheduled = true;
             worker.scheduleWithFixedDelay(this::runOnce, 0, 15, TimeUnit.SECONDS);
         }
@@ -117,6 +128,9 @@ public final class FcmMonitorService extends Service {
             return;
         }
         if (p.monitorEnabled()) {
+            getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
+                    .putLong("attempt_time", System.currentTimeMillis())
+                    .putString("attempt_state", "running").apply();
             try {
                 String mode = p.mode();
                 if (!installed || !mode.equals(installedMode)) {
@@ -137,10 +151,11 @@ public final class FcmMonitorService extends Service {
                 String events = result.substring(eventsStart + "\nBERRY_EVENTS_BEGIN".length()).trim();
                 getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
                         .putString("json", json).putString("events", events)
-                        .remove("error").apply();
+                        .remove("error").putString("attempt_state", "success").apply();
             } catch (Exception error) {
                 getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
-                        .putString("error", safeError(error)).apply();
+                        .putString("error", safeError(error))
+                        .putString("attempt_state", "failed").apply();
                 installed = false;
             }
         }
