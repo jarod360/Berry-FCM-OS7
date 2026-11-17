@@ -69,8 +69,8 @@ jobs:
           echo "Exported certificate size: $(wc -c < "$cert_file") bytes"
           actual="$(sha256sum "$cert_file" | awk '{print toupper($1)}')"
           echo "Signing certificate SHA-256: $actual"
-          echo "Expected certificate SHA-256: E95E76C92E9F70670241C7C040CCC6000E26910BBD1F9E35F1BA99063E998EDD"
-          if [ "$actual" != "E95E76C92E9F70670241C7C040CCC6000E26910BBD1F9E35F1BA99063E998EDD" ]; then
+          echo "Expected certificate SHA-256: BB328497280F72FE6662E84D7D0D0B15BAF425872B9B360287ED120529D97615"
+          if [ "$actual" != "BB328497280F72FE6662E84D7D0D0B15BAF425872B9B360287ED120529D97615" ]; then
             echo "::error::Signing certificate fingerprint differs from the approved BerryFCM key."
             exit 1
           fi
