@@ -120,3 +120,12 @@
 - [APK Actions #44151785615](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44151785615)：alpha.38 补齐 Google Conscrypt #718 所需密钥参数后，模块测试、编译、固定签名及 APK 上传全部成功。
 - 新增 UI 错误摘要长度限制，技术细节仍在监控错误/诊断保留。Shell 验证记录采用 `currentTimeMillis` 与 `SystemClock.elapsedRealtime` 双时钟：可检测突然改时钟或设备重启后旧记录过期，避免只靠持久化时间误判。
 - 下一次源码提交后仍必须重新验证 Actions。**两个 CI 成功均不是 Android 17/OriginOS 的实际 TLS 配对成功证据**。
+
+## 11. 2026-11-18 最终 alpha.39 CI 结果
+
+- **成功**：[Actions #44152371697](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44152371697) / 源码 [299539cd](https://github.com/jarod360/Berry-FCM-OS7/commit/299539cd25983ef2fa221ab78dc6db0309bdc64b)。
+- 所有门槛通过：FCM 模拟监控、APK 模块与权限检查、Java/Android Debug 编译、固定签名 Release 编译、apksigner、Artifact 上传。签名 Artifact **`BerryFCM-v0.1.0-alpha.39`**，不是正式 Release；GitHub Releases 当前仍为空。
+- 本版包含 TLS AndroidKeyStore v3 密钥参数、需要用户首次重新配对；首页授权和错误摘要、按权限类型切换的独立操作页、模块图标与新 FCM 消息通知图标、短桌面/文件名、旧版更新器兼容旧资产名称。
+- **下一步真机首要验证**：在“无线调试”系统页面保持配对码可见，在 BerryFCM 通知栏 RemoteInput 提交六位码，返回后查看是否 `uid=2000(shell)`。若仍有 TLS 错误，检查原生 Conscrypt 私钥调用；按 [Shizuku](https://github.com/RikkaApps/Shizuku) 的软件 RSA + AndroidKeyStore AES-GCM 路线备选，不再改 APK 签名。其后测试 GMS Socket 读取、锁屏和服务恢复。
+- **在线升级门槛**：已有 alpha.36 只有识别旧文件名的内置更新器，因此本仓库的首次 `publish_release=true` 手动构建将同时上传新短名称和旧兼容名称资产，确保用户可以从旧版在 APP 内升级；发布前必须先确认测试接受该 prerelease 机制。普通 Actions push 不等于 Release。
+- 用户本机所有新开发资料如果落盘只允许 `D:\\Codex`；此次全部通过云端 GitHub 仓库和 Actions 进行，没有触及用户 C 盘。
