@@ -8,7 +8,7 @@ $keystore = Join-Path $signingDir 'berryfcm-release.p12'
 $setupFile = Join-Path $signingDir 'SIGNING-SETUP.txt'
 
 if (-not (Test-Path (Join-Path $repoRoot '.git'))) { throw "Repository not found at $repoRoot. Clone jarod360/Berry-FCM-OS7 there first." }
-if (Test-Path $keystore) { throw "Signing key already exists. Refusing to overwrite it: $keystore" }
+if ((Test-Path $keystore) -or (Test-Path $setupFile)) { throw "Signing material already exists. Refusing to overwrite it: $signingDir" }
 
 $keytoolCommand = Get-Command keytool.exe -ErrorAction SilentlyContinue
 if (-not $keytoolCommand) { $keytoolCommand = Get-Command keytool -ErrorAction SilentlyContinue }
