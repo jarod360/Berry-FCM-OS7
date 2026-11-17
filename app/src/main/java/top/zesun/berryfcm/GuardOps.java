@@ -28,10 +28,8 @@ final class GuardOps {
         if (!items.contains(GMS)) items.add(GMS);
         Collections.sort(items);
         StringBuilder cmd = new StringBuilder();
-        int done = 0;
         for (String pkg : items) {
             if (!PACKAGE.matcher(pkg).matches()) continue;
-            if (++done > 10) break; // bounded work for background shell access
             cmd.append("p='").append(pkg).append("'; ")
                .append("l=\"$(dumpsys -t 3 package \"$p\" 2>/dev/null | ")
                .append("grep -E '^[[:space:]]*User 0:.*installed=' | head -n 1)\"; ")

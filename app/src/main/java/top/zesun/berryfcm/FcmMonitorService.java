@@ -138,7 +138,7 @@ public final class FcmMonitorService extends Service {
                 getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
                         .putString("json", json).putString("events", events)
                         .remove("error").apply();
-            } catch (Throwable error) {
+            } catch (Exception error) {
                 getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
                         .putString("error", safeError(error)).apply();
                 installed = false;
@@ -157,7 +157,7 @@ public final class FcmMonitorService extends Service {
                 }
                 getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE).edit()
                         .putString("report", report).putLong("last_run", System.currentTimeMillis()).apply();
-            } catch (Throwable error) {
+            } catch (Exception error) {
                 getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE).edit()
                         .putString("report", "守护检查未执行：" + safeError(error)).apply();
                 adbConnected = false;
@@ -177,13 +177,13 @@ public final class FcmMonitorService extends Service {
             }
             execute(p, mode, monitorPrefix(mode) + "reconnect");
             runOnce();
-        } catch (Throwable error) {
+        } catch (Exception error) {
             getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
                     .putString("error", "手动重连请求失败：" + safeError(error)).apply();
         }
     }
 
-    private static String safeError(Throwable error) {
+    private static String safeError(Exception error) {
         String message = error.getMessage();
         return message == null ? "后台监测执行失败" : message;
     }

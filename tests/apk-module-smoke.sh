@@ -41,4 +41,10 @@ if grep -q 'WRITE_SECURE_SETTINGS\|BIND_ACCESSIBILITY_SERVICE' "$manifest"; then
   echo 'Unnecessary accessibility settings permission in manifest' >&2; exit 1
 fi
 
+# Exercise the actual plain-Java shell command builder with >10 selected apps.
+classes="${RUNNER_TEMP:-/tmp}/berryfcm-guard-smoke"
+mkdir -p "$classes"
+javac -d "$classes" "$src/GuardOps.java" "$root/tests/GuardOpsSmoke.java"
+java -cp "$classes" top.zesun.berryfcm.GuardOpsSmoke
+
 echo 'PASS: APK navigation modules, notification ADB pairing, FCM guard, insets, tile, release workflow, and removed accessibility scope'

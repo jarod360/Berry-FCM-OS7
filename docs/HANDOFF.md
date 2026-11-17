@@ -89,3 +89,14 @@
 用户明确反馈现有图标过度装饰。新版采用 Android 自适应图标：纯蓝背景、白色两条信号弧线与一个圆点，无渐变、阴影、叠层、文字；附 Android 13+ 单色主题图标。图标由 XML Vector Drawable 源码实现，分辨率无关，避免图片尺寸失真。原旧 WebP 图标资源清理。Manifest 中圆形图标和标准图标使用同一个自适应资源。
 
 **当前功能状态**：APK 八个模块已接入，最近一次 UI 主题版 [Actions #44142556439](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44142556439) 已成功，固定签名 Artifact `BerryFCM-Guardian-v0.1.0-alpha.34` 已上传；此图标改动需要新的 GitHub Actions 构建/签名验证。尚未开展目标 OriginOS 实机验证，不发布 GitHub Release。
+
+## 8. 按用户图片四条代码原则的审查（2026-11-18）
+
+基于当前 GitHub main 代码审查，结论见 [PRODUCT_PLAN.md §14](PRODUCT_PLAN.md)：
+
+- 确认真实问题：`GuardOps.command` 有无需求依据的**最多 10 个应用**截断，排序后 GMS 也可能漏巡检；删除限制，并通过 `tests/GuardOpsSmoke.java` 检查 25 个守护目标 + GMS 全覆盖。
+- 去掉 `FcmMonitorService` 三处 `catch(Throwable)`，保留真正的 I/O、Shell、系统异常捕获（`Exception`）。
+- 不动下载安装的包名/版本/签名安全验证、不动 ADB 配对码与端口入口验证、不动策略回读与自有白名单归属校验；它们是必要边界。
+- 可能的 ADB 共享连接互相干扰、输出上限，**未实机复现，不为理论风险增加新会话层**；列入后续实机检查。
+
+**状态：最小修正已形成源码，尚待同次 GitHub Actions 编译签名和自动测试确认；不可标为手机已通过。** 下一步优先检查新 CI 和真实 UI/配对流程，不要求用户继续测试旧版。
