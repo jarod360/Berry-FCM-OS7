@@ -60,13 +60,17 @@ jobs:
           printf '%s' "$BERRYFCM_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/berryfcm-release.p12"
           test -s "$RUNNER_TEMP/berryfcm-release.p12"
           keytool -list -keystore "$RUNNER_TEMP/berryfcm-release.p12" -storetype PKCS12 -storepass "$BERRYFCM_KEYSTORE_PASSWORD" -alias "$BERRYFCM_KEY_ALIAS" >/dev/null
-          # Export the selected certificate as DER and calculate its SHA-256 with OpenSSL.
-          # This is independent of keytool's localized human-readable output format.
-          set -o pipefail
-          actual="$(keytool -exportcert -keystore "$RUNNER_TEMP/berryfcm-release.p12" -storetype PKCS12 -storepass "$BERRYFCM_KEYSTORE_PASSWORD" -alias "$BERRYFCM_KEY_ALIAS" | openssl x509 -inform DER -noout -fingerprint -sha256 | sed 's/.*=//' | tr -d ':' | tr '[:lower:]' '[:upper:]')"
-          echo "Signing certificate SHA-256: ${actual:-<empty>}"
+          # Export the selected certificate to DER, then hash the exact certificate bytes.
+          cert_file="$RUNNER_TEMP/berryfcm-certificate.der"
+          if ! keytool -exportcert -keystore "$RUNNER_TEMP/berryfcm-release.p12" -storetype PKCS12 -storepass "$BERRYFCM_KEYSTORE_PASSWORD" -alias "$BERRYFCM_KEY_ALIAS" > "$cert_file"; then
+            echo "::error::keytool could not export the selected signing certificate."
+            exit 1
+          fi
+          echo "Exported certificate size: $(wc -c < "$cert_file") bytes"
+          actual="$(sha256sum "$cert_file" | awk '{print toupper($1)}')"
+          echo "Signing certificate SHA-256: $actual"
           echo "Expected certificate SHA-256: E95E76C92E9F70670241C7C040CCC6000E26910BBD1F9E35F1BA99063E998EDD"
-          if [ -z "$actual" ] || [ "$actual" != "E95E76C92E9F70670241C7C040CCC6000E26910BBD1F9E35F1BA99063E998EDD" ]; then
+          if [ "$actual" != "E95E76C92E9F70670241C7C040CCC6000E26910BBD1F9E35F1BA99063E998EDD" ]; then
             echo "::error::Signing certificate fingerprint differs from the approved BerryFCM key."
             exit 1
           fi
