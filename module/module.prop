@@ -1,6 +1,6 @@
 id=berry_fcm_ksu
 name=Berry-FCM KSU (OriginOS)
-version=0.5.3-test
-versionCode=8
+version=0.5.4-test
+versionCode=9
 author=OpenAI (based on Berry-FCM by miuiadmin)
-description=OriginOS FCM push protection with KernelSU root and WebUI; no Shizuku. Experimental: FCM lifecycle timeline, mtalk-verified TCP 443 fallback and guarded reconnect.
+description=OriginOS FCM push protection with KernelSU root and WebUI; no Shizuku. Experimental: FCM observation timeline, guarded mtalk TCP 443 candidate and reconnect.
