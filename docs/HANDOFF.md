@@ -34,13 +34,19 @@
 8. 应用内 GitHub Releases 更新/下载/版本签名验证尚未合入，正式 Release 流程也未建。
 9. 主界面风格、导航、系统服务过滤、应用守护导入、浅深主题均未按最终规划验收。
 
-## 4. 下一步 **只做一个阶段**
+## 4. P0-1 首个修复增量（进行中）
+
+- APK `app/src/main/assets/fcm-monitor.sh` 在 `ss -tnpe` 成功执行、但返回的全部 Socket 均缺少 UID 元数据时，直接报 `unknown / ss_uid_metadata_unavailable`，**不再误判“没有 FCM Socket”**。
+- `tests/fcm-monitor-smoke.sh` 支持切换 KSU/APK 监控脚本；APK 增加“UID 被 ADB Shell 隐去不触发自动重连”回归用例。
+- APK Actions 在 Gradle 编译前新增 APK 监控脚本 Shell 语法与模拟状态机测试。此处是待 CI 验证的源码变更，**不等于通过手机测试**。
+
+## 5. 下一步 **只做一个阶段**
 
 **P0-1：验证与修正监控基线**。先检查 `FcmMonitorService` 与复用脚本在 Root/ADB 下的失败分支，增强采样间隔、数据过期、Shell 权限变化与日志，保证“不采样/不可读 ≠ 已连接/已断联”；随后开始 P0-2 UI 导航与 P0-3 通知栏配对。
 
 完成一项就将证据、commit、Actions run、未解决事项写回此文件，同时更新 PRODUCT_PLAN.md 的阶段状态。不要因新讨论跳过本阶段。
 
-## 5. 验收证据格式（后续统一）
+## 6. 验收证据格式（后续统一）
 
 - **Commit / Actions：** SHA + URL + APK / KSU Artifact。
 - **编译验签：** Gradle 结果 + apksigner 结果 + 证书匹配。

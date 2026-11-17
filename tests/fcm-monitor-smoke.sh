@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
-MON="$ROOT/module/bin/fcm-monitor.sh"
+MON="${BERRY_MONITOR_SCRIPT:-$ROOT/module/bin/fcm-monitor.sh}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT HUP INT TERM
 mkdir -p "$TMP/bin" "$TMP/data"
@@ -106,5 +106,17 @@ export BERRY_TEST_DNS=off
 printf '1240.00 0.00\n' > "$TMP/uptime"
 j="$(json)"; assert_json "$j" 'fcm_state=unknown'; assert_json "$j" 'fcm_missing_seconds=0'
 [ "$(wc -l < "$TMP/am.log" | tr -d ' ')" = 1 ]
+
+
+# ADB shells can receive a redacted `ss` dump. Missing UID metadata is
+# unobservable, not a confirmed FCM disconnection; no reconnect is requested.
+if [ "${BERRY_ASSERT_UID_ACCESS:-0}" = 1 ]; then
+    cat > "$TMP/ss" <<'SOCK'
+ESTAB 0 0 192.168.1.8:45004 142.250.107.188:5228 users:("gms",pid=10,fd=5) ino:105
+SOCK
+    printf '1280.00 0.00\n' > "$TMP/uptime"
+    j="$(json)"; assert_json "$j" 'fcm_state=unknown'
+    [ "$(wc -l < "$TMP/am.log" | tr -d ' ')" = 1 ]
+fi
 
 echo 'PASS: 5228, mtalk-verified 443, unrelated 443 rejection, 120s reconnect, restoration, unknown-safe behavior'

@@ -41,6 +41,11 @@ jobs:
 
       # Compile-only check. This debug APK is deliberately NOT uploaded or distributed:
       # each GitHub runner has a different debug key and it would break update installs.
+      - name: Validate APK FCM monitor under simulated Root and ADB shell
+        run: |
+          sh -n app/src/main/assets/fcm-monitor.sh
+          BERRY_MONITOR_SCRIPT=app/src/main/assets/fcm-monitor.sh BERRY_ASSERT_UID_ACCESS=1 sh tests/fcm-monitor-smoke.sh
+
       - name: Compile APK sources
         run: gradle --no-daemon :app:assembleDebug
 

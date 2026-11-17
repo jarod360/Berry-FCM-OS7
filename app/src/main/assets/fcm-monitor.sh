@@ -121,6 +121,13 @@ scan_sockets() {
     command -v "$SS_BIN" >/dev/null 2>&1 || { printf 'unknown||||ss_unavailable\n'; return; }
     raw="$("$SS_BIN" -tnpe 2>/dev/null)" || { printf 'unknown||||ss_failed\n'; return; }
 
+    # Some ADB shells receive redacted ss output with no UID ownership.
+    # Never classify that as absence of GMS/FCM: ownership is unobservable.
+    if ! printf '%s\n' "$raw" | grep -Eq 'uid:[0-9]+'; then
+        printf 'unknown||||ss_uid_metadata_unavailable\n'
+        return
+    fi
+
     # Learn peer IPs observed on the dedicated MCS ports during this boot.
     printf '%s\n' "$raw" | awk -v u="$uid" '
       ($1=="ESTAB" || $1=="ESTABLISHED") {
