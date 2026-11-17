@@ -44,9 +44,11 @@
 ## 构建、签名与更新
 
 - GitHub Actions [Build Android APK](https://github.com/jarod360/Berry-FCM-OS7/actions/workflows/build-apk.yml) 执行 Shell 状态机模拟测试、APK 模块结构检查、Debug 编译、固定证书 Release 签名、apksigner 验签和 Artifact 上传。
-- 已经验证过的模块化 APK 构建：[Run #44139303543](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44139303543)（alpha.30）；**KSU 追平版最新已验证 Actions #44140579529（alpha.31）；后续代码变更仍需重新跑 CI。**
+- 已经验证过的模块化 APK 构建：[Run #44139303543](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44139303543)（alpha.30）；**更新接口和通知栏无 mDNS 兜底也已通过 [Actions #44141729186](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44141729186)（alpha.33）；主题修正等后续改动仍需新一轮 CI。**
 - \`workflow_dispatch.publish_release\` 默认关闭；普通 push 只上传测试 Artifact，等设备功能验收后由用户显式发起受控 GitHub prerelease。更新页面只检查正式 Release。
 - 正式签名证书 SHA-256：\`BB328497280F72FE6662E84D7D0D0B15BAF425872B9B360287ED120529D97615\`。不重新生成密钥、不在仓库记录 P12/密码，不再让用户填写已成功使用的四项 Secrets。
 - 同包名、同签名、\`versionCode\` 递增才允许覆盖安装。APK 首次安装、ADB 配对、后台过夜及 GitHub 覆盖升级仍需要目标 OriginOS 实机测试。
 
 **准入原则**：先完成页面模块与对应实际代码、通过 GitHub Actions，再交用户安装；不要要求测试已知不可用的旧授权流程。
+
+> 深色模式新增原生 Android 深色控件主题，首页授权状态返回时自动更新；最终主题代码编译与目标手机 UI 截图仍待验证。

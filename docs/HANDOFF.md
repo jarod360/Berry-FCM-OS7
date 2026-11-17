@@ -56,7 +56,7 @@
 
 ## 6. 下一步严格顺序
 
-1. **当前正在做**：KSU 追平增量、更新页面旧 Android 兼容性均已通过 [APK Actions #44141173241](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44141173241)（alpha.32，固定签名验签成功）。正在完善**mDNS 失败时仅从通知栏输入“端口:配对码”**的兜底流程，提交后须再次编译。之后才提供第一个可操作的模块化 APK 实机验收步骤。
+1. **当前正在做**：KSU 追平增量、更新页面旧 Android 兼容性均已通过 [APK Actions #44141173241](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44141173241)（alpha.32，固定签名验签成功）。已完成 **mDNS 失败时通知栏输入“端口:配对码”**兜底且 [APK Actions #44141729186](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44141729186) 编译/签名通过。之后才提供第一个可操作的模块化 APK 实机验收步骤。
 2. **只有新增 Actions 全部通过、功能代码入口完整后**，再提供安装测试版和一套最小验证步骤；先测试授权/模块导航，随后后台状态/守护，不要让用户在旧版浪费时间。
 3. 发现实机问题就针对性修复并更新这里；设备确认可覆盖升级后，再人工发布第一个 GitHub prerelease，验证 APP 在线升级。
 4. APK 稳定后双线回移 KernelSU；保持独立编译和版本记录。
@@ -70,9 +70,16 @@
 - **待实机的不能在 CI 验证**：OriginOS mDNS/通知栏配对、后台保活、Root/ADB 读取 GMS Socket、运行态 UI 截图及在线覆盖升级。由于无连接的真机，不能宣称“配对已成功”或“永不被杀”。
 - **测试顺序**：① 看首页布局及页面导航，② 系统无线调试界面下拉通知输入配对码并验证 Shell，③ 开启 FCM 监控查最新样本，④ 守护名单/后台权限/任务隐藏/磁贴，⑤ 锁屏与 Wi-Fi 切换对照 Google Diagnostics，⑥ 正式 Release 发布后覆盖升级。
 
-## 7.2 无需切回 APK 的配对兜底（本次新增，待 CI）
+## 7.2 无需切回 APK 的配对兜底（已通过 CI，待实机）
 
 - 系统无线调试页面如果 mDNS 自动发现到端口，通知栏只输入六位码。
 - 如果 OriginOS 屏蔽 mDNS，通知栏仍可以输入 `37123:123456`（实际配对端口:六位码），不必回到 BerryFCM 应用输入端口，保持在系统配对页面即可。
 - 不记录或保存配对码，输入来自 Android `RemoteInput` 的 mutable PendingIntent；PairingService 仅连接本机配对地址。
-- Android/OriginOS 通知栏是否正确显示 RemoteInput 仍需真机验收；此处仅是设计/代码记录，不是成功报告。
+- **代码/签名已通过** [APK Actions #44141729186](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44141729186)，产物 `BerryFCM-Guardian-v0.1.0-alpha.33`；Android/OriginOS 通知栏 RemoteInput 真实呈现仍需真机验收。
+
+## 7.3 最后一轮界面外观修正（正在提交，待 CI）
+
+- 深色模式采用完整 Android Material Dark 系统控件主题 `AppThemeDark`，而非仅改变文本/卡片颜色；修改 `Ui.java` 和 `styles.xml`。
+- 首页返回时重新读取 Root/ADB 模式与配对状态，消除静态授权卡片的旧状态；修改 `MainActivity.java`。
+- 扩展 `tests/apk-module-smoke.sh`，校验深色原生主题存在；变更提交并编译后再将对应 Actions Run/Artifact 写回。
+- 这不会修改包名、签名证书、GitHub Secrets 或 KernelSU 模块。**所有 APK 运行效果仍需要用户在目标机验证**。

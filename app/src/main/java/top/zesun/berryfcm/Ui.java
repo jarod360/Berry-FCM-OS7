@@ -27,6 +27,12 @@ abstract class Ui extends Activity {
     protected int ink, muted, surface, panel, accent;
 
     @Override protected void onCreate(Bundle state) {
+        AppPrefs initial = new AppPrefs(this);
+        String requested = initial.theme();
+        boolean useDark = "dark".equals(requested) || ("system".equals(requested)
+                && (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
+                    == Configuration.UI_MODE_NIGHT_YES);
+        if (useDark) setTheme(R.style.AppThemeDark);
         super.onCreate(state);
         prefs = new AppPrefs(this);
         String theme = prefs.theme();

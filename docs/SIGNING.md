@@ -43,3 +43,5 @@
 > [APK Actions #44140579529](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44140579529) 的 alpha.31 已固定签名且 apksigner 验证通过，未发布正式 Release。后续兼容性调整仍需重验。
 
 > 更新页面读取 GitHub API 已改为 Android 26+ 支持的 InputStream 循环读取，[APK #44141173241](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44141173241) 验签成功（alpha.32）。随后配对流程兜底代码仍需重新编译。
+
+> 通知栏 mDNS 兜底版 [Actions #44141729186](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44141729186)（alpha.33）已签名与验签成功，固定证书指纹没有变化。深色 UI 收尾改动仍需重新构建。

@@ -166,7 +166,7 @@
 
 > 以上是开发约束与验收计划，不表示表内“待实施”功能已经完成。**先交付完整、可操作的页面模块和无线 ADB 通知栏配对流程，再安排用户实机验收**；不能再次要求用户测试尚不能完成配对的 APK。随后完善诊断、正式 Release，最后回移 KSU。
 
-## 11. 2026-11-18 首轮页面重构代码清单（待 CI 与实机检查）
+## 11. 2026-11-18 模块化 APK 已合入代码（CI 已通过，待实机检查）
 
 - 首页：`MainActivity` 仅展示 FCM 概览、授权按钮、守护/保活/诊断/设置入口。
 - UI：`Ui.java` 共用分组布局与底部导航，在系统状态栏、导航栏开启 edge-to-edge 时使用 WindowInsets 留出安全区域。
@@ -176,9 +176,9 @@
 - 保活：`BackgroundActivity` 包含后台服务、开机恢复、Android 后台优化、OriginOS 系统设置入口、最近任务卡片隐藏与恢复。
 - 诊断：`DiagnosticsActivity` 原生 FCM 页面、TCP 检测和历史分享。
 - 设置/更新：`SettingsActivity` 提供主题/磁贴/项目主页，`UpdateActivity` 从 GitHub Releases 检测并验证 APK 签名再交系统安装器。
-- 旧无关代码：拟删除 `AccessibilityOps`、`RestoreService`、`RestoreTileService` 及无障碍扫描 manifest；`WRITE_SECURE_SETTINGS` 不再为管理第三方无障碍而申请。
+- 旧无关代码：**已删除** `AccessibilityOps`、`RestoreService`、`RestoreTileService` 及无障碍扫描 Manifest；不再为此申请 `WRITE_SECURE_SETTINGS`。
 
-**本节仅记录源代码已形成：不能据此推断 GitHub Actions 通过、无线配对真实成功、后台过夜监控可靠。正式 Release 须在签名发布流程和覆盖安装验证后开启。**
+**源代码和固定签名 APK 已通过 GitHub Actions，不能据此推断无线配对真实成功或后台过夜可靠。正式 Release 仍保持手动发布，须实机验收后开启。**
 
 ## 12. 安全与发布补充（2026-11-18）
 
@@ -188,13 +188,13 @@
 4. `build-apk.yml` 的 `publish_release` 为 **workflow_dispatch 显式选择才执行**；普通 `push` 只产生固定签名的测试 Artifact，不发布到 Releases。上线前先完成实机验收。
 5. 为防后续功能回退，`tests/apk-module-smoke.sh` 检查导航模块、ADB 通知栏配对、WindowInsets、FCM 磁贴和无障碍权限的移除；这属于结构测试，不证明真实设备行为。
 
-## 13. KernelSU 功能差异追平（2026-11-18，新增源码待 CI）
+## 13. KernelSU 功能差异追平（2026-11-18，已通过 CI）
 
 - 应用守护：除了已合入的应用列表、多选、stopped 检查/恢复、后台约五分钟守护，又增加 90 秒逐次巡检（7 次，每次间隔 15 秒）、主动 GMS 心跳请求；后台只在成功恢复目标时补发心跳，**不把广播返回当成通知送达**。
 - 后台网络：GMS Doze 白名单、数据节省模式下的 UID 后台计量网络白名单，支持用户明确开启/撤销，**严格记录由本应用添加的操作及其 UID，不能随意撤销已有系统策略**。
 - 诊断：读取 GMS DeviceIdle、DataSaver、后台网络放行和通知 AppOps；这些都是 Shell 结果，无法确认则显示失败而非成功。
 - 本次新增能力是在 APK 的 Android 权限约束内复用 KSU 规则，不等于获得 LSPosed/系统进程 Hook 特权；普通 ADB shell 无法执行时必须失败可见。
-- **当前状态：新代码已写好，尚待 GitHub Actions 编译与实机验收。** 等全部模块可操作、签名构建通过后才安排用户第一次新版本功能测试。
+- **当前状态：APK Actions #44140579529 编译、签名、验签已通过，OriginOS 实机行为待验收。** 等全部模块可操作、签名构建通过后才安排用户第一次新版本功能测试。
 
 
 ## 14. APK 首轮模块化开发完成度与验收边界
@@ -202,8 +202,16 @@
 - `ecd20cde`：界面导航、状态栏 WindowInsets、独立授权页、mDNS + RemoteInput、监控/应用守护/保活/诊断/设置/更新模块、FCM 磁贴、移除第三方无障碍管理。
 - `ed18989f`：修正 mDNS 仅接受本机配对广播、GMS Doze 白名单归属、选中应用即时置顶、`publish_release` 默认关闭、APK 静态结构回归测试。
 - `615121d7`：90 秒巡检、GMS 心跳、后台计量网络白名单归属、策略与通知诊断。**APK Actions #44140579529 已通过**，产物 alpha.31。
-- 仍需最后更新接口 Java 兼容性编译，之后进入用户实机功能验证。**GitHub Actions 成功不等于目标 OriginOS 的无线配对和后台持久运行成功。**
+- 更新接口 Java 兼容性已通过 APK Actions #44141173241。mDNS 失败的通知栏兜底已通过 APK Actions #44141729186。**GitHub Actions 成功不等于目标 OriginOS 的无线配对和后台持久运行成功。**
 
 ## 15. 通知栏 mDNS 故障兜底（2026-11-18）
 
-用户明确指出，在无线调试配对页面无法回到 APP 输入六位码。已落实：**发现端口→通知栏六位码；未发现端口→直接在同一通知栏输入 `端口:六位码`**。该设计不要求返回 APP，支持 mDNS 受阻的 OriginOS；两种输入均仅在内存中处理。首轮实现需由 GitHub Actions 编译后，再由目标手机确认系统通知栏行为。
+用户明确指出，在无线调试配对页面无法回到 APP 输入六位码。已落实：**发现端口→通知栏六位码；未发现端口→直接在同一通知栏输入 `端口:六位码`**。该设计不要求返回 APP，支持 mDNS 受阻的 OriginOS；两种输入均仅在内存中处理。代码已通过 GitHub Actions #44141729186 的编译/验签，仍需目标手机确认系统通知栏行为。
+
+## 16. 深色控件主题及首页状态刷新（待下一次 CI）
+
+- 参考成熟 Android 应用的原生控件一致性，在 UI 自定义深/浅页面色彩之外，为深色模式增加 `AppThemeDark` 原生 Android 主题，避免 CheckBox、EditText、RadioButton 仍为浅色控件。
+- `Ui.java` 在 Activity onCreate 之前根据用户主题或系统暗色状态选择原生主题；WindowInsets 仍负责状态栏和导航栏安全区域。
+- `MainActivity` 返回时刷新 Root/ADB 授权模式与最近配对状态，防止首页显示进入授权页之前的过期模式。
+- `tests/apk-module-smoke.sh` 增加对原生深色主题选择路径的静态校验；**仍需最后一次 Actions 和手机截图验证**。
+

@@ -10,6 +10,7 @@ import org.json.JSONObject;
 public final class MainActivity extends Ui {
     private TextView state;
     private TextView summary;
+    private TextView authorization;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final Runnable refresh = new Runnable() {
         @Override public void run() { render(); ui.postDelayed(this, 10000); }
@@ -27,7 +28,8 @@ public final class MainActivity extends Ui {
         button(status, "查看监控和断联时间线", () -> go(MonitorActivity.class), true);
 
         LinearLayout auth = card("授权状态", "单击进入独立授权模块。无线 ADB 配对码通过系统通知栏提交。");
-        line(auth, "Root / ADB 授权", "当前模式：" + prefs.mode(), null);
+        authorization = text("当前授权模式：" + prefs.mode(), 13, false, muted);
+        auth.addView(authorization);
         button(auth, "进入授权中心", () -> go(AuthActivity.class), true);
 
         LinearLayout menus = card("功能模块", "每项均进入独立页面。");
@@ -50,6 +52,13 @@ public final class MainActivity extends Ui {
         else if ("disconnected".equals(observed)) state.setText("未观察到 FCM Socket");
         else if ("connecting".equals(observed)) state.setText("连接尝试中");
         else state.setText("无法确认");
+        if (authorization != null) {
+            String mode = prefs.mode();
+            String label = AppPrefs.ROOT.equals(mode) ? "Root"
+                    : AppPrefs.WIRELESS.equals(mode) ? "无线 ADB"
+                    : AppPrefs.STATIC.equals(mode) ? "静态 ADB TCP" : "外部初始化";
+            authorization.setText("当前模式：" + label + "\n配对状态：" + prefs.pairingStatus());
+        }
         summary.setText("后台监控：" + (prefs.monitorEnabled() ? "已启用" : "未启用")
                 + "   守护：" + (prefs.guardEnabled() ? "已启用" : "未启用")
                 + "\n上次采样：" + (sampled == 0 ? "无" : age + " 秒前")
