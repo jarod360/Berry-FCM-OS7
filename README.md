@@ -8,7 +8,7 @@
 
 | 版本 | 产物 | 权限模型 | 主要用途 |
 |---|---|---|---|
-| KernelSU | `BerryFCM-KSU-v0.5.3-test.zip` | Root | 观察 GMS UID Socket、FCM 连接时间线、自动请求 GCM 重连，并保留原有应用守护与策略诊断 |
+| KernelSU | `BerryFCM-KSU-v0.5.4-test.zip` | Root | 观察 GMS UID Socket、FCM 连接时间线、自动请求 GCM 重连，并保留原有应用守护与策略诊断 |
 | Android APK | `BerryFCM-Guardian-v0.1.0-alpha.<run>.apk` | Root / 无线 ADB / 静态 ADB TCP / USB ADB 一次性授权 / 手动 | 管理用户明确选择的无障碍服务、持久设置授权、开机恢复和下拉快捷磁贴 |
 
 ## KernelSU 版
@@ -61,7 +61,7 @@ APK 当前聚焦授权与无障碍服务管理；尚未接入 KSU 版完整 FCM 
 
 推送 `main` 后，两个工作流按各自文件路径独立触发，也可以在 Actions 页面手动运行：
 
-- **Build KernelSU ZIP**：Shell 语法、FCM 状态机模拟测试、WebUI JavaScript 检查，输出 `BerryFCM-KSU-v0.5.3-test.zip`。
+- **Build KernelSU ZIP**：Shell 语法、FCM 状态机模拟测试、WebUI JavaScript 检查，输出 `BerryFCM-KSU-v0.5.4-test.zip`。
 - **Build Android APK**：使用 JDK 17、Android SDK 35、Gradle 8.11.1；先执行 Debug 编译检查，再在签名 Secrets 可用时构建固定密钥签名的 Release APK。Debug APK 不上传。
 
 KSU Artifact 保留 30 天；固定签名 APK Artifact 保留 90 天。若签名 Secrets 未配置，APK 工作流只做编译检查，不发布临时 Debug APK。
