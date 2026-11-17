@@ -60,3 +60,7 @@
 ## 旧测试版在线升级路径
 
 当前 alpha.36 的旧更新器只搜索 `BerryFCM-Guardian-v...` 格式资产。为了保证初次过渡，新签名 Release 工作流保留**同包双文件名**的 Release 资产：旧更新器读取旧名，新更新器优先使用新 `BerryFCM-v...`。同一个 APK、同一个证书、递增 versionCode、同一个包名，无需卸载重装。前提：必须有实际发布的 GitHub Release；普通 Actions Artifact 不会显示为可更新版本。安装需用户确认系统安装器，无法静默升级。
+
+### Conscrypt / AndroidKeyStore 配对兼容性
+
+新版使用独立的 `berry_fcm_adb_identity_v3` RSA 身份，按 [Google Conscrypt #718](https://github.com/google/conscrypt/issues/718) 同类错误修复补充 `DIGEST_NONE`、`ENCRYPTION_PADDING_NONE` 与 RSA-PSS 签名填充。更新后需要在系统“无线调试”重新配对一次；**不要求重新生成 APK 安装签名，也不删除旧证书**。这只是有源码依据的候选修复，仍必须在 OriginOS 真机确认 TLS 握手及 Shell UID。

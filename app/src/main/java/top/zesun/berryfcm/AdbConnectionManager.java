@@ -20,9 +20,9 @@ import java.util.concurrent.TimeUnit;
 
 /** AndroidKeyStore ADB identity; six-digit pairing codes never persist. */
 final class AdbConnectionManager extends AbsAdbConnectionManager {
-    // Legacy identity only allowed PKCS1; TLS 1.3 requires RSA-PSS to sign handshake.
-    // Use a new alias, retaining the old key for safe migration.
-    private static final String KEY_ALIAS = "berry_fcm_adb_identity_v2";
+    // Conscrypt TLS 1.3 needs RSA-PSS and a raw/no-padding RSA operation.
+    // v3 avoids reusing the incompatible previously generated Keystore identity.
+    private static final String KEY_ALIAS = "berry_fcm_adb_identity_v3";
     private static AdbConnectionManager instance;
     private final PrivateKey privateKey;
     private final Certificate certificate;
@@ -46,13 +46,20 @@ final class AdbConnectionManager extends AbsAdbConnectionManager {
             KeyGenParameterSpec spec = new KeyGenParameterSpec.Builder(KEY_ALIAS,
                     KeyProperties.PURPOSE_SIGN | KeyProperties.PURPOSE_VERIFY)
                     .setKeySize(2048)
-                    .setDigests(KeyProperties.DIGEST_SHA1, KeyProperties.DIGEST_SHA256,
-                            KeyProperties.DIGEST_SHA384, KeyProperties.DIGEST_SHA512)
+                    .setDigests(KeyProperties.DIGEST_NONE, KeyProperties.DIGEST_SHA1,
+                            KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA384,
+                            KeyProperties.DIGEST_SHA512)
                     .setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1,
                             KeyProperties.SIGNATURE_PADDING_RSA_PSS)
+                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                     .build();
             generator.initialize(spec);
             generator.generateKeyPair();
+            // The new identity must be paired explicitly; do not claim the prior
+            // v1/v2 identity has authenticated the current TLS client.
+            AppPrefs prefs = new AppPrefs(context);
+            prefs.shellFailed("ADB 身份已更新；请重新进行无线配对");
+            prefs.pairingStatus("TLS 身份已修复，等待重新配对");
         }
         privateKey = (PrivateKey) store.getKey(KEY_ALIAS, null);
         certificate = store.getCertificate(KEY_ALIAS);

@@ -254,7 +254,7 @@
 **真机证据**：无线 ADB 通知栏配对返回 `SSL library / RSA routines: OPENSSL_internal:internal error`；截图中未授权时首页仍先显示 FCM 采样，授权方式单选纵向展开但四组流程叠在一起。以上均为实机问题，非已通过的 Android 兼容性测试。
 
 **源码复核与修复**：
-- `AdbConnectionManager` 旧 `AndroidKeyStore` RSA 身份只允许 `RSA_PKCS1` 签名填充；所用 libadb-android 3.1.1 的 TLSv1.3 配对握手可能要求 RSA-PSS。因此增加 RSA-PSS（保留 PKCS1 以兼容其它用途），使用独立 `berry_fcm_adb_identity_v2`，旧密钥不自动删除。本次是有源码依据的高概率原因，不是已经实机证实的唯一原因；新版需重新配对才能测试。
+- `AdbConnectionManager` 旧 `AndroidKeyStore` RSA 身份只允许 `RSA_PKCS1` 签名填充；所用 libadb-android 3.1.1 的 TLSv1.3 配对握手可能要求 RSA-PSS。同时对照 [Google Conscrypt #718](https://github.com/google/conscrypt/issues/718) 相同错误，除 RSA-PSS（保留 PKCS1）外，补充 DIGEST_NONE 与 ENCRYPTION_PADDING_NONE，以满足 Conscrypt 的原始 RSA 操作，使用独立 `berry_fcm_adb_identity_v3`，旧密钥不自动删除。本次是有源码依据的高概率原因，不是已经实机证实的唯一原因；新版需重新配对才能测试。
 - ADB 无线连接限定 TLS mDNS 入口，不再把明文 TCP 发现当成无线 ADB；共享 ADB 会话不在每次 `AdbShell.close()` 时断开，避免手动检测与后台采样互相抢连接。后台重连和 Shell 身份均需执行 `id` 实际回读。
 - 首页授权卡置于 FCM 卡前，提示未授权/验证过期与最近错误；不能在无有效 Shell 时显示历史 Socket 为当前连接。
 - 授权页改为 **横向无线 ADB / Root / ADB TCP / USB** 方式切换，**每次只渲染选中的流程**；电脑 USB 只是教程，不作为 APP 的有效 Shell 模式。首次无线配对直接展示「开始配对 → 系统无线调试 → 通知栏输入」，不预先要求按下「验证 Shell」。配对成功自动连接并验证，后续可手动重连。
@@ -263,3 +263,5 @@
 - 更新：旧 alpha.36 内置更新器只识别 `BerryFCM-Guardian-...`，新安装包改为 `BerryFCM-v...`。为保证旧版本第一次在线升级，手动 GitHub prerelease 同时附两个文件名的**同一个固定签名 APK**；新更新器优先识别短名称，也保留旧名称兼容。无正式 Release 时「检查更新」仍不会找到 Actions Artifact。不能静默安装。
 
 **下一轮验收**：① Actions 编译和固定签名成功；② OriginOS 点击配对通知并验证 `uid=2000(shell)`；③ 隐藏无线调试再返回检查过期/错误是否真实；④ 开启监控读取 GMS Socket，比较 Root 与 ADB 差异；⑤ 通过正式手动 prerelease 验证现有 alpha.36 → BerryFCM 短名称包的在线覆盖升级。CI 通过仅证明编译和模拟，不代表这些手机行为已通过。
+
+**补充源码证据**：Shizuku 的 `AdbKey.kt` 使用 AndroidKeyStore AES 加密保存软件 RSA 私钥，避免直接将 AndroidKeyStore 私钥交给 TLS；Conscrypt 官方 #718 报告了几乎相同的 `RSA routines:OPENSSL_internal:internal error`，维护者确认 TLS 签名底层可能使用 `RSA/ECB/NoPadding`，并给出在密钥生成中添加 `ENCRYPTION_PADDING_NONE` 的修复。当前优先沿用现有 libadb-android/AndroidKeyStore 结构，增加官方确认的最小参数修复并生成 v3 新身份；若 OriginOS 实机仍失败，再评估 Shizuku 的 AES-GCM + 软件 RSA 私钥方案，不能先断言成功。旧身份保留不删除。

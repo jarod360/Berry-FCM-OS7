@@ -228,7 +228,6 @@ public final class AuthActivity extends Ui {
         detail.setText("正在执行 id 并检查实际身份。");
         worker.execute(() -> {
             try (PrivilegeShell shell = PrivilegeAccess.open(this)) {
-                String id = prefs.shellIdentity();
                 runOnUiThread(() -> {
                     checking = false;
                     renderStatus();
@@ -264,7 +263,11 @@ public final class AuthActivity extends Ui {
 
     @Override protected void onResume() {
         super.onResume();
-        if (!checking) renderStatus();
+        if (!checking) {
+            renderStatus();
+            if (instructions != null && AppPrefs.WIRELESS.equals(selected))
+                renderInstructions();
+        }
     }
     @Override protected void onDestroy() {
         worker.shutdownNow();

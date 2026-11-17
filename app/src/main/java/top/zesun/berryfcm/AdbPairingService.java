@@ -175,7 +175,7 @@ public final class AdbPairingService extends Service {
             String message = String.valueOf(error.getMessage());
             new AppPrefs(this).shellFailed(message);
             if (message.contains("RSA routines") || message.contains("SSL library")) {
-                complete("配对失败：TLS 身份握手异常。请核对配对端口，使用新版 RSA-PSS 身份重新配对");
+                complete("配对失败：TLS 身份握手异常。请核对配对端口，使用新版 TLS 身份重新配对");
             } else complete("配对失败：" + message);
         }
     }
