@@ -83,3 +83,9 @@
 - 首页返回时重新读取 Root/ADB 模式与配对状态，消除静态授权卡片的旧状态；修改 `MainActivity.java`。
 - 扩展 `tests/apk-module-smoke.sh`，校验深色原生主题存在；变更提交并编译后再将对应 Actions Run/Artifact 写回。
 - 这不会修改包名、签名证书、GitHub Secrets 或 KernelSU 模块。**所有 APK 运行效果仍需要用户在目标机验证**。
+
+## 7.4 极简启动图标（本次改动，待构建）
+
+用户明确反馈现有图标过度装饰。新版采用 Android 自适应图标：纯蓝背景、白色两条信号弧线与一个圆点，无渐变、阴影、叠层、文字；附 Android 13+ 单色主题图标。图标由 XML Vector Drawable 源码实现，分辨率无关，避免图片尺寸失真。原旧 WebP 图标资源清理。Manifest 中圆形图标和标准图标使用同一个自适应资源。
+
+**当前功能状态**：APK 八个模块已接入，最近一次 UI 主题版 [Actions #44142556439](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44142556439) 已成功，固定签名 Artifact `BerryFCM-Guardian-v0.1.0-alpha.34` 已上传；此图标改动需要新的 GitHub Actions 构建/签名验证。尚未开展目标 OriginOS 实机验证，不发布 GitHub Release。

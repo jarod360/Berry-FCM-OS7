@@ -1,0 +1,4 @@
+<resources>
+    <!-- A single flat launcher color; no gradients or decorative layers. -->
+    <color name="berry_launcher_background">#244D9A</color>
+</resources>
