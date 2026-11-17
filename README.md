@@ -48,3 +48,5 @@ docs/SIGNING.md            稳定签名和升级约定
 > 首轮模块化 APK 已通过 [Actions #44138228340](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44138228340) 编译、签名和产物上传（alpha.29）。下一提交增加发布流程的手动开关与结构回归测试；尚未进行手机配对和后台实机验收。
 
 > APK 在模块化界面基础上补齐 KSU 的 90 秒巡检、GMS 心跳与后台计量网络受控放行；新增代码须以新 Actions 为准，进度见 [HANDOFF](docs/HANDOFF.md)。
+
+> 守护能力补齐版 [APK Actions #44140579529](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44140579529) 编译/签名成功，产物 alpha.31；目标手机 mDNS 配对和后台状态仍待实机检查。

@@ -79,8 +79,16 @@ public final class UpdateActivity extends Ui {
                 if (conn.getResponseCode() != 200)
                     throw new IllegalStateException("GitHub API HTTP " + conn.getResponseCode());
                 byte[] content;
-                try (InputStream in = conn.getInputStream()) {
-                    content = in.readNBytes(200000);
+                try (InputStream in = conn.getInputStream();
+                        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream()) {
+                    byte[] buffer = new byte[8192];
+                    int read;
+                    while ((read = in.read(buffer)) != -1) {
+                        if (bytes.size() + read > 200000)
+                            throw new IllegalStateException("GitHub Release 响应超过大小上限");
+                        bytes.write(buffer, 0, read);
+                    }
+                    content = bytes.toByteArray();
                 }
                 JSONArray releases = new JSONArray(new String(content, StandardCharsets.UTF_8));
                 int best = 0;

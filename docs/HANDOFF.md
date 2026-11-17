@@ -35,7 +35,7 @@
 - **新版首轮 APK 构建**：[Actions #44138228340](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44138228340) 成功，Gradle Debug/Release、keytool、apksigner、Artifact 上传全部通过；\`BerryFCM-Guardian-v0.1.0-alpha.29\`。
 - **最新已验证的 APK 构建**：[Actions #44139303543](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44139303543) 成功，\`tests/fcm-monitor-smoke.sh\` 和 \`tests/apk-module-smoke.sh\`、编译、签名、验签、Artifact 上传均通过；\`BerryFCM-Guardian-v0.1.0-alpha.30\`。
 - **同次 KSU 构建**：[Actions #44139303661](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44139303661) 成功。KSU 模块仍为 \`0.5.4-test\`，数据目录 \`/data/adb/berry_fcm_ksu\` 沿用旧配置。
-- 新版 GMS 后台网络/90 秒巡检等补齐代码处于后续提交阶段，**尚未通过新版 CI**，后续须记录最终提交和 Actions 结果。
+- **KSU 追平增量已经通过 CI**：[commit 615121d7](https://github.com/jarod360/Berry-FCM-OS7/commit/615121d72494887d1b251d34cf45ac76ef24c367) / [APK Actions #44140579529](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44140579529)，FCM/结构模拟测试、Gradle、固定签名和 Artifact 上传全部成功，APK `BerryFCM-Guardian-v0.1.0-alpha.31`。新增 90 秒巡检、受控 GMS 心跳、Doze 与计量网络、策略/通知诊断代码均在该版本中；**手机权限和效果尚未验收**。
 - GitHub **Releases 列表仍为空**；工作流 \`workflow_dispatch.publish_release\` 默认 false，仅手动选择发布且签名 APK 构建成功时才创建 Release，尚未执行发布。应用内升级是否正常需首次 Release 后实测。
 
 以上 CI 证明源代码和签名链路有效，**不表示手机已成功完成 mDNS 配对、锁屏过夜监测、stopped 恢复或覆盖升级**。
@@ -56,9 +56,16 @@
 
 ## 6. 下一步严格顺序
 
-1. **当前正在做**：补齐 KSU 的心跳、90 秒巡检、GMS 网络/Doze 策略并提交 GitHub；跑 APK Actions 结构测试和签名验签；及时将最新 commit/Run 写回本文件。
+1. **当前正在做**：KSU 追平增量已提交并通过 APK #44140579529；正在修正更新页面对旧 Android 的流读取兼容性，并进行最后一次签名编译。随后提供第一个可操作的模块化 APK 实机验收步骤（先配对/导航，后后台与守护）。
 2. **只有新增 Actions 全部通过、功能代码入口完整后**，再提供安装测试版和一套最小验证步骤；先测试授权/模块导航，随后后台状态/守护，不要让用户在旧版浪费时间。
 3. 发现实机问题就针对性修复并更新这里；设备确认可覆盖升级后，再人工发布第一个 GitHub prerelease，验证 APP 在线升级。
 4. APK 稳定后双线回移 KernelSU；保持独立编译和版本记录。
 
 **每次提交同步 \`docs/PRODUCT_PLAN.md\` 和本文件。** 不为新需求重新移除既有功能，不转 Work，不要求用户重新生成密钥。日志不得上传六位配对码、签名私钥、密码或完整敏感通知内容。
+
+## 7.1 最终测试门槛与试用范围
+
+- **源码模块已齐**：概览、授权、FCM、应用守护、后台保活、诊断、设置和 Release 更新均有真实实现；Shizuku 式通知栏配对和正常 Android FCM Tile 已存在。
+- **云端阶段证据**：APK alpha.29、alpha.30、alpha.31 的源码编译及签名均通过；最后兼容性微调仍需单独 Actions 通过才作为最新版本推荐。
+- **待实机的不能在 CI 验证**：OriginOS mDNS/通知栏配对、后台保活、Root/ADB 读取 GMS Socket、运行态 UI 截图及在线覆盖升级。由于无连接的真机，不能宣称“配对已成功”或“永不被杀”。
+- **测试顺序**：① 看首页布局及页面导航，② 系统无线调试界面下拉通知输入配对码并验证 Shell，③ 开启 FCM 监控查最新样本，④ 守护名单/后台权限/任务隐藏/磁贴，⑤ 锁屏与 Wi-Fi 切换对照 Google Diagnostics，⑥ 正式 Release 发布后覆盖升级。
