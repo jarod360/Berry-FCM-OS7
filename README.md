@@ -49,13 +49,16 @@ APK 当前聚焦授权与无障碍服务管理；尚未接入 KSU 版完整 FCM 
 
 详细说明：[`app/README.md`](app/README.md)。
 
-## APK 固定签名密钥（必须配置一次）
+## APK 固定签名密钥（首次配置一次，必须保管）
 
-为了保证每次云编译都能覆盖安装，APK 使用同一个 PKCS12 Release Keystore；包名固定，`versionCode` 自动使用 APK 工作流递增的 `run_number`。
+**目前仓库没有提交或公开发布任何 Release keystore。** APK 工作流此前只完成源码编译检查，没有生成可分发的签名 APK。为保证以后所有版本覆盖安装，必须先在自己的 Windows 电脑生成唯一密钥：
 
-1. 将交付的 `berryfcm-release.p12` 保存到 `D:\Codex\Berry-FCM-OS7\signing\`，并备份。
-2. 按 [`docs/SIGNING.md`](docs/SIGNING.md) 将四项值添加到 GitHub Actions Secrets：`BERRYFCM_KEYSTORE_BASE64`、`BERRYFCM_KEYSTORE_PASSWORD`、`BERRYFCM_KEY_ALIAS`、`BERRYFCM_KEY_PASSWORD`。
-3. Secrets 配置后，后续每次 APK 工作流都使用同一密钥签名。丢失密钥将无法覆盖升级。
+1. 将仓库克隆到 `D:\Codex\Berry-FCM-OS7`。
+2. 在 PowerShell 执行 `powershell -ExecutionPolicy Bypass -File .\tools\New-BerryFCMSigningKey.ps1`。脚本只在密钥不存在时创建 `signing\berryfcm-release.p12`，并生成本地密码记录 `SIGNING-SETUP.txt`；不会覆盖已有密钥。
+3. 脚本会把 keystore Base64 复制到剪贴板。按 [`docs/SIGNING.md`](docs/SIGNING.md) 配置四项 GitHub Actions Secrets：`BERRYFCM_KEYSTORE_BASE64`、`BERRYFCM_KEYSTORE_PASSWORD`、`BERRYFCM_KEY_ALIAS`、`BERRYFCM_KEY_PASSWORD`。
+4. 之后所有 APK Release 构建都使用同一 PKCS12 密钥。**不要重新生成密钥，不要提交密钥或密码文件。** 丢失密钥将无法覆盖安装同包名的旧 APK。
+
+包名固定为 `top.zesun.berryfcm`，`versionCode` 使用递增的 APK workflow `run_number`。若此前安装过由其他签名密钥签名的同包名 APK，第一次切换可能需要卸载旧包；从首次安装固定密钥版本开始，后续均可覆盖升级。
 
 ## GitHub Actions 云编译
 
