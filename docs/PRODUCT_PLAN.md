@@ -246,4 +246,4 @@
 - `UpdateActivity` GitHub API 文本上限及 `AdbConnectionManager.shell` 读取上限若发生真实截断，再根据日志处理；避免提前引入通用流控层。
 - 不为单次使用的简单逻辑新建无意义 helper，不增加与功能无关的设置或权限。
 
-**本节是代码审查及最小修正记录，正式结论要以后续 GitHub Actions 编译通过为准；目标 OriginOS 的所有权限/配对/保活效果仍未实机证实。**
+**已通过 CI**：[APK Actions #44143876578](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44143876578)，守护 25+GMS 回归测试、Gradle Debug/Release、固定签名、apksigner 验证及 Artifact 上传全部成功，产物 `BerryFCM-Guardian-v0.1.0-alpha.36`。**OriginOS 配对/保活/应用 stopped 修复效果仍未实机证实。**
