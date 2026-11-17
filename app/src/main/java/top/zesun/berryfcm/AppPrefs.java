@@ -11,28 +11,41 @@ final class AppPrefs {
     static final String WIRELESS = "wireless";
     static final String STATIC = "static";
     static final String EXTERNAL = "external";
-    static final String MANUAL = "manual";
-    private static final String FILE = "berry_fcm_guardian";
     private final SharedPreferences p;
 
-    AppPrefs(Context c) { p = c.getSharedPreferences(FILE, Context.MODE_PRIVATE); }
+    AppPrefs(Context context) {
+        p = context.getSharedPreferences("berry_fcm_guardian", Context.MODE_PRIVATE);
+    }
     String mode() { return p.getString("mode", WIRELESS); }
-    void mode(String v) { p.edit().putString("mode", v).apply(); }
+    void mode(String value) { p.edit().putString("mode", value).apply(); }
     String host() { return p.getString("host", "127.0.0.1"); }
-    void host(String v) { p.edit().putString("host", v).apply(); }
-    int pairPort() { return p.getInt("pair_port", 37123); }
-    void pairPort(int v) { p.edit().putInt("pair_port", v).apply(); }
+    void host(String value) { p.edit().putString("host", value).apply(); }
+    int pairPort() { return p.getInt("pair_port", 0); }
+    void pairPort(int value) { p.edit().putInt("pair_port", value).apply(); }
     int staticPort() { return p.getInt("static_port", 5555); }
-    void staticPort(int v) { p.edit().putInt("static_port", v).apply(); }
-    boolean monitorEnabled() { return p.getBoolean("monitor_enabled", false); }
-    void monitorEnabled(boolean v) { p.edit().putBoolean("monitor_enabled", v).apply(); }
-    boolean quietMonitor() { return p.getBoolean("quiet_monitor", true); }
-    void quietMonitor(boolean v) { p.edit().putBoolean("quiet_monitor", v).apply(); }
+    void staticPort(int value) { p.edit().putInt("static_port", value).apply(); }
 
-    boolean autoRestore() { return p.getBoolean("auto_restore", false); }
-    void autoRestore(boolean v) { p.edit().putBoolean("auto_restore", v).apply(); }
-    Set<String> selected() { return new HashSet<>(p.getStringSet("selected_services", Collections.emptySet())); }
-    void selected(Set<String> v) { p.edit().putStringSet("selected_services", new HashSet<>(v)).apply(); }
-    Set<String> managed() { return new HashSet<>(p.getStringSet("managed_services", Collections.emptySet())); }
-    void managed(Set<String> v) { p.edit().putStringSet("managed_services", new HashSet<>(v)).apply(); }
+    boolean monitorEnabled() { return p.getBoolean("monitor_enabled", false); }
+    void monitorEnabled(boolean value) { p.edit().putBoolean("monitor_enabled", value).apply(); }
+    boolean guardEnabled() { return p.getBoolean("guard_enabled", false); }
+    void guardEnabled(boolean value) { p.edit().putBoolean("guard_enabled", value).apply(); }
+    boolean startOnBoot() { return p.getBoolean("start_on_boot", true); }
+    void startOnBoot(boolean value) { p.edit().putBoolean("start_on_boot", value).apply(); }
+    boolean quietMonitor() { return p.getBoolean("quiet_monitor", true); }
+    void quietMonitor(boolean value) { p.edit().putBoolean("quiet_monitor", value).apply(); }
+    boolean hideRecents() { return p.getBoolean("hide_recents", false); }
+    void hideRecents(boolean value) { p.edit().putBoolean("hide_recents", value).apply(); }
+    boolean showSystemApps() { return p.getBoolean("show_system_apps", false); }
+    void showSystemApps(boolean value) { p.edit().putBoolean("show_system_apps", value).apply(); }
+    String theme() { return p.getString("theme", "system"); }
+    void theme(String value) { p.edit().putString("theme", value).apply(); }
+
+    Set<String> guardTargets() {
+        return new HashSet<>(p.getStringSet("guard_targets", Collections.emptySet()));
+    }
+    void guardTargets(Set<String> targets) {
+        p.edit().putStringSet("guard_targets", new HashSet<>(targets)).apply();
+    }
+    String pairingStatus() { return p.getString("pairing_status", "尚未配对"); }
+    void pairingStatus(String value) { p.edit().putString("pairing_status", value).apply(); }
 }

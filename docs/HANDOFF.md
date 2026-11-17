@@ -42,7 +42,7 @@
 
 ## 5. 下一步 **只做一个阶段**
 
-**下一项开发门槛 G1–G2（严格先模块、后测试）：** 完成首页/授权/监控/应用守护/保活/设置的独立页面框架，修复状态栏覆盖；在独立授权页实现 mDNS + 通知栏 `RemoteInput` 配对。同步删除第三方无障碍服务扫描、旧自动恢复行为及旧磁贴，改为 FCM 自动恢复与 FCM 磁贴。**必须同时补齐监控、应用守护、后台保活、诊断和设置/关于各模块的真实功能，再要求用户测试**。随后通过 Actions 自验，再进行真实连接诊断与保活测试。
+**下一项开发门槛 G1–G5（模块先完备、后测试）：** 完成首页/授权/监控/应用守护/保活/设置的独立页面框架，修复状态栏覆盖；在独立授权页实现 mDNS + 通知栏 `RemoteInput` 配对。同步删除第三方无障碍服务扫描、旧自动恢复行为及旧磁贴，改为 FCM 自动恢复与 FCM 磁贴。**必须同时补齐监控、应用守护、后台保活、诊断和设置/关于各模块的真实功能，再要求用户测试**。随后通过 Actions 自验，再进行真实连接诊断与保活测试。
 
 完成一项就将证据、commit、Actions run、未解决事项写回此文件，同时更新 PRODUCT_PLAN.md 的阶段状态。不要因新讨论跳过本阶段。
 
@@ -77,3 +77,11 @@
 - **实机：** 手机系统、Android / OriginOS 版本、Root/ADB 模式、测试步骤、时间点、Google 原生 Diagnostics 与 BerryFCM 对照、日志。
 - **判断：** “已实机通过 / 已编译未实测 / 失败待查 / 设计中”四种，不用含混的“搞定”。
 - **敏感信息：** 不记录 P12/Base64、密码、私人通知、完整设备唯一标识。只记录公开证书指纹。
+
+## 7. 本轮代码变更（等待 GitHub Actions 结果）
+
+已编写 APK 新版独立页面 `MainActivity` / `AuthActivity` / `MonitorActivity` / `GuardActivity` / `BackgroundActivity` / `DiagnosticsActivity` / `SettingsActivity` / `UpdateActivity`，共用 `Ui` 导航与 WindowInsets。ADB 配对 `AdbPairingService` 提供通知栏 RemoteInput + NSD 发现，`GuardOps` 提供 stopped 检查/恢复，`FcmTileService` 改为 FCM 监控磁贴，`BootReceiver` 仅恢复监控/应用守护。
+
+第三方无障碍扫描/恢复代码从新版编译路径移除，`WRITE_SECURE_SETTINGS` 不再用于操纵别人的无障碍服务。Root/ADB 失效不得报告在线/已修复。
+
+**下一步：检查代码编译、固定签名、工作流与新模块间依赖，修复所有 CI 问题。随后完善 Release 发布流水线；所有用户实机测试继续暂缓，直到所有模块实际可操作。**

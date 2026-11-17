@@ -17,6 +17,7 @@ import java.security.KeyStore;
 import java.security.PrivateKey;
 import java.security.cert.Certificate;
 
+/** Persistent AndroidKeystore ADB identity; never persist six-digit pairing codes. */
 final class AdbConnectionManager extends AbsAdbConnectionManager {
     private static final String KEY_ALIAS = "berry_fcm_adb_identity";
     private static AdbConnectionManager instance;
@@ -45,31 +46,31 @@ final class AdbConnectionManager extends AbsAdbConnectionManager {
         }
         privateKey = (PrivateKey) store.getKey(KEY_ALIAS, null);
         certificate = store.getCertificate(KEY_ALIAS);
-        if (privateKey == null || certificate == null) throw new IllegalStateException("无法创建 ADB AndroidKeyStore 身份");
+        if (privateKey == null || certificate == null)
+            throw new IllegalStateException("无法创建 ADB AndroidKeyStore 身份");
     }
 
     @NonNull @Override protected PrivateKey getPrivateKey() { return privateKey; }
     @NonNull @Override protected Certificate getCertificate() { return certificate; }
     @NonNull @Override protected String getDeviceName() { return "BerryFCM-Guardian"; }
 
-    boolean pairAndConnect(Context context, String host, int pairingPort, String code) throws Exception {
+    synchronized boolean pairLocal(int pairingPort, String code) throws Exception {
         disconnectSession();
-        boolean paired = pair(host, pairingPort, code);
-        if (!paired) return false;
-        return autoConnect(context.getApplicationContext(), 10000);
+        // The pairing port is discovered via mDNS from this same device.
+        return pair("127.0.0.1", pairingPort, code);
     }
 
-    boolean autoConnectLocal(Context context) throws Exception {
+    synchronized boolean autoConnectLocal(Context context) throws Exception {
         disconnectSession();
         return autoConnect(context.getApplicationContext(), 8000);
     }
 
-    boolean connectStatic(String host, int port) throws Exception {
+    synchronized boolean connectStatic(String host, int port) throws Exception {
         disconnectSession();
         return connect(host, port);
     }
 
-    String shell(String command) throws Exception {
+    synchronized String shell(String command) throws Exception {
         try (AdbStream stream = openStream(LocalServices.SHELL)) {
             OutputStream out = stream.openOutputStream();
             out.write((command + "\nexit\n").getBytes(StandardCharsets.UTF_8));
@@ -78,19 +79,21 @@ final class AdbConnectionManager extends AbsAdbConnectionManager {
             try (InputStream in = stream.openInputStream()) {
                 byte[] buffer = new byte[4096];
                 int n;
-                while ((n = in.read(buffer)) >= 0) result.write(buffer, 0, n);
+                while ((n = in.read(buffer)) >= 0 && result.size() < 200000) {
+                    result.write(buffer, 0, Math.min(n, 200000 - result.size()));
+                }
             }
             return result.toString(StandardCharsets.UTF_8);
         }
     }
 
-    void disconnectSession() {
+    synchronized void disconnectSession() {
         try { disconnect(); } catch (Exception ignored) { }
     }
 
     @Override public synchronized void close() {
-        // AbsAdbConnectionManager.close() also calls PrivateKey.destroy(). The ADB
-        // identity is held in AndroidKeyStore, so disconnect without destroying it.
+        // AbsAdbConnectionManager.close() destroys the private key, which belongs
+        // to AndroidKeyStore. Preserve it; disconnect only the active session.
         disconnectSession();
     }
 }

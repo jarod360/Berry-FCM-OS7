@@ -1,21 +1,18 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
-    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES"
+        android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-
-    <queries>
-        <intent>
-            <action android:name="android.accessibilityservice.AccessibilityService" />
-        </intent>
-    </queries>
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Enumerate user-selected applications for the FCM stopped-state guard. -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
     <application
         android:name=".BerryFcmApp"
@@ -24,6 +21,12 @@
         android:label="BerryFCM Guardian"
         android:theme="@style/AppTheme"
         android:supportsRtl="true">
+        <activity android:name=".UpdateActivity" android:exported="false" />
+        <activity android:name=".SettingsActivity" android:exported="false" />
+        <activity android:name=".DiagnosticsActivity" android:exported="false" />
+        <activity android:name=".BackgroundActivity" android:exported="false" />
+        <activity android:name=".GuardActivity" android:exported="false" />
+        <activity android:name=".AuthActivity" android:exported="false" />
         <activity android:name=".MonitorActivity" android:exported="false" />
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
@@ -38,23 +41,23 @@
             </intent-filter>
         </receiver>
         <service
+            android:name=".AdbPairingService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Interactive user requested wireless ADB pairing with a six-digit reply from Android notifications" />
+        </service>
+        <service
             android:name=".FcmMonitorService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="User-enabled persistent FCM connection diagnostics from authorized Root or ADB shell, while the activity is closed" />
+                android:value="User-enabled background monitoring of Google FCM and selected stopped applications using an explicitly authorized Root or ADB shell" />
         </service>
         <service
-            android:name=".RestoreService"
-            android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="User-requested accessibility service restoration through an explicitly authorized Root or ADB shell session" />
-        </service>
-        <service
-            android:name=".RestoreTileService"
-            android:label="BerryFCM 恢复"
-            android:icon="@android:drawable/ic_popup_sync"
+            android:name=".FcmTileService"
+            android:label="BerryFCM 监控"
+            android:icon="@android:drawable/stat_notify_sync"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
             android:exported="true">
             <intent-filter>

@@ -33,3 +33,11 @@ GitHub Actions [Build Android APK](https://github.com/jarod360/Berry-FCM-OS7/act
 4. 不管理任何第三方无障碍服务；旧 `WRITE_SECURE_SETTINGS` 用途需移除。应用守护扫描的是普通应用包名及 stopped 状态。
 5. 保留**FCM 监控/守护开机自动恢复**和**系统快捷设置磁贴**，都使用 Android 标准 API，不需要 AccessibilityService。磁贴由用户添加到下拉快捷栏。
 6. 先完成模块/配对/布局再发布测试 APK，不能要求用户继续测试当前不可操作的授权界面。
+
+## 新版模块化 APK（源码更新中，尚未实机验收）
+
+从旧的无障碍服务管理长页面迁移为八模块导航：`MainActivity` 首页概览、`AuthActivity` ADB/Root 授权、`MonitorActivity` FCM 状态、`GuardActivity` 应用守护、`BackgroundActivity` 电池与厂商后台设置、`DiagnosticsActivity` 诊断、`SettingsActivity` 外观/磁贴、`UpdateActivity` GitHub Release 检查与签名升级。
+
+通知栏配对使用 `AdbPairingService` 的 Android mDNS `_adb-tls-pairing._tcp.` 和 RemoteInput；用户可以停留在系统无线调试页下拉通知输入配对码。UI 使用 WindowInsets 修正状态栏重叠。
+
+**用户测试准入：全部模块功能接好并通过 GitHub Actions 后才提供测试步骤。** 无障碍服务扫描/自动恢复旧功能不再属于新版需求；自动恢复和快捷磁贴服务于 FCM 监测与应用守护，无需 AccessibilityService。
