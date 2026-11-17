@@ -50,6 +50,22 @@ assert str(j[k])==v,(k,j[k],v,j)
 PY
 }
 
+# A SYN-SENT attempt must not seed the trusted 443 peer list.
+export BERRY_TEST_DNS=off
+cat > "$TMP/ss" <<'SOCK'
+SYN-SENT 0 1 192.168.1.8:45000 142.250.107.188:5228 users:("gms",pid=10,fd=1) uid:10200 ino:100
+SOCK
+printf '970.00 0.00\n' > "$TMP/uptime"
+j="$(json)"; assert_json "$j" 'fcm_state=connecting'
+[ ! -s "$TMP/data/mtalk-learned-ips.txt" ]
+cat > "$TMP/ss" <<'SOCK'
+ESTAB 0 0 192.168.1.8:45001 142.250.107.188:443 users:("gms",pid=10,fd=2) uid:10200 ino:102
+SOCK
+printf '980.00 0.00\n' > "$TMP/uptime"
+j="$(json)"; assert_json "$j" 'fcm_state=unknown'
+
+export BERRY_TEST_DNS=on
+: > "$TMP/data/mtalk-dns-ips.txt"; rm -f "$TMP/data/mtalk-dns-time"
 # Dedicated MCS port is accepted for the GMS UID.
 cat > "$TMP/ss" <<'SOCK'
 ESTAB 0 0 192.168.1.8:45000 142.250.107.188:5228 users:("gms",pid=10,fd=1) uid:10200 ino:101
