@@ -48,38 +48,51 @@ public final class RestoreService extends Service {
         try {
             AppPrefs prefs = new AppPrefs(this);
             Set<String> selected = prefs.selected();
-            String mode = prefs.mode();
-            if (selected.isEmpty() && prefs.managed().isEmpty()) {
+            Set<String> previous = prefs.managed();
+            if (selected.isEmpty() && previous.isEmpty()) {
                 result = "没有配置需要管理的无障碍服务";
             } else {
-                if (AppPrefs.ROOT.equals(mode)) {
-                    shell = new RootShell();
-                    String id = shell.execute("id");
-                    if (!id.contains("uid=0")) throw new IllegalStateException("Root 未授权：" + id.trim());
-                } else if (AppPrefs.WIRELESS.equals(mode)) {
-                    waitForNetwork();
-                    AdbConnectionManager adb = AdbConnectionManager.get(this);
-                    if (!adb.autoConnectLocal(this)) throw new IllegalStateException("无线调试未连接；请确认无线调试已开启且设备已配对");
-                    shell = new AdbShell(this);
-                } else if (AppPrefs.STATIC.equals(mode)) {
-                    waitForNetwork();
-                    AdbConnectionManager adb = AdbConnectionManager.get(this);
-                    if (!adb.connectStatic(prefs.host(), prefs.staticPort())) throw new IllegalStateException("静态端口连接失败");
-                    shell = new AdbShell(this);
-                } else {
-                    throw new IllegalStateException("当前模式需要手动操作或电脑 USB ADB，不能在开机时自动恢复");
+                String output = "";
+                if (!AccessibilityOps.hasPersistentPermission(this)) {
+                    String mode = prefs.mode();
+                    if (AppPrefs.ROOT.equals(mode)) {
+                        shell = new RootShell();
+                        String id = shell.execute("id");
+                        if (!id.contains("uid=0")) throw new IllegalStateException("Root 未授权：" + id.trim());
+                    } else if (AppPrefs.WIRELESS.equals(mode)) {
+                        waitForNetwork();
+                        AdbConnectionManager adb = AdbConnectionManager.get(this);
+                        if (!adb.autoConnectLocal(this))
+                            throw new IllegalStateException("无线调试未连接；请确认无线调试已开启且设备已配对");
+                        shell = new AdbShell(this);
+                    } else if (AppPrefs.STATIC.equals(mode)) {
+                        waitForNetwork();
+                        AdbConnectionManager adb = AdbConnectionManager.get(this);
+                        if (!adb.connectStatic(prefs.host(), prefs.staticPort()))
+                            throw new IllegalStateException("静态端口连接失败");
+                        shell = new AdbShell(this);
+                    } else {
+                        throw new IllegalStateException("缺少持久授权；请先通过 Root / ADB 或电脑 USB ADB 初始化");
+                    }
+                    output = shell.execute("pm grant top.zesun.berryfcm android.permission.WRITE_SECURE_SETTINGS 2>&1; echo GRANT_EXIT:$?");
                 }
-                Set<String> previous = prefs.managed();
-                String command = AccessibilityOps.applyCommand(previous, selected);
-                String output = shell.execute(command);
-                String verify = shell.execute(AccessibilityOps.readEnabledCommand());
-                int enabled = 0;
-                for (String component : selected) if (verify.contains(component)) enabled++;
-                for (String component : previous) if (!selected.contains(component) && verify.contains(component))
-                    throw new IllegalStateException("系统仍返回已取消的服务：" + component);
-                if (enabled != selected.size()) throw new IllegalStateException("系统未确认全部目标服务，实际 " + enabled + "/" + selected.size());
+
+                String verify;
+                if (AccessibilityOps.hasPersistentPermission(this)) {
+                    if (!AccessibilityOps.applyDirect(this, previous, selected))
+                        throw new IllegalStateException("系统未确认 Secure Settings 写入成功");
+                    verify = AccessibilityOps.readEnabledDirect(this);
+                    output += "\n使用已持久化 WRITE_SECURE_SETTINGS 授权";
+                } else if (shell != null) {
+                    output += "\n" + shell.execute(AccessibilityOps.applyCommand(previous, selected));
+                    verify = shell.execute(AccessibilityOps.readEnabledCommand());
+                } else {
+                    throw new IllegalStateException("没有可用的授权通道");
+                }
+
+                AccessibilityOps.verifyEnabled(verify, previous, selected);
                 prefs.managed(selected);
-                result = "已提交恢复并复查：" + enabled + "/" + selected.size() + " 个目标服务可见\n" + output.trim();
+                result = "已提交恢复并复查：" + selected.size() + " 个目标服务\n" + output.trim() + "\n" + verify.trim();
             }
         } catch (Throwable e) {
             result = "恢复未完成：" + e.getMessage();
@@ -90,7 +103,6 @@ public final class RestoreService extends Service {
         stopForeground(STOP_FOREGROUND_DETACH);
         stopSelf(startId);
     }
-
 
     private void waitForNetwork() throws InterruptedException {
         ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
