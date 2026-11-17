@@ -267,3 +267,17 @@
 **补充源码证据**：Shizuku 的 `AdbKey.kt` 使用 AndroidKeyStore AES 加密保存软件 RSA 私钥，避免直接将 AndroidKeyStore 私钥交给 TLS；Conscrypt 官方 #718 报告了几乎相同的 `RSA routines:OPENSSL_internal:internal error`，维护者确认 TLS 签名底层可能使用 `RSA/ECB/NoPadding`，并给出在密钥生成中添加 `ENCRYPTION_PADDING_NONE` 的修复。当前优先沿用现有 libadb-android/AndroidKeyStore 结构，增加官方确认的最小参数修复并生成 v3 新身份；若 OriginOS 实机仍失败，再评估 Shizuku 的 AES-GCM + 软件 RSA 私钥方案，不能先断言成功。旧身份保留不删除。
 
 **UI 状态可信度补充**：Shell 最近验证状态不能只以本地墙钟判断；缓存记录现在同时保存本次开机的 `elapsedRealtime`，只在两种时间增量一致且 120 秒内时显示为近期验证通过。首页授权错误和监控错误采用短摘要，原始监控事件保留于详情，不把 TLS 长异常堆满首页。实际 USB/Root/Wireless 连接仍以当次 `id` 和后续 Shell 命令执行为准。
+ 
+
+## 18. 2026-11-18 alpha.39 后续静态复核：授权状态与后台模式切换
+
+本轮在 `alpha.39` 已通过签名构建但尚未拿到新 APK 的 OriginOS 实机反馈时，继续针对可从代码证实的路径错误做最小修正：
+
+- **特权会话与模式一致性**：原 `FcmMonitorService` 使用服务内 `adbConnected` 缓存，仅在部分安装/错误路径清除；当用户在授权页切换无线 ADB / 静态 TCP，或配对服务重新连接时，单靠这个标记可能绕过当前模式检查。改为每次 Shell 操作先调用共享 `AdbConnectionManager.autoConnectLocal` 或 `connectStatic`，由该 manager 按协议/主机/端口和 `isConnected()` 复用连接；不创建第二套会话管理器。必要时 `id` 回读；错误则清除验证记录并断连。
+- **避免配对码重投递**：原 `AdbPairingService` 对含 RemoteInput 六位码的 `ACTION_REPLY` 返回 `START_REDELIVER_INTENT`；进程异常结束后系统可能再次投递一次性配对请求。统一改为 `START_NOT_STICKY`，空 Intent 直接停止，不自动重复处理敏感输入。
+- **重新配对时旧状态失效**：重新开启配对监听先清除 Shell 近期验证缓存；尚未完成配对不能沿用 120 秒内的旧“已授权”状态。配对成功仍需执行 `id` 验证。
+- **图标一致**：FCM 前台监控通知、Quick Settings 添加弹框及磁贴统一使用已有 `ic_bf_fcm`；无线 ADB 配对通知使用已有 `ic_bf_auth`。不新增依赖或与项目目标无关的功能。
+- **静态回归**：`tests/apk-module-smoke.sh` 检查不再存在 `START_REDELIVER_INTENT` 和服务内 `adbConnected` 缓存，并核验授权失效与图标引用。
+- **发布边界**：本轮以 GitHub Actions 编译/签名测试为准；无 Android 17 真机新证据时不能声称 TLS 真实握手已通过。正式 GitHub prerelease 仍需手动触发 `publish_release=true`，不擅自发布。
+
+**成本与取舍**：每次执行会调用轻量连接状态检查，manager 可复用已建立的 ADB 会话；比可能使用错误 Shell 通道的缓存标记更可靠。不改变监控计划周期，不修改 Root/KSU 核心规则。

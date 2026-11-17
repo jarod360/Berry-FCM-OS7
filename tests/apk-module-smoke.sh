@@ -11,6 +11,23 @@ for class in MainActivity AuthActivity MonitorActivity GuardActivity BackgroundA
   need "$class" "$manifest"
 done
 need 'RemoteInput' "$src/AdbPairingService.java"
+need 'START_NOT_STICKY' "$src/AdbPairingService.java"
+if grep -q 'START_REDELIVER_INTENT' "$src/AdbPairingService.java"; then
+  echo 'Pairing code must never be redelivered on service restart' >&2
+  exit 1
+fi
+if grep -q 'adbConnected' "$src/FcmMonitorService.java"; then
+  echo 'Cached ADB transport would bypass mode changes' >&2
+  exit 1
+fi
+need 'adb.autoConnectLocal(this)' "$src/FcmMonitorService.java"
+need 'adb.connectStatic(prefs.host(), prefs.staticPort())' "$src/FcmMonitorService.java"
+need 'shellInvalidate' "$src/AppPrefs.java"
+need 'shellInvalidate' "$src/AdbPairingService.java"
+need 'R.drawable.ic_bf_auth' "$src/AdbPairingService.java"
+need 'R.drawable.ic_bf_fcm' "$src/FcmMonitorService.java"
+need 'R.drawable.ic_bf_fcm' "$src/SettingsActivity.java"
+need '@drawable/ic_bf_fcm' "$manifest"
 need '37123:123456' "$src/AdbPairingService.java"
 need '_adb-tls-pairing._tcp' "$src/AdbPairingService.java"
 need 'NsdManager' "$src/AdbPairingService.java"

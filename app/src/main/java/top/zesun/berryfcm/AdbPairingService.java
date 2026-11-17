@@ -50,7 +50,11 @@ public final class AdbPairingService extends Service {
         getSystemService(NotificationManager.class).createNotificationChannel(channel);
     }
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
-        String action = intent == null ? null : intent.getAction();
+        if (intent == null) {
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+        String action = intent.getAction();
         if (ACTION_STOP.equals(action)) {
             stopDiscovery();
             stopForeground(STOP_FOREGROUND_REMOVE);
@@ -73,21 +77,22 @@ public final class AdbPairingService extends Service {
             }
             if (!code.matches("[0-9]{6}") || selectedPort <= 0 || selectedPort > 65535) {
                 publish("请输入六位码；若未发现端口，请输入“端口:六位码”", true, selectedPort);
-                return START_REDELIVER_INTENT;
+                return START_NOT_STICKY;
             }
             stopDiscovery();
             publish("配对中，正在验证 ADB 身份…", false, 0);
             final int p = selectedPort;
             final String pairingCode = code;
             worker.execute(() -> pair(p, pairingCode));
-            return START_REDELIVER_INTENT;
+            return START_NOT_STICKY;
         }
-        port = intent == null ? 0 : intent.getIntExtra("manual_port", 0);
+        new AppPrefs(this).shellInvalidate();
+        port = intent.getIntExtra("manual_port", 0);
         publish(port > 0 ? "已指定配对端口 " + port + "；从通知输入配对码"
                 : "正在发现本机配对端口；若自动发现失败，可在通知输入“端口:六位码”",
                 true, port);
         if (port <= 0) startDiscovery();
-        return START_REDELIVER_INTENT;
+        return START_NOT_STICKY;
     }
 
     private void startDiscovery() {
@@ -185,7 +190,7 @@ public final class AdbPairingService extends Service {
         stopForeground(STOP_FOREGROUND_REMOVE);
         getSystemService(NotificationManager.class).notify(NOTIFICATION,
                 new Notification.Builder(this, CHANNEL)
-                        .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+                        .setSmallIcon(R.drawable.ic_bf_auth)
                         .setContentTitle("BerryFCM ADB 授权")
                         .setContentText(message)
                         .setStyle(new Notification.BigTextStyle().bigText(message))
@@ -200,7 +205,7 @@ public final class AdbPairingService extends Service {
     private void publish(String message, boolean withInput, int selectedPort) {
         updateStatus(message);
         Notification.Builder b = new Notification.Builder(this, CHANNEL)
-                .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+                .setSmallIcon(R.drawable.ic_bf_auth)
                 .setContentTitle("BerryFCM · 无线 ADB 配对")
                 .setContentText(message)
                 .setStyle(new Notification.BigTextStyle().bigText(message))

@@ -62,7 +62,7 @@ public final class SettingsActivity extends Ui {
         status.requestAddTileService(
                 new ComponentName(this, FcmTileService.class),
                 "BerryFCM 监控",
-                Icon.createWithResource(this, android.R.drawable.stat_notify_sync),
+                Icon.createWithResource(this, R.drawable.ic_bf_fcm),
                 getMainExecutor(),
                 result -> error(result == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED
                         ? "磁贴已添加" : "系统未确认添加，可到快捷设置编辑页手动添加"));

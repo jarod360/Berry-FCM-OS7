@@ -29,7 +29,7 @@ public final class FcmMonitorService extends Service {
     private static final String CHECK = "berryfcm.monitor.check";
     private static final String RECONNECT = "berryfcm.monitor.reconnect";
     private final ScheduledExecutorService worker = Executors.newSingleThreadScheduledExecutor();
-    private boolean scheduled, installed, adbConnected;
+    private boolean scheduled, installed;
     private String installedMode;
     private AdbConnectionManager adb;
     private long lastGuardAt;
@@ -85,7 +85,7 @@ public final class FcmMonitorService extends Service {
                 new Intent(this, MainActivity.class),
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         return new Notification.Builder(this, channel)
-                .setSmallIcon(android.R.drawable.stat_notify_sync)
+                .setSmallIcon(R.drawable.ic_bf_fcm)
                 .setContentTitle("BerryFCM 后台守护")
                 .setContentText("用户已启用的 FCM 监测与应用守护")
                 .setContentIntent(open)
@@ -123,7 +123,6 @@ public final class FcmMonitorService extends Service {
                     installScript(p, mode);
                     installedMode = mode;
                     installed = true;
-                    adbConnected = false;
                 }
                 String prefix = monitorPrefix(mode);
                 String result = execute(p, mode, prefix + "monitor >/dev/null 2>&1 || exit 9; "
@@ -143,7 +142,6 @@ public final class FcmMonitorService extends Service {
                 getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
                         .putString("error", safeError(error)).apply();
                 installed = false;
-                adbConnected = false;
             }
         }
         long now = SystemClock.elapsedRealtime();
@@ -161,7 +159,6 @@ public final class FcmMonitorService extends Service {
             } catch (Exception error) {
                 getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE).edit()
                         .putString("report", "守护检查未执行：" + safeError(error)).apply();
-                adbConnected = false;
             }
         }
     }
@@ -241,28 +238,23 @@ public final class FcmMonitorService extends Service {
         if (!AppPrefs.WIRELESS.equals(mode) && !AppPrefs.STATIC.equals(mode))
             throw new IllegalStateException("请先在授权中心选择 Root 或 ADB");
         if (adb == null) adb = AdbConnectionManager.get(this);
-        if (!adbConnected) {
+        try {
+            // The shared ADB manager may have been switched by the authorization
+            // screen. Check the requested transport on every operation.
             boolean ok = AppPrefs.WIRELESS.equals(mode)
                     ? adb.autoConnectLocal(this)
                     : adb.connectStatic(prefs.host(), prefs.staticPort());
-            if (!ok) {
-                prefs.shellFailed("ADB Shell 未连接；请在授权中心检查配对");
-                throw new IllegalStateException("ADB Shell 不可用；请开启无线调试并检查配对");
+            if (!ok) throw new IllegalStateException("ADB Shell 未连接；请检查无线调试或 TCP 端口");
+            if (!prefs.shellRecentlyVerified()) {
+                String identity = adb.shell("id").trim();
+                if (!identity.contains("uid=2000"))
+                    throw new IllegalStateException("ADB Shell 身份异常：" + identity);
+                prefs.shellVerified(identity);
             }
-            String identity = adb.shell("id").trim();
-            if (!identity.contains("uid=2000")) {
-                prefs.shellFailed("ADB Shell 身份异常：" + identity);
-                throw new IllegalStateException("ADB Shell 身份验证失败");
-            }
-            prefs.shellVerified(identity);
-            adbConnected = true;
-        }
-        try {
             String result = adb.shell(command);
-            if (prefs.shellRecentlyVerified()) prefs.shellVerified(prefs.shellIdentity());
+            prefs.shellVerified(prefs.shellIdentity());
             return result;
         } catch (Exception error) {
-            adbConnected = false;
             adb.disconnectSession();
             prefs.shellFailed(error.getMessage());
             throw error;
@@ -270,7 +262,6 @@ public final class FcmMonitorService extends Service {
     }
     @Override public void onDestroy() {
         worker.shutdownNow();
-        if (adb != null) adb.disconnectSession();
         super.onDestroy();
     }
     @Override public IBinder onBind(Intent intent) { return null; }

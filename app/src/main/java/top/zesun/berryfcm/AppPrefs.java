@@ -69,6 +69,11 @@ final class AppPrefs {
                 .putString("shell_mode", mode()).putString("shell_identity", identity)
                 .remove("shell_error").apply();
     }
+    void shellInvalidate() {
+        p.edit().putLong("shell_verified_at", 0)
+                .putLong("shell_verified_elapsed", 0)
+                .remove("shell_error").apply();
+    }
     void shellFailed(String message) {
         String reason = message == null ? "Shell 连接失败" : message.trim();
         if (reason.contains("RSA routines") || reason.contains("SSL library")) {

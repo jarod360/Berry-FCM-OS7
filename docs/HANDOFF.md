@@ -129,3 +129,11 @@
 - **下一步真机首要验证**：在“无线调试”系统页面保持配对码可见，在 BerryFCM 通知栏 RemoteInput 提交六位码，返回后查看是否 `uid=2000(shell)`。若仍有 TLS 错误，检查原生 Conscrypt 私钥调用；按 [Shizuku](https://github.com/RikkaApps/Shizuku) 的软件 RSA + AndroidKeyStore AES-GCM 路线备选，不再改 APK 签名。其后测试 GMS Socket 读取、锁屏和服务恢复。
 - **在线升级门槛**：已有 alpha.36 只有识别旧文件名的内置更新器，因此本仓库的首次 `publish_release=true` 手动构建将同时上传新短名称和旧兼容名称资产，确保用户可以从旧版在 APP 内升级；发布前必须先确认测试接受该 prerelease 机制。普通 Actions push 不等于 Release。
 - 用户本机所有新开发资料如果落盘只允许 `D:\\Codex`；此次全部通过云端 GitHub 仓库和 Actions 进行，没有触及用户 C 盘。
+
+## 12. alpha.39 后续源码复核与 CI 待验收
+
+- **代码问题（已验证原因）**：`FcmMonitorService` 的 `adbConnected` 可能因 UI 模式切换/共享连接复用而指向旧授权方式；`AdbPairingService` 返回 `START_REDELIVER_INTENT` 对一次性通知栏配对码不合适。两者不是新手机实测结果，而是可由源码路径直接复核。
+- **修复**：每次后台 Shell 执行先通过共享 `AdbConnectionManager` 确定无线 TLS 或静态 TCP 模式，避免私有布尔缓存；服务结束时不抢占断开 UI 共用会话。配对服务所有分支改用 `START_NOT_STICKY`，null Intent 不重新开始配对。开启新配对时使旧 Shell 验证记录失效。
+- **视觉与命名**：系统配对通知 `ic_bf_auth`，FCM 前台通知、系统快捷磁贴和添加请求 `ic_bf_fcm`。不更改 APK 显示名 BerryFCM、不更新安装签名或包名。
+- **需要确认**：GitHub Actions 新一轮模块测试/Gradle/签名结果；真机无线 ADB 配对 uid、切换授权方式后检查、后台监控是否持续记录、在线更新从正式 GitHub prerelease 是否可用。仅 CI 完成不能声称上述实机测试通过。
+- **发布策略**：仍只有 Actions 测试 Artifact，尚无已确认可用的 GitHub Release；保留旧名称兼容资产以便未来启用应用内更新，正式发布必须显式批准并满足实机验收。
