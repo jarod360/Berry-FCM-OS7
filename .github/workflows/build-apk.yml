@@ -60,6 +60,12 @@ jobs:
           printf '%s' "$BERRYFCM_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/berryfcm-release.p12"
           test -s "$RUNNER_TEMP/berryfcm-release.p12"
           keytool -list -keystore "$RUNNER_TEMP/berryfcm-release.p12" -storetype PKCS12 -storepass "$BERRYFCM_KEYSTORE_PASSWORD" -alias "$BERRYFCM_KEY_ALIAS" >/dev/null
+          # Pin the PUBLIC certificate fingerprint. This rejects accidentally switching signing keys.
+          actual="$(keytool -exportcert -keystore "$RUNNER_TEMP/berryfcm-release.p12" -storetype PKCS12 -storepass "$BERRYFCM_KEYSTORE_PASSWORD" -alias "$BERRYFCM_KEY_ALIAS" | sha256sum | awk '{print toupper($1)}')"
+          if [ "$actual" != "D6506E38980A564BE06C101247AB54AA045AB565C2A5E935E7D47918084E5ECA" ]; then
+            echo "::error::Signing certificate fingerprint differs from the approved BerryFCM key."
+            exit 1
+          fi
           echo "available=true" >> "$GITHUB_OUTPUT"
 
       - name: Build stable-signed APK
