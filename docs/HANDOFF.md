@@ -1,6 +1,6 @@
 # Berry-FCM-OS7 开发交接文档
 
-最后更新：2026-11-17
+最后更新：2026-11-17（仓库云编译与固定签名准备状态已复核）
 仓库：<https://github.com/jarod360/Berry-FCM-OS7>
 
 ## 1. 目标与交付物
@@ -39,7 +39,7 @@
 - `module/bin/fcm-monitor.sh`：FCM Socket 观察、状态机、事件历史和重连请求。
 - `module/service.sh`：启动后约每 30 秒执行 monitor，并保留原 stopped 巡检。
 - `module/webroot/index.html`：增加连接状态 / 时间线 / 事件记录面板。
-- `module/module.prop`：版本 `0.5.3-test`，versionCode `8`。
+- `module/module.prop`：当前仓库版本 `0.5.4-test`，versionCode `9`。
 
 ### 3.2 Socket 识别规则
 
@@ -114,24 +114,24 @@
 
 开机恢复默认关闭。只有用户明确选中的服务才会写入；优先使用持久 `WRITE_SECURE_SETTINGS` 直接写入，否则使用 Root / ADB Shell；没有任一授权时不能静默启用第三方无障碍服务。
 
-**构建状态：** 之前三次 APK Actions 失败，根因为缺少 `androidx.annotation` 依赖和调用不存在的 `Conscrypt.PROVIDER_NAME`；已增加依赖并改为 `Conscrypt.newProvider().getName()`，等待新一轮 Actions 验证。ADB 库版本、Android 13+ 磁贴 API、Foreground Service 声明、OriginOS 开机恢复和无障碍服务实际启用流程仍需实机验证。当前 APK 尚未集成 KSU 版完整 FCM Socket 时间线；普通 APK 权限本身无法替代 Root / ADB Shell 读取其它 UID Socket。一次性 `WRITE_SECURE_SETTINGS` 是否能在目标 OriginOS 版本授予和跨重启保留，仍需实机验证。后续如要在 Root / ADB 模式复用 FCM monitor，应把 Shell 监控脚本作为明确授权后的执行模块接入，不能在普通模式宣称支持。
+**构建状态（2026-11-17 最新复核）：** APK Actions Run #12 的 Android 源码编译检查成功，但四项 Release 签名 Secrets 缺失，因此 Release 签名、APK Artifact 上传步骤被跳过；当前没有可下载的固定签名 APK。KSU Actions Run #9 成功，已生成 `BerryFCM-KSU-v0.5.4-test.zip`。ADB 库版本、Android 13+ 磁贴 API、Foreground Service 声明、OriginOS 开机恢复和无障碍服务实际启用流程仍需实机验证。当前 APK 尚未集成 KSU 版完整 FCM Socket 时间线；普通 APK 权限本身无法替代 Root / ADB Shell 读取其它 UID Socket。后续若在 APK 的 Root / ADB 授权模式复用 FCM monitor，应明确显示当前授权能力；普通模式只能显示 `unknown / 无权读取`，不能伪装为已断联。一次性 `WRITE_SECURE_SETTINGS` 是否能在目标 OriginOS 版本授予和跨重启保留，仍需实机验证。
 
 ## 5. GitHub Actions
 
 - `.github/workflows/build-ksu.yml`：main 对 `module/**` / `tests/**` 的提交或手动运行时执行 Shell 语法、状态机 smoke test、WebUI JavaScript 检查，并打包 `BerryFCM-KSU-v0.5.4-test.zip`。
 - `.github/workflows/build-apk.yml`：先运行 Debug 编译检查；四项固定签名 Secrets 可用时，再构建并验证 PKCS12 Release APK。Debug APK 不上传。
 - KSU Artifact 保留 30 天；固定签名 APK Artifact 保留 90 天。
-- `docs/SIGNING.md` 说明四项 Secrets 与 keystore 安全保管。APK `applicationId` 固定为 `top.zesun.berryfcm`，`versionCode` 使用 APK 工作流递增 `run_number`，所有发布包必须使用同一 keystore 签名，确保覆盖升级。
+- `docs/SIGNING.md` 和 `tools/New-BerryFCMSigningKey.ps1` 说明如何在 `D:\Codex\Berry-FCM-OS7\signing\` 一次性生成 PKCS12 密钥并配置四项 Secrets。**密钥目前尚未生成 / Secrets 尚未配置**。APK `applicationId` 固定为 `top.zesun.berryfcm`，`versionCode` 使用 APK 工作流递增 `run_number`，所有发布包必须使用同一 keystore 签名，确保覆盖升级。
 
 ## 6. 下一步开发顺序
 
-1. 检查两个 Actions Run；先修复真实云编译错误，不凭猜测修改。
-2. 将 `berryfcm-release.p12` 保存到 `D:\Codex\Berry-FCM-OS7\signing\`，配置四项 GitHub Actions Secrets，再触发固定签名 APK 构建。
-3. 下载 KSU ZIP、固定签名 APK，检查包内文件和证书指纹 / 安装情况；连续两次 APK 构建验证可覆盖升级。
+1. 已完成：检查 KSU Actions Run #9 成功、APK Actions Run #12 编译成功；APK Release 因签名 Secrets 缺失未生成。
+2. 用户在 Windows `D:\Codex\Berry-FCM-OS7` 运行 `tools\New-BerryFCMSigningKey.ps1`，一次性生成 keystore 并配置四项 GitHub Actions Secrets。
+3. 重跑 APK workflow，确认 Release APK Artifact 已生成并核对签名证书 SHA-256；连续两次 APK 构建验证可覆盖升级。
 4. KSU 实机：正常 Wi-Fi、受限 Wi-Fi、移动网络、仅 443、DNS 不可用、网络切换、锁屏 Doze；与原生 Diagnostics 对照连接 / 断联时间线。
 5. 验证 120 秒触发门槛、300 秒冷却、广播结果、真实恢复事件和 unknown 安全行为。
 6. APK 实机：Root、无线 ADB 首次配对、重启后 mDNS 重连、静态端口、USB 初始化说明、服务多选 / 取消、保留其它服务、开机恢复、磁贴、通知权限和 OriginOS 后台限制。
-7. 根据 APK 的实际目标重新评估是否在授权模式下接入 FCM monitor；普通权限模式不声称有 GMS Socket 可见性。
+7. 评估并实现 APK 在 Root / ADB Shell 授权模式下对 KSU FCM monitor 的受控调用和状态展示；无特权模式必须显示不可读取，不能误判连接状态。
 8. 实机验收后再建立正式版本号和 Release。
 
 ## 7. 参考项目 / 来源
