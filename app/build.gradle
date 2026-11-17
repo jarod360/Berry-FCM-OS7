@@ -2,6 +2,7 @@ plugins {
     id 'com.android.application'
 }
 
+// Persistent signing identity: keep applicationId and release keystore stable across updates.
 def buildNumber = (System.getenv("BERRYFCM_VERSION_CODE") ?: "1").toInteger()
 
 android {
