@@ -32,7 +32,7 @@
 数据目录：`/data/adb/berry_fcm_ksu/`。
 原有功能包括应用守护名单、多选与已选置顶、分批加载应用、浅色 / 深色主题、Google 原生 FCM Diagnostics 跳转、Doze / 后台网络策略诊断、stopped 检查修复及 30 秒巡检。
 
-## 3. KernelSU v0.5.3-test 当前代码
+## 3. KernelSU v0.5.4-test 当前代码
 
 ### 3.1 新增文件与入口
 
@@ -118,7 +118,7 @@
 
 ## 5. GitHub Actions
 
-- `.github/workflows/build-ksu.yml`：main 对 `module/**` / `tests/**` 的提交或手动运行时执行 Shell 语法、状态机 smoke test、WebUI JavaScript 检查，并打包 `BerryFCM-KSU-v0.5.3-test.zip`。
+- `.github/workflows/build-ksu.yml`：main 对 `module/**` / `tests/**` 的提交或手动运行时执行 Shell 语法、状态机 smoke test、WebUI JavaScript 检查，并打包 `BerryFCM-KSU-v0.5.4-test.zip`。
 - `.github/workflows/build-apk.yml`：先运行 Debug 编译检查；四项固定签名 Secrets 可用时，再构建并验证 PKCS12 Release APK。Debug APK 不上传。
 - KSU Artifact 保留 30 天；固定签名 APK Artifact 保留 90 天。
 - `docs/SIGNING.md` 说明四项 Secrets 与 keystore 安全保管。APK `applicationId` 固定为 `top.zesun.berryfcm`，`versionCode` 使用 APK 工作流递增 `run_number`，所有发布包必须使用同一 keystore 签名，确保覆盖升级。
