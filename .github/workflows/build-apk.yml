@@ -53,6 +53,7 @@ jobs:
           BERRYFCM_KEY_PASSWORD: ${{ secrets.BERRYFCM_KEY_PASSWORD }}
         run: |
           set -Eeuo pipefail
+          export LC_ALL=C
 
           if [ -z "$BERRYFCM_KEYSTORE_BASE64" ] || [ -z "$BERRYFCM_KEYSTORE_PASSWORD" ] || [ -z "$BERRYFCM_KEY_ALIAS" ] || [ -z "$BERRYFCM_KEY_PASSWORD" ]; then
             echo "available=false" >> "$GITHUB_OUTPUT"
@@ -62,13 +63,13 @@ jobs:
 
           keystore="$RUNNER_TEMP/berryfcm-release.p12"
           cert_file="$RUNNER_TEMP/berryfcm-certificate.der"
+          keytool_err="$RUNNER_TEMP/berryfcm-keytool.err"
 
-          echo "Signing check 1/4: decoding configured keystore"
+          echo "Signing check 1/5: decoding configured keystore"
           if ! printf '%s' "$BERRYFCM_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 --decode > "$keystore"; then
             echo "::error::Keystore Base64 decoding failed. Secret values were not printed."
             exit 1
           fi
-
           decoded_bytes="$(wc -c < "$keystore" | tr -d '[:space:]')"
           echo "Decoded keystore size: ${decoded_bytes} bytes"
           if [ "$decoded_bytes" -eq 0 ]; then
@@ -76,18 +77,35 @@ jobs:
             exit 1
           fi
 
-          echo "Signing check 2/4: opening PKCS12 container and resolving alias"
-          if ! keytool -list -keystore "$keystore" -storetype PKCS12 -storepass "$BERRYFCM_KEYSTORE_PASSWORD" -alias "$BERRYFCM_KEY_ALIAS" >/dev/null 2>"$RUNNER_TEMP/berryfcm-keytool-list.err"; then
-            echo "::error::PKCS12 could not be opened with the configured store password and alias. No secret values were printed."
+          echo "Signing check 2/5: opening PKCS12 container"
+          if ! keytool -list -keystore "$keystore" -storetype PKCS12 -storepass "$BERRYFCM_KEYSTORE_PASSWORD" >/dev/null 2>"$keytool_err"; then
+            echo "::error::The PKCS12 container could not be opened. No secret values were printed."
             exit 1
           fi
 
-          echo "Signing check 3/4: exporting certificate"
-          if ! keytool -exportcert -keystore "$keystore" -storetype PKCS12 -storepass "$BERRYFCM_KEYSTORE_PASSWORD" -alias "$BERRYFCM_KEY_ALIAS" > "$cert_file" 2>"$RUNNER_TEMP/berryfcm-keytool-export.err"; then
+          echo "Signing check 3/5: detecting and normalizing key alias"
+          source_alias="$(keytool -list -v -keystore "$keystore" -storetype PKCS12 -storepass "$BERRYFCM_KEYSTORE_PASSWORD" 2>/dev/null | sed -n 's/^Alias name: //p' | head -n 1)"
+          if [ -z "$source_alias" ]; then
+            echo "::error::No private-key entry alias was found in the PKCS12 container."
+            exit 1
+          fi
+          if [ "$source_alias" != "$BERRYFCM_KEY_ALIAS" ]; then
+            echo "Normalizing PKCS12 entry alias for Gradle signing."
+            if ! keytool -changealias -keystore "$keystore" -storetype PKCS12 -storepass "$BERRYFCM_KEYSTORE_PASSWORD" -keypass "$BERRYFCM_KEY_PASSWORD" -alias "$source_alias" -destalias "$BERRYFCM_KEY_ALIAS" >/dev/null 2>"$keytool_err"; then
+              echo "::error::Could not normalize the PKCS12 entry alias."
+              exit 1
+            fi
+          fi
+          if ! keytool -list -keystore "$keystore" -storetype PKCS12 -storepass "$BERRYFCM_KEYSTORE_PASSWORD" -alias "$BERRYFCM_KEY_ALIAS" >/dev/null 2>"$keytool_err"; then
+            echo "::error::The configured Gradle alias is not available after normalization."
+            exit 1
+          fi
+
+          echo "Signing check 4/5: exporting certificate"
+          if ! keytool -exportcert -keystore "$keystore" -storetype PKCS12 -storepass "$BERRYFCM_KEYSTORE_PASSWORD" -alias "$BERRYFCM_KEY_ALIAS" > "$cert_file" 2>"$keytool_err"; then
             echo "::error::Certificate export failed."
             exit 1
           fi
-
           cert_bytes="$(wc -c < "$cert_file" | tr -d '[:space:]')"
           echo "Exported certificate size: ${cert_bytes} bytes"
           actual="$(sha256sum "$cert_file" | awk '{print toupper($1)}')"
@@ -99,7 +117,7 @@ jobs:
             exit 1
           fi
 
-          echo "Signing check 4/4: all certificate checks passed"
+          echo "Signing check 5/5: all certificate checks passed"
           echo "available=true" >> "$GITHUB_OUTPUT"
 
       - name: Build stable-signed APK
