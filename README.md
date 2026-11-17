@@ -79,6 +79,8 @@ app/                          Android APK 源码
  .github/workflows/           两个独立云编译工作流
 ```
 
+仓库内的 `tools/New-BerryFCMSigningKey.ps1` 用于首次生成固定 APK 签名密钥；只运行一次，已有密钥时脚本会拒绝覆盖。详细步骤见 [`docs/SIGNING.md`](docs/SIGNING.md)。
+
 ## 本地检查
 
 ```sh
