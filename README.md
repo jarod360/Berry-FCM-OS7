@@ -9,7 +9,7 @@
 | 版本 | 产物 | 权限模型 | 主要用途 |
 |---|---|---|---|
 | KernelSU | `BerryFCM-KSU-v0.5.3-test.zip` | Root | 观察 GMS UID Socket、FCM 连接时间线、自动请求 GCM 重连，并保留原有应用守护与策略诊断 |
-| Android APK | `BerryFCM-Guardian-v0.1.0-alpha-debug.apk` | Root / 无线 ADB / 静态 ADB TCP / 手动 | 管理用户明确选择的无障碍服务、开机恢复和下拉快捷磁贴 |
+| Android APK | `BerryFCM-Guardian-v0.1.0-alpha.<run>.apk` | Root / 无线 ADB / 静态 ADB TCP / USB ADB 一次性授权 / 手动 | 管理用户明确选择的无障碍服务、持久设置授权、开机恢复和下拉快捷磁贴 |
 
 ## KernelSU 版
 
@@ -29,7 +29,7 @@
 
 ## Android APK 版
 
-应用名称：**BerryFCM Guardian**，包名 `top.zesun.berryfcm`。默认进入无线 ADB 模式；Root 是可选模式。
+应用名称：**BerryFCM Guardian**，包名固定为 `top.zesun.berryfcm`。默认无线 ADB；Root 可选。
 
 授权入口：
 
@@ -43,20 +43,28 @@ APK 扫描应用声明的无障碍服务。只有用户明确勾选的服务才�
 
 Android 13+ 可请求系统添加 Quick Settings Tile。系统会显示确认，用户可拒绝。
 
-**权限边界：** 普通 APK 没有权限静默启用其它应用的无障碍服务，也不能无 Root 读取 GMS 的完整 Socket。无线 ADB / 静态 ADB 会话具备 Shell 级权限，必须只连接自己的设备。ADB 会话断开后，Shell 权限不会永久变成 APK 的普通权限；`WRITE_SECURE_SETTINGS` 也不会因一次 ADB 操作而永久授予普通 APK。
+**权限边界：** 普通 APK 没有权限静默启用其它应用的无障碍服务，也不能无 Root 读取 GMS 的完整 Socket。Root / 无线 ADB / 静态 ADB / 电脑 USB ADB 可用于首次授权。APK 会尝试通过 `pm grant` 获取 `WRITE_SECURE_SETTINGS`；若系统允许，该权限状态通常跨重启保留，之后可直接使用 `Settings.Secure`，以应用内权限检查为准。ADB Shell 与持久设置授权是两种不同权限，不得混淆。
 
-APK 目前聚焦授权与无障碍服务管理，不宣称在普通权限模式下提供 KSU 版的完整 FCM Socket 监控。
+APK 当前聚焦授权与无障碍服务管理；尚未接入 KSU 版完整 FCM Socket 时间线。普通权限模式不宣称能读取 GMS Socket。
 
 详细说明：[`app/README.md`](app/README.md)。
+
+## APK 固定签名密钥（必须配置一次）
+
+为了保证每次云编译都能覆盖安装，APK 使用同一个 PKCS12 Release Keystore；包名固定，`versionCode` 自动使用 APK 工作流递增的 `run_number`。
+
+1. 将交付的 `berryfcm-release.p12` 保存到 `D:\Codex\Berry-FCM-OS7\signing\`，并备份。
+2. 按 [`docs/SIGNING.md`](docs/SIGNING.md) 将四项值添加到 GitHub Actions Secrets：`BERRYFCM_KEYSTORE_BASE64`、`BERRYFCM_KEYSTORE_PASSWORD`、`BERRYFCM_KEY_ALIAS`、`BERRYFCM_KEY_PASSWORD`。
+3. Secrets 配置后，后续每次 APK 工作流都使用同一密钥签名。丢失密钥将无法覆盖升级。
 
 ## GitHub Actions 云编译
 
 推送 `main` 后，两个工作流按各自文件路径独立触发，也可以在 Actions 页面手动运行：
 
 - **Build KernelSU ZIP**：Shell 语法、FCM 状态机模拟测试、WebUI JavaScript 检查，输出 `BerryFCM-KSU-v0.5.3-test.zip`。
-- **Build Android APK**：使用 JDK 17、Android SDK 35、Gradle 8.11.1 构建 debug APK，输出 `BerryFCM-Guardian-v0.1.0-alpha-debug.apk`。
+- **Build Android APK**：使用 JDK 17、Android SDK 35、Gradle 8.11.1；先执行 Debug 编译检查，再在签名 Secrets 可用时构建固定密钥签名的 Release APK。Debug APK 不上传。
 
-产物在对应 Actions Run 的 Artifacts 中下载，保留 30 天。APK 是 debug 构建，不是面向商店发布的 release 签名包。实机验收前不创建正式 Release。
+KSU Artifact 保留 30 天；固定签名 APK Artifact 保留 90 天。若签名 Secrets 未配置，APK 工作流只做编译检查，不发布临时 Debug APK。
 
 ## 仓库结构
 
