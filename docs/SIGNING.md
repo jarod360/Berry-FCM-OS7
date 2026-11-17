@@ -10,6 +10,8 @@
 - 工作流 `.github/workflows/build-apk.yml` 会解码 P12、检查 keytool 可读性、必要时规范化 Runner 临时 P12 的条目别名、导出证书并匹配上述指纹，之后使用该密钥构建 Release APK、执行 `apksigner verify`、上传 Artifact。
 - **实际通过**：[Actions #44122890970](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44122890970) 的 `Compile APK sources`、`Prepare persistent release signing key`、`Build stable-signed APK`、`Verify signature and stage APK`、`Upload stable-signed APK` 均成功。上传 Artifact `BerryFCM-Guardian-v0.1.0-alpha.24`。
 
+**最新再次验证：** [Actions #44132037143](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44132037143) 同样通过签名、验签及上传，Artifact `BerryFCM-Guardian-v0.1.0-alpha.26`。无需重新设置 Secrets。
+
 ## 禁止的操作
 
 - **不重新生成签名密钥、不覆盖现有签名、不给用户重新发送四项 Secrets 填写教程**，除非后续 Actions 真有可信证据显示发生轮换/失效且用户明确要求。

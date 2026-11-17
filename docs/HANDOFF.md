@@ -34,11 +34,11 @@
 8. 应用内 GitHub Releases 更新/下载/版本签名验证尚未合入，正式 Release 流程也未建。
 9. 主界面风格、导航、系统服务过滤、应用守护导入、浅深主题均未按最终规划验收。
 
-## 4. P0-1 首个修复增量（进行中）
+## 4. P0-1 首个修复增量（CI 已通过，实机未验证）
 
 - APK `app/src/main/assets/fcm-monitor.sh` 在 `ss -tnpe` 成功执行、但返回的全部 Socket 均缺少 UID 元数据时，直接报 `unknown / ss_uid_metadata_unavailable`，**不再误判“没有 FCM Socket”**。
 - `tests/fcm-monitor-smoke.sh` 支持切换 KSU/APK 监控脚本；APK 增加“UID 被 ADB Shell 隐去不触发自动重连”回归用例。
-- APK Actions 在 Gradle 编译前新增 APK 监控脚本 Shell 语法与模拟状态机测试。此处是待 CI 验证的源码变更，**不等于通过手机测试**。
+- APK Actions 在 Gradle 编译前新增 Shell 语法与模拟状态机测试。**已经通过** [APK Actions #44132037143](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44132037143)：监控模拟、Debug 编译、P12 固定签名、Release 构建、apksigner 验证及 Artifact 上传均成功，产物 `BerryFCM-Guardian-v0.1.0-alpha.26`（Artifact 14349893236）。同提交的 [KSU Actions #44132036952](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44132036952) 成功。**本项仍未在目标手机实机验证**。
 
 ## 5. 下一步 **只做一个阶段**
 

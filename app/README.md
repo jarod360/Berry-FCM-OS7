@@ -21,6 +21,6 @@
 
 ## 构建与发布
 
-GitHub Actions [Build Android APK](https://github.com/jarod360/Berry-FCM-OS7/actions/workflows/build-apk.yml)：先 Debug 编译，再以固定 P12 签名 Release、验证证书和上传 APK Artifact。**最新已确认通过的构建**：[Run #44122890970](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44122890970)，产物 `BerryFCM-Guardian-v0.1.0-alpha.24`。用户不需要重新设置 Secrets。
+GitHub Actions [Build Android APK](https://github.com/jarod360/Berry-FCM-OS7/actions/workflows/build-apk.yml)：先 Debug 编译，再以固定 P12 签名 Release、验证证书和上传 APK Artifact。**最新已确认通过的构建**：[Run #44132037143](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44132037143)，产物 `BerryFCM-Guardian-v0.1.0-alpha.26`。用户不需要重新设置 Secrets。
 
 正式 GitHub Release、应用内在线检查升级和 OriginOS 目标手机实机验收列在 [产品计划](../docs/PRODUCT_PLAN.md)，**尚未完成**。
