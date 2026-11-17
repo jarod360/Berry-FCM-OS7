@@ -44,3 +44,5 @@ docs/SIGNING.md            稳定签名和升级约定
 **开源参考：** [Shizuku](https://github.com/RikkaApps/Shizuku)（通知栏配对）、[GKD](https://github.com/gkd-kit/gkd)（设置分组与状态）、[FCMFix ColorOS](https://github.com/ByteJuno/fcmfix-coloros)（FCM 监控判定）、[vivo-guardian](https://github.com/Lokside/vivo-guardian)（OriginOS 任务锁定与强制停止行为）、[libadb-android](https://github.com/MuntashirAkon/libadb-android)（ADB 客户端库）。参考思想与交互，不复制专有资源；如复用代码必须遵守许可证。
 
 > 2026-11-18 交互决策：优先完成独立授权模块与通知栏无线 ADB 配对、修复首页顶住状态栏；FCM 自动恢复和下拉快捷磁贴**保留但不依赖无障碍**。详见 [产品计划 §5A](docs/PRODUCT_PLAN.md)。
+
+> 首轮模块化 APK 已通过 [Actions #44138228340](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44138228340) 编译、签名和产物上传（alpha.29）。下一提交增加发布流程的手动开关与结构回归测试；尚未进行手机配对和后台实机验收。

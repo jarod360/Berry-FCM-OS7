@@ -146,7 +146,8 @@ public final class GuardActivity extends Ui {
                 if (checked) targets.add(app.pkg);
                 else targets.remove(app.pkg);
                 prefs.guardTargets(targets);
-                count.setText("已选择 " + (targets.size() + (targets.contains(GuardOps.GMS) ? 0 : 1)) + " 个应用（含 GMS）");
+                // Re-sort immediately: checked applications remain above unchecked ones.
+                render(false);
             });
             entries.addView(checkbox);
         }

@@ -10,6 +10,12 @@ on:
       - 'gradle.properties'
       - '.github/workflows/build-apk.yml'
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "Publish a signed GitHub prerelease after device acceptance"
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -45,6 +51,9 @@ jobs:
         run: |
           sh -n app/src/main/assets/fcm-monitor.sh
           BERRY_MONITOR_SCRIPT=app/src/main/assets/fcm-monitor.sh BERRY_ASSERT_UID_ACCESS=1 sh tests/fcm-monitor-smoke.sh
+
+      - name: Verify complete APK module and permission scope
+        run: sh tests/apk-module-smoke.sh
 
       - name: Compile APK sources
         run: gradle --no-daemon :app:assembleDebug
@@ -165,3 +174,36 @@ jobs:
             echo "Add the four BERRYFCM signing secrets described in README.md, then rerun this workflow."
             echo "The per-run debug APK was intentionally not uploaded because it cannot be reliably upgraded across runners."
           } >> "$GITHUB_STEP_SUMMARY"
+
+  publish_release:
+    name: Publish verified GitHub prerelease
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_release == true
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: BerryFCM-Guardian-v0.1.0-alpha.${{ github.run_number }}
+          path: release
+      - name: Confirm signed APK artifact is present
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          set -Eeuo pipefail
+          apk="release/BerryFCM-Guardian-v0.1.0-alpha.${BUILD_NUMBER}.apk"
+          test -s "$apk"
+      - name: Create GitHub prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          BUILD_NUMBER: ${{ github.run_number }}
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          tag="v0.1.0-alpha.${BUILD_NUMBER}"
+          apk="release/BerryFCM-Guardian-v0.1.0-alpha.${BUILD_NUMBER}.apk"
+          gh release create "$tag" "$apk" --target "$TARGET_SHA" --prerelease \
+            --title "BerryFCM Guardian ${tag}" \
+            --notes "BerryFCM fixed-signature prerelease. See docs/HANDOFF.md and docs/PRODUCT_PLAN.md for features, limits, and device validation."

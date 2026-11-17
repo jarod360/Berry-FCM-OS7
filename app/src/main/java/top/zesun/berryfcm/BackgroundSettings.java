@@ -22,11 +22,22 @@ final class BackgroundSettings {
                 + "cmd appops get " + SELF + " RUN_IN_BACKGROUND 2>&1";
         return shell.execute(command).trim();
     }
-    static String gmsDoze(PrivilegeShell shell, boolean allow) throws Exception {
-        String cmd = "cmd deviceidle whitelist "
-                + (allow ? "+" : "-") + "com.google.android.gms 2>&1; "
-                + "cmd deviceidle whitelist | grep -F com.google.android.gms || true";
-        return shell.execute(cmd).trim();
+    static String gmsDoze(android.content.Context context, PrivilegeShell shell, boolean allow) throws Exception {
+        android.content.SharedPreferences ownership = context.getSharedPreferences(
+                "berry_fcm_policy_ownership", android.content.Context.MODE_PRIVATE);
+        String before = shell.execute("cmd deviceidle whitelist 2>&1");
+        boolean present = before.contains(",com.google.android.gms");
+        if (allow && present) return "GMS 已经位于 Doze 白名单，本次没有修改，不记录为 BerryFCM 添加";
+        if (!allow && !ownership.getBoolean("gms_doze_owned", false))
+            return "拒绝撤销：该白名单不是 BerryFCM 添加的";
+        shell.execute("cmd deviceidle whitelist "
+                + (allow ? "+" : "-") + "com.google.android.gms 2>&1");
+        String after = shell.execute("cmd deviceidle whitelist 2>&1");
+        boolean nowPresent = after.contains(",com.google.android.gms");
+        if (nowPresent != allow) throw new IllegalStateException("Doze 白名单未通过回读验证");
+        ownership.edit().putBoolean("gms_doze_owned", allow).apply();
+        return allow ? "GMS 已加入 Doze 白名单（由 BerryFCM 添加，可撤销）"
+                     : "已撤销 BerryFCM 添加的 GMS Doze 白名单";
     }
     static boolean batteryExempt(Activity activity) {
         PowerManager service = activity.getSystemService(PowerManager.class);

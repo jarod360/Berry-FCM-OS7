@@ -85,3 +85,10 @@
 第三方无障碍扫描/恢复代码从新版编译路径移除，`WRITE_SECURE_SETTINGS` 不再用于操纵别人的无障碍服务。Root/ADB 失效不得报告在线/已修复。
 
 **下一步：检查代码编译、固定签名、工作流与新模块间依赖，修复所有 CI 问题。随后完善 Release 发布流水线；所有用户实机测试继续暂缓，直到所有模块实际可操作。**
+
+## 8. 模块化首轮构建、自动测试与后续安排
+
+- **已确认 Actions 成功**：[APK #44138228340](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44138228340)，新增 `MainActivity`、`Ui`、`AuthActivity`、`AdbPairingService`、`GuardActivity`、`BackgroundActivity`、`MonitorActivity`、`DiagnosticsActivity`、`SettingsActivity`、`UpdateActivity` 均编译成功；签名、验签、Artifact 上传通过；APK `BerryFCM-Guardian-v0.1.0-alpha.29`。尚未实机验收。
+- 已移除第三方无障碍管理源代码与注册项。APP 的 FCM 自动恢复采用 `BootReceiver` + `FcmMonitorService`，下拉磁贴采用 `FcmTileService`，不需要 AccessibilityService。
+- **正在补充**：受控 `workflow_dispatch publish_release` 和 `tests/apk-module-smoke.sh`，mDNS 本机过滤、GMS Doze 白名单操作归属及应用守护名单已选置顶；提交后须重新验证 Actions。
+- **用户测试准入不变**：先完成全部模块可操作逻辑、GitHub Action 构建和静态检查；可预期的设备差异要在页面清楚提示，再给用户完整可执行的测试步骤。暂不正式发布 GitHub Release。

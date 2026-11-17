@@ -33,3 +33,7 @@
 - [PRODUCT_PLAN.md](PRODUCT_PLAN.md)：产品权限、发布路线与验收。
 - [HANDOFF.md](HANDOFF.md)：当前工作进度与构建事实。
 - [Actions Build Android APK](https://github.com/jarod360/Berry-FCM-OS7/actions/workflows/build-apk.yml)。
+
+### Release 流水线（新增设计，待 Actions 验证）
+
+`Build Android APK` 增加手动 `workflow_dispatch` 的 `publish_release` 布尔输入，默认关闭。仅用户显式勾选后，下载同次通过签名验证的 APK Artifact，并以相同 run_number 发布 `v0.1.0-alpha.N` GitHub prerelease。普通 `push` 仅产生 Actions Artifact，不向 APK 更新接口提供半成品。

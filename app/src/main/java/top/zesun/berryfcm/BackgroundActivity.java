@@ -40,9 +40,10 @@ public final class BackgroundActivity extends Ui {
         button(android, "撤销 GMS Doze 放行（请确认原始状态）", () -> gmsPolicy(false), false);
 
         LinearLayout vendor = card("OriginOS 后台管理", "自启动、关联启动、允许后台高耗电通常为厂商私有开关，不能把打开设置页当成自动授权成功。");
-        button(vendor, "打开自启动 / 关联启动管理", () -> BackgroundSettings.autostart(this), true);
-        button(vendor, "进入电池 / 高耗电设置", () -> BackgroundSettings.details(this), false);
-        line(vendor, "最近任务锁定", "先在系统最近任务卡片中锁定 BerryFCM，随后再隐藏任务卡片。", null);
+        button(vendor, "自启动：打开 OriginOS 设置", () -> BackgroundSettings.autostart(this), true);
+        button(vendor, "关联启动：打开 OriginOS 设置", () -> BackgroundSettings.autostart(this), false);
+        button(vendor, "允许后台高耗电：打开应用电池设置", () -> BackgroundSettings.details(this), false);
+        line(vendor, "最近任务锁定", "打开系统最近任务列表，找到 BerryFCM 卡片并从菜单锁定。此开关没有可验证的标准 Android 接口，需要手动操作。", null);
         toggle(vendor, "隐藏 BerryFCM 最近任务卡片", prefs.hideRecents(), value -> {
             if (RecentTasks.apply(this, value)) {
                 prefs.hideRecents(value);
@@ -86,7 +87,7 @@ public final class BackgroundActivity extends Ui {
         policy.setText("正在修改 GMS 策略…");
         worker.execute(() -> {
             try (PrivilegeShell shell = PrivilegeAccess.open(this)) {
-                String result = BackgroundSettings.gmsDoze(shell, allow);
+                String result = BackgroundSettings.gmsDoze(this, shell, allow);
                 runOnUiThread(() -> policy.setText(result));
             } catch (Exception error) {
                 runOnUiThread(() -> policy.setText("操作未完成：" + error.getMessage()));

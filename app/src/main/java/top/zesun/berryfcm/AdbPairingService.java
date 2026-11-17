@@ -99,6 +99,10 @@ public final class AdbPairingService extends Service {
                                 updateStatus("配对端口解析失败：" + error);
                             }
                             @Override public void onServiceResolved(NsdServiceInfo resolved) {
+                                // Accept only this phone's own ADB pairing service,
+                                // not another Android device advertising mDNS on the LAN.
+                                java.net.InetAddress address = resolved.getHost();
+                                if (address == null || !localAddress(address)) return;
                                 int found = resolved.getPort();
                                 if (found > 0 && found <= 65535) {
                                     port = found;
@@ -115,6 +119,22 @@ public final class AdbPairingService extends Service {
         } catch (RuntimeException error) {
             updateStatus("无线调试发现不可用：" + error.getMessage());
         }
+    }
+
+    private static boolean localAddress(java.net.InetAddress host) {
+        try {
+            if (host.isLoopbackAddress()) return true;
+            java.util.Enumeration<java.net.NetworkInterface> devices =
+                    java.net.NetworkInterface.getNetworkInterfaces();
+            while (devices != null && devices.hasMoreElements()) {
+                java.net.NetworkInterface device = devices.nextElement();
+                java.util.Enumeration<java.net.InetAddress> addresses = device.getInetAddresses();
+                while (addresses.hasMoreElements()) {
+                    if (host.equals(addresses.nextElement())) return true;
+                }
+            }
+        } catch (Exception ignored) { }
+        return false;
     }
 
     private void pair(int selectedPort, String code) {

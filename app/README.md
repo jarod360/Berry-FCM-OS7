@@ -40,4 +40,4 @@ GitHub Actions [Build Android APK](https://github.com/jarod360/Berry-FCM-OS7/act
 
 通知栏配对使用 `AdbPairingService` 的 Android mDNS `_adb-tls-pairing._tcp.` 和 RemoteInput；用户可以停留在系统无线调试页下拉通知输入配对码。UI 使用 WindowInsets 修正状态栏重叠。
 
-**用户测试准入：全部模块功能接好并通过 GitHub Actions 后才提供测试步骤。** 无障碍服务扫描/自动恢复旧功能不再属于新版需求；自动恢复和快捷磁贴服务于 FCM 监测与应用守护，无需 AccessibilityService。
+**首轮模块化 APK 编译/签名已通过 Actions #44138228340；追加权限和发布校验还需下一次 Actions。用户测试准入：先完成模块互通及开发者检查，再提供测试步骤。** 无障碍服务扫描/自动恢复旧功能不再属于新版需求；自动恢复和快捷磁贴服务于 FCM 监测与应用守护，无需 AccessibilityService。
