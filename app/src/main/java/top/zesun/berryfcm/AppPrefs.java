@@ -24,6 +24,11 @@ final class AppPrefs {
     void pairPort(int v) { p.edit().putInt("pair_port", v).apply(); }
     int staticPort() { return p.getInt("static_port", 5555); }
     void staticPort(int v) { p.edit().putInt("static_port", v).apply(); }
+    boolean monitorEnabled() { return p.getBoolean("monitor_enabled", false); }
+    void monitorEnabled(boolean v) { p.edit().putBoolean("monitor_enabled", v).apply(); }
+    boolean quietMonitor() { return p.getBoolean("quiet_monitor", true); }
+    void quietMonitor(boolean v) { p.edit().putBoolean("quiet_monitor", v).apply(); }
+
     boolean autoRestore() { return p.getBoolean("auto_restore", false); }
     void autoRestore(boolean v) { p.edit().putBoolean("auto_restore", v).apply(); }
     Set<String> selected() { return new HashSet<>(p.getStringSet("selected_services", Collections.emptySet())); }

@@ -135,6 +135,12 @@ public final class MainActivity extends Activity {
         dev.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)));
         usb.addView(dev);
 
+        LinearLayout fcmCard = card(root, "FCM 后台监控");
+        fcmCard.addView(text("后台独立监测 GMS FCM Socket、断联记录、自动重连，以及 Root / ADB 一键放行电池优化。退出主界面不停止已启用的监控；需要 Root 或持续可用的 ADB Shell 才能获取 GMS 连接数据。", 12, false));
+        Button openMonitor = button("打开 FCM 监控、后台保活和授权设置", true);
+        openMonitor.setOnClickListener(v -> { saveMode(); startActivity(new Intent(this, MonitorActivity.class)); });
+        fcmCard.addView(openMonitor);
+
         LinearLayout statusCard = card(root, "当前状态");
         status = text("尚未检测授权", 13, false);
         status.setTextIsSelectable(true);
