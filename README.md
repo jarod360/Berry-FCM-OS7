@@ -15,7 +15,7 @@
 
 | 交付物 | 已有源码 | 验证边界 |
 | --- | --- | --- |
-| Android APK | Root/ADB 授权、前台 FCM 监控 Service、复用的 Shell 状态机、监测页面、初步后台权限入口、图标；另有待重构的旧无障碍服务管理 UI | [Actions #44132037143](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44132037143) 监控模拟测试、编译、固定签名及 Artifact 上传通过（alpha.26）；**功能尚未完成手机实机验证** |
+| Android APK | Root/ADB 授权、前台 FCM 监控 Service、复用的 Shell 状态机、监测页面、初步后台权限入口、图标；现有待移除的第三方无障碍服务管理旧 UI；已明确不属于新版功能 | [Actions #44132037143](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44132037143) 监控模拟测试、编译、固定签名及 Artifact 上传通过（alpha.26）；**功能尚未完成手机实机验证** |
 | KernelSU | FCM TCP 5228–5230 / 可信 mtalk 443 观察、事件时间线、请求重连、stopped 应用守护、Doze/网络策略诊断、WebUI | v0.5.4-test，目标手机上短暂断联漏检、采样连续性仍需分析 |
 
 **注意：** GitHub Actions Artifact 与 GitHub Release 是不同对象。目前仓库尚未发布正式 Release，应用内检查更新仍为下一阶段功能。
@@ -42,3 +42,5 @@ docs/SIGNING.md            稳定签名和升级约定
 ```
 
 **开源参考：** [Shizuku](https://github.com/RikkaApps/Shizuku)（通知栏配对）、[GKD](https://github.com/gkd-kit/gkd)（设置分组与状态）、[FCMFix ColorOS](https://github.com/ByteJuno/fcmfix-coloros)（FCM 监控判定）、[vivo-guardian](https://github.com/Lokside/vivo-guardian)（OriginOS 任务锁定与强制停止行为）、[libadb-android](https://github.com/MuntashirAkon/libadb-android)（ADB 客户端库）。参考思想与交互，不复制专有资源；如复用代码必须遵守许可证。
+
+> 2026-11-18 交互决策：优先完成独立授权模块与通知栏无线 ADB 配对、修复首页顶住状态栏；FCM 自动恢复和下拉快捷磁贴**保留但不依赖无障碍**。详见 [产品计划 §5A](docs/PRODUCT_PLAN.md)。

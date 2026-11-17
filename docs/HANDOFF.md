@@ -7,7 +7,7 @@
 - **目标优先级：先 APK 后 KernelSU 双线同步。** 不放弃 KernelSU，也不把已有 KSU 代码与普通 APK 的权限混为一谈。
 - **产品功能：** FCM 长连接观察/受控重连、事件时间线、后台可靠性与 OriginOS 权限优化、应用守护 stopped 修复、诊断与 Release 更新。
 - **交互结构：** 首页只显示概览和各模块入口。独立授权（ADB 配对通过通知栏输入）、FCM 监控、应用守护、后台保活、诊断、设置/关于。不能再把按钮/长名单挤在一个页面。
-- **权限原则：** Android API 能做则不用 ADB；ADB Shell/Root 能做则不引入 AccessibilityService；OriginOS 厂商私有锁定/高耗电开关不可凭空承诺自动修改。现有“管理第三方无障碍服务”代码与 FCM 主线不同，需审议后迁移/精简，暂不破坏保存数据。
+- **权限原则：** Android API 能做则不用 ADB；ADB Shell/Root 能做则不引入 AccessibilityService；OriginOS 厂商私有锁定/高耗电开关不可凭空承诺自动修改。**已决定移除第三方无障碍服务扫描/启停/恢复**，并以 FCM 应用守护和 FCM 自动恢复替代旧入口；不能误删既有 KSU 应用守护。
 - **协作范围：** 当前聊天 + GitHub 工具 + GitHub Actions。不得跳转 Work；本地 Windows 相关文件仅放 `D:\Codex`，未请求时不创建用户电脑的文件。
 
 ## 2. 仓库现状，已核查的事实
@@ -19,7 +19,7 @@
 - **Releases：** 2026-11-18 查询仓库 Releases 数组为空；尚无正式 Release，无法声称已经支持在线自动更新。Actions Artifact 不是 Release。
 - **KernelSU：** `module/module.prop` 为 `0.5.4-test`；`module/bin/ctl.sh` 有守护应用 stopped/解除停止、网络/Doze 诊断、名单管理、网络测试、原生 Diagnostics 跳转；`module/bin/fcm-monitor.sh` 有 FCM Socket 状态机与约 120s/300s 重连规则；`module/service.sh` 后台循环约 30s，并承担 stopped 巡检。仍需手机实机交叉验证。
 - **APK：** 已存在 `FcmMonitorService.java`（前台服务，名义上每 15s 采样）、`app/src/main/assets/fcm-monitor.sh`、`MonitorActivity.java`、`BackgroundSettings.java`、`AdbConnectionManager.java`（AndroidKeyStore + libadb-android）、启动图标、`BootReceiver.java`。监控是否在 OriginOS 长时间存活尚未实测；`MainActivity.java` 仍是长表单且以第三方无障碍管理为主，UI 需重做。
-- **旧有代码：** `AccessibilityOps.java`、`RestoreService.java`、`RestoreTileService.java`、`MainActivity.java` 中扫描/勾选无障碍服务逻辑仍在。用户明确要求仅保留实际有价值的功能；**先对齐“应用守护名单”和“第三方无障碍服务管理”两者的差异，再做最小、安全的迁移**。快捷磁贴建议保留、功能改为 FCM 相关。
+- **已裁决需删除的旧代码：** `AccessibilityOps.java`、`RestoreService.java`、`RestoreTileService.java` 的**第三方无障碍**行为，以及 `MainActivity.java` 对第三方无障碍服务的扫描/开关/自动恢复。新版的「自动恢复」服务只负责用户启用的 FCM 监控及应用守护；「快捷磁贴」改为 FCM 立即检查/状态或受控重连，并允许从系统下拉栏添加。**不需要 APK 申请 AccessibilityService。代码尚未实施重构，不能说已删除。**
 - **历史误判：** 先前 `docs/SIGNING.md`、README 记录旧 SHA 和“密钥未配置”，均为过期结论，已经被 GitHub 成功构建推翻；不可继续传播。
 
 ## 3. 当前已暴露的问题 / 未经实机证实
@@ -29,10 +29,10 @@
 3. APK Root/ADB shell `ss -tnpe` 的 GMS UID 可见性未在目标 Android 17/OriginOS 上逐模式验证。
 4. APK 监控 Service 使用 Android FGS，厂商可杀/冻结；检查采样记录、自动恢复、崩溃错误和服务活动状态。
 5. 目前后台优化只做若干标准 AppOps/DeviceIdle 调用；OriginOS 自启动/关联启动/高耗电/最近任务锁定无可靠自动写入证据，不得显示假成功。
-6. 配对目前仍在主界面输入，实际应参考 Shizuku 通过通知 `RemoteInput` 输入，并支持 mDNS。
+6. **用户截图确认当前配对流程不可操作**：配对码在主页面输入，系统无线调试页面与 APP 无法同时操作；必须按 Shizuku 的通知栏 `RemoteInput` 输入并支持 mDNS，首页仅留「授权」入口。
 7. 最近任务可隐藏但和“锁定任务”有先后关系；明确的开启/关闭开关还未合入主分支。
 8. 应用内 GitHub Releases 更新/下载/版本签名验证尚未合入，正式 Release 流程也未建。
-9. 主界面风格、导航、系统服务过滤、应用守护导入、浅深主题均未按最终规划验收。
+9. **用户截图确认首页顶住状态栏、UI 又长又乱**；必须先完成独立导航/安全区域适配，第三方无障碍扫描应移除，真正的 FCM 应用守护导入、浅深主题仍待实施。
 
 ## 4. P0-1 首个修复增量（CI 已通过，实机未验证）
 
@@ -42,9 +42,33 @@
 
 ## 5. 下一步 **只做一个阶段**
 
-**P0-1：验证与修正监控基线**。先检查 `FcmMonitorService` 与复用脚本在 Root/ADB 下的失败分支，增强采样间隔、数据过期、Shell 权限变化与日志，保证“不采样/不可读 ≠ 已连接/已断联”；随后开始 P0-2 UI 导航与 P0-3 通知栏配对。
+**下一项开发门槛 G1–G2（严格先模块、后测试）：** 完成首页/授权/监控/应用守护/保活/设置的独立页面框架，修复状态栏覆盖；在独立授权页实现 mDNS + 通知栏 `RemoteInput` 配对。同步删除第三方无障碍服务扫描、旧自动恢复行为及旧磁贴，改为 FCM 自动恢复与 FCM 磁贴。**必须同时补齐监控、应用守护、后台保活、诊断和设置/关于各模块的真实功能，再要求用户测试**。随后通过 Actions 自验，再进行真实连接诊断与保活测试。
 
 完成一项就将证据、commit、Actions run、未解决事项写回此文件，同时更新 PRODUCT_PLAN.md 的阶段状态。不要因新讨论跳过本阶段。
+
+## 5A. 2026-11-18 新反馈决策记录
+
+- 不是用户操作不当：**alpha.26 的无线 ADB 配对设计不具备在系统无线调试页输入配对码的可行交互**。不要求用户继续测试旧 UI。
+- 首页不应含第三方无障碍服务扫描/多选，也不能被误认为 KSU 的“守护应用扫描/多选”。**第三方无障碍管理功能明确排除**。
+- Android `BroadcastReceiver`、`ForegroundService`、`TileService` 足以构建自动恢复和下拉磁贴的基本能力；这两项均**不依赖 AccessibilityService**，但仍受 OriginOS 的后台启动限制。
+- 优先修复顶部状态栏重叠，重构按模块导航；首页只显示一个授权入口，配对码从通知栏输入。
+- 当前仅将决策同步 Markdown；**尚未完成新版 UI、配对和磁贴代码，不要声称已实机验收。**
+- 详见 [PRODUCT_PLAN.md §5A](PRODUCT_PLAN.md)。
+
+## 5B. 下一版 APK 的测试准入清单（用户再次强调）
+
+**只有以下全部实现并通过开发者静态检查/Actions 后，才向用户提供安装步骤和要求测试：**
+
+- [ ] 首页只显示概览和模块入口，授权只一个跳转按钮；全页面不再被系统状态栏遮挡
+- [ ] 授权模块可在系统无线调试界面下拉通知栏输入六位码（RemoteInput），有 mDNS 自动发现/错误提示
+- [ ] FCM 监控页面可启动、关闭、回读状态、查看断联/未知/采样空白及请求重连
+- [ ] 应用守护页真正扫描已安装应用、搜索/多选/显示系统应用、查看 stopped 与受控修复
+- [ ] 后台保活页包含电池豁免、OriginOS 自启动/关联启动/高耗电的授权入口和可验证项、任务列表隐藏开关及恢复、FCM 自动恢复
+- [ ] 快捷设置磁贴真正执行 FCM 相关操作；无障碍服务扫描、恢复和旧磁贴全部移除
+- [ ] 诊断/主题/项目主页及 GitHub Release 检查更新入口具备实际动作
+- [ ] 新版 GitHub Actions Debug 编译、固定签名 Release 构建及验签成功；新会话 MD 同步本次变更
+
+**当前 alpha.26 未达到上述标准，请勿让用户继续按旧界面尝试 ADB 配对。** 文档变更本身不能证明 APK 功能已完成。
 
 ## 6. 验收证据格式（后续统一）
 
