@@ -2,6 +2,7 @@ package top.zesun.berryfcm;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.SystemClock;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
@@ -55,17 +56,29 @@ final class AppPrefs {
     String shellIdentity() { return p.getString("shell_identity", ""); }
     String shellError() { return p.getString("shell_error", ""); }
     boolean shellRecentlyVerified() {
-        long age = System.currentTimeMillis() - shellVerifiedAt();
-        return mode().equals(shellMode()) && age >= 0 && age < 120000;
+        long wallAge = System.currentTimeMillis() - shellVerifiedAt();
+        long elapsedAge = SystemClock.elapsedRealtime() - p.getLong("shell_verified_elapsed", -1);
+        return mode().equals(shellMode())
+                && wallAge >= 0 && wallAge < 120000
+                && elapsedAge >= 0 && elapsedAge < 120000
+                && Math.abs(wallAge - elapsedAge) < 5000;
     }
     void shellVerified(String identity) {
         p.edit().putLong("shell_verified_at", System.currentTimeMillis())
+                .putLong("shell_verified_elapsed", SystemClock.elapsedRealtime())
                 .putString("shell_mode", mode()).putString("shell_identity", identity)
                 .remove("shell_error").apply();
     }
     void shellFailed(String message) {
+        String reason = message == null ? "Shell 连接失败" : message.trim();
+        if (reason.contains("RSA routines") || reason.contains("SSL library")) {
+            reason = "TLS 握手失败；请核对配对端口，使用新版身份重新配对";
+        } else {
+            reason = reason.replace('\r', ' ').replace('\n', ' ');
+            if (reason.length() > 150) reason = reason.substring(0, 150) + "…";
+        }
         p.edit().putLong("shell_verified_at", 0).putString("shell_mode", mode())
-                .putString("shell_error", message == null ? "Shell 连接失败" : message).apply();
+                .putString("shell_error", reason).apply();
     }
     String pairingStatus() { return p.getString("pairing_status", "尚未配对"); }
     void pairingStatus(String value) { p.edit().putString("pairing_status", value).apply(); }

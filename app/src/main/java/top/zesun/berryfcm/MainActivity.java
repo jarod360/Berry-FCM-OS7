@@ -26,6 +26,7 @@ public final class MainActivity extends Ui {
         auth.addView(authorization);
         authDetail = text("", 12, false, muted);
         authDetail.setPadding(0, dp(6), 0, dp(7));
+        authDetail.setMaxLines(4);
         auth.addView(authDetail);
         authButton = button(auth, "进入授权中心", () -> go(AuthActivity.class), true);
 
@@ -82,11 +83,13 @@ public final class MainActivity extends Ui {
         else if ("disconnected".equals(observed)) state.setText("未观察到 FCM Socket");
         else if ("connecting".equals(observed)) state.setText("连接尝试中");
         else state.setText("无法确认");
+        String briefError = error.replace('\r', ' ').replace('\n', ' ');
+        if (briefError.length() > 120) briefError = briefError.substring(0, 120) + "…";
         summary.setText("后台监控：" + (prefs.monitorEnabled() ? "已启用" : "未启用")
                 + "   应用守护：" + (prefs.guardEnabled() ? "已启用" : "未启用")
                 + "\n最近采样：" + (sampled == 0 ? "无" : age < 0 ? "时间异常" : age + " 秒前")
                 + "   观察到断联：" + data.optInt("fcm_outages", 0) + " 次"
-                + (error.isEmpty() ? "" : "\n最近监控错误：" + error));
+                + (error.isEmpty() ? "" : "\n最近监控错误：" + briefError));
     }
 
     @Override protected void onResume() {

@@ -265,3 +265,5 @@
 **下一轮验收**：① Actions 编译和固定签名成功；② OriginOS 点击配对通知并验证 `uid=2000(shell)`；③ 隐藏无线调试再返回检查过期/错误是否真实；④ 开启监控读取 GMS Socket，比较 Root 与 ADB 差异；⑤ 通过正式手动 prerelease 验证现有 alpha.36 → BerryFCM 短名称包的在线覆盖升级。CI 通过仅证明编译和模拟，不代表这些手机行为已通过。
 
 **补充源码证据**：Shizuku 的 `AdbKey.kt` 使用 AndroidKeyStore AES 加密保存软件 RSA 私钥，避免直接将 AndroidKeyStore 私钥交给 TLS；Conscrypt 官方 #718 报告了几乎相同的 `RSA routines:OPENSSL_internal:internal error`，维护者确认 TLS 签名底层可能使用 `RSA/ECB/NoPadding`，并给出在密钥生成中添加 `ENCRYPTION_PADDING_NONE` 的修复。当前优先沿用现有 libadb-android/AndroidKeyStore 结构，增加官方确认的最小参数修复并生成 v3 新身份；若 OriginOS 实机仍失败，再评估 Shizuku 的 AES-GCM + 软件 RSA 私钥方案，不能先断言成功。旧身份保留不删除。
+
+**UI 状态可信度补充**：Shell 最近验证状态不能只以本地墙钟判断；缓存记录现在同时保存本次开机的 `elapsedRealtime`，只在两种时间增量一致且 120 秒内时显示为近期验证通过。首页授权错误和监控错误采用短摘要，原始监控事件保留于详情，不把 TLS 长异常堆满首页。实际 USB/Root/Wireless 连接仍以当次 `id` 和后续 Shell 命令执行为准。

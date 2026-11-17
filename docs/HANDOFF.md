@@ -113,3 +113,10 @@
 - 本轮只通过 GitHub 修改仓库与 Actions 验证，不改用户电脑 C 盘。APK 真机 TLS、OriginOS mDNS、通知栏行为、锁屏后台、旧版覆盖安装尚待逐项核实。
 
 **TLS 二次复核**：检查 Shizuku `AdbKey.kt` / `AdbPairingClient.kt`，确认上游优先以软件 RSA + AndroidKeyStore AES-GCM 保存密钥，避免 TLS 原生调用与硬件 RSA 不兼容。查到 [Google Conscrypt #718](https://github.com/google/conscrypt/issues/718) 中相同的 OpenSSL_internal RSA 错误与已证实的 `ENCRYPTION_PADDING_NONE` 补丁，因此在前述 PSS 修复外增补 `DIGEST_NONE` 与 `ENCRYPTION_PADDING_NONE`，密钥升级至 `berry_fcm_adb_identity_v3`，以确保旧不兼容密钥不复用。此变更待下一轮 Actions 与手机配对实测；如失败再评估软件 RSA，而不是盲目清理系统所有授权。
+
+## 10. 2026-11-18 最新编译证据与状态新鲜度
+
+- [APK Actions #44151060176](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44151060176)：alpha.37 首轮 UI/图标/新名字与签名 APK 编译、模块和 FCM 模拟测试全部成功，Artifact 已上传。
+- [APK Actions #44151785615](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44151785615)：alpha.38 补齐 Google Conscrypt #718 所需密钥参数后，模块测试、编译、固定签名及 APK 上传全部成功。
+- 新增 UI 错误摘要长度限制，技术细节仍在监控错误/诊断保留。Shell 验证记录采用 `currentTimeMillis` 与 `SystemClock.elapsedRealtime` 双时钟：可检测突然改时钟或设备重启后旧记录过期，避免只靠持久化时间误判。
+- 下一次源码提交后仍必须重新验证 Actions。**两个 CI 成功均不是 Android 17/OriginOS 的实际 TLS 配对成功证据**。
