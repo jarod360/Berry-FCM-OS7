@@ -11,17 +11,87 @@ final class BackgroundSettings {
     private static final String SELF = "top.zesun.berryfcm";
     private BackgroundSettings() {}
 
-    static String optimize(PrivilegeShell shell) throws Exception {
-        // Only change our own background policy. Google Play services is a separate opt-in.
-        String command = "cmd deviceidle whitelist +" + SELF + " 2>&1; "
-                + "cmd appops set " + SELF + " RUN_ANY_IN_BACKGROUND allow 2>&1; "
-                + "cmd appops set " + SELF + " RUN_IN_BACKGROUND allow 2>&1; "
-                + "echo '=== 已回读的状态 ==='; "
-                + "cmd deviceidle whitelist | grep -F '" + SELF + "' || true; "
-                + "cmd appops get " + SELF + " RUN_ANY_IN_BACKGROUND 2>&1; "
-                + "cmd appops get " + SELF + " RUN_IN_BACKGROUND 2>&1";
-        return shell.execute(command).trim();
+    // Only modify a setting after recording its previous state. Never guess an
+    // AppOps default or overwrite a setting whose current mode is unreadable.
+    static String optimize(android.content.Context context, PrivilegeShell shell) throws Exception {
+        android.content.SharedPreferences own = context.getSharedPreferences(
+                "berry_fcm_policy_ownership", android.content.Context.MODE_PRIVATE);
+        StringBuilder report = new StringBuilder();
+        String whitelist = shell.execute("cmd deviceidle whitelist 2>&1");
+        if (whitelist.contains("," + SELF)) {
+            report.append("BerryFCM Doze：已在白名单，不修改\n");
+        } else {
+            if (!own.edit().putBoolean("self_doze_owned", true).commit())
+                throw new IllegalStateException("无法保存 Doze 回滚记录");
+            shell.execute("cmd deviceidle whitelist +" + SELF + " 2>&1");
+            if (!shell.execute("cmd deviceidle whitelist 2>&1").contains("," + SELF))
+                throw new IllegalStateException("BerryFCM Doze 放行未通过回读");
+            report.append("BerryFCM Doze：已加入（可撤销）\n");
+        }
+        for (String op : new String[]{"RUN_ANY_IN_BACKGROUND", "RUN_IN_BACKGROUND"}) {
+            String mode = readAppOp(shell, op);
+            if (mode == null) {
+                report.append(op).append("：无法读取现有状态，未修改\n");
+                continue;
+            }
+            if (!"allow".equals(mode)) {
+                String key = "self_op_previous_" + op;
+                if (!own.contains(key) && !own.edit().putString(key, mode).commit())
+                    throw new IllegalStateException("无法记录 " + op + " 原始状态");
+                shell.execute("cmd appops set " + SELF + " " + op + " allow 2>&1");
+                if (!"allow".equals(readAppOp(shell, op)))
+                    throw new IllegalStateException(op + " 放行未通过回读");
+            }
+            report.append(op).append("：已回读 allow")
+                    .append(own.contains("self_op_previous_" + op) ? "（可撤销）" : "（未修改原状态）")
+                    .append("\n");
+        }
+        return report.toString().trim();
     }
+
+    static String restoreSelf(android.content.Context context, PrivilegeShell shell) throws Exception {
+        android.content.SharedPreferences own = context.getSharedPreferences(
+                "berry_fcm_policy_ownership", android.content.Context.MODE_PRIVATE);
+        StringBuilder report = new StringBuilder();
+        if (own.getBoolean("self_doze_owned", false)) {
+            String now = shell.execute("cmd deviceidle whitelist 2>&1");
+            if (now.contains("," + SELF)) {
+                shell.execute("cmd deviceidle whitelist -" + SELF + " 2>&1");
+                if (shell.execute("cmd deviceidle whitelist 2>&1").contains("," + SELF))
+                    throw new IllegalStateException("撤销 BerryFCM Doze 放行失败");
+            }
+            own.edit().remove("self_doze_owned").apply();
+            report.append("BerryFCM Doze：已恢复\n");
+        }
+        for (String op : new String[]{"RUN_ANY_IN_BACKGROUND", "RUN_IN_BACKGROUND"}) {
+            String key = "self_op_previous_" + op;
+            String previous = own.getString(key, null);
+            if (previous == null) continue;
+            String now = readAppOp(shell, op);
+            if (now == null) throw new IllegalStateException(op + " 无法回读，保留回滚记录");
+            if ("allow".equals(now)) {
+                shell.execute("cmd appops set " + SELF + " " + op + " " + previous + " 2>&1");
+                if (!previous.equals(readAppOp(shell, op)))
+                    throw new IllegalStateException(op + " 恢复未通过回读");
+            } else {
+                report.append(op).append("：已被外部修改，未覆盖\n");
+            }
+            own.edit().remove(key).apply();
+            report.append(op).append("：回滚记录已处理\n");
+        }
+        if (report.length() == 0)
+            return "没有本版 BerryFCM 记录的可撤销策略；旧版未记录原状态的修改不能安全推测并恢复";
+        return report.toString().trim();
+    }
+
+    private static String readAppOp(PrivilegeShell shell, String op) throws Exception {
+        String output = shell.execute("cmd appops get " + SELF + " " + op + " 2>&1");
+        java.util.regex.Matcher found = java.util.regex.Pattern.compile(
+                "(?i)\\b" + op + "\\s*:\\s*(allow|ignore|deny|default|foreground)\\b").matcher(output);
+        if (found.find()) return found.group(1).toLowerCase(java.util.Locale.ROOT);
+        return output.contains("No operations") ? "default" : null;
+    }
+
     static String gmsDoze(android.content.Context context, PrivilegeShell shell, boolean allow) throws Exception {
         android.content.SharedPreferences ownership = context.getSharedPreferences(
                 "berry_fcm_policy_ownership", android.content.Context.MODE_PRIVATE);

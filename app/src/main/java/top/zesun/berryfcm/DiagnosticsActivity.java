@@ -5,6 +5,8 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -19,7 +21,7 @@ public final class DiagnosticsActivity extends Ui {
         button(status, "打开 Google 原生 FCM Diagnostics", () -> openGoogle(this), true);
         button(status, "查看 BerryFCM FCM 监控详情", () -> go(MonitorActivity.class), false);
 
-        LinearLayout network = card("网络检查", "TCP 握手不等于 GMS 已认证，也不能证明无代理：测试遵循当前设备路由。");
+        LinearLayout network = card("网络检查", "基础 TCP 测试无需 Root / ADB，使用 BerryFCM 自身网络路由；不代表 Google Play 服务已认证或能收到推送。");
         button(network, "检查 mtalk.google.com TCP 5228 / 5229 / 5230", this::checkNetwork, true);
         button(network, "检查 GMS Doze / 后台网络 / 通知权限", this::checkPolicies, false);
         results = text("尚未运行诊断", 13, false, muted);
@@ -40,19 +42,21 @@ public final class DiagnosticsActivity extends Ui {
         }
     }
     private void checkNetwork() {
-        results.setText("正在检查网络，单项最长约 3 秒…");
+        results.setText("正在测试 mtalk.google.com；每个端口最多等待 3 秒（DNS 解析另计）…");
         worker.execute(() -> {
-            try (PrivilegeShell shell = PrivilegeAccess.open(this)) {
-                String command = "for p in 5228 5229 5230; do "
-                        + "if /system/bin/toybox nc -4 -z -w 3 mtalk.google.com \"$p\""
-                        + " </dev/null >/dev/null 2>&1; then echo \"$p|可建立 TCP\"; "
-                        + "else echo \"$p|连接失败或超时\"; fi; done";
-                String response = shell.execute(command);
-                runOnUiThread(() -> results.setText(response
-                        + "\n注意：Shell 路由、VPN 与 GMS UID 路由可能不相同。"));
-            } catch (Exception error) {
-                runOnUiThread(() -> results.setText("诊断失败：" + error.getMessage()));
+            StringBuilder report = new StringBuilder();
+            for (int port : new int[]{5228, 5229, 5230}) {
+                try (Socket socket = new Socket()) {
+                    socket.connect(new InetSocketAddress("mtalk.google.com", port), 3000);
+                    report.append(port).append("：TCP 握手成功\n");
+                } catch (Exception error) {
+                    report.append(port).append("：连接失败（")
+                            .append(error.getClass().getSimpleName()).append("）\n");
+                }
             }
+            report.append("\n使用 BerryFCM 应用的网络路径；不检测 GMS UID 实际连接，不能证明 FCM 消息送达，也不能判断是否经过代理。");
+            String output = report.toString();
+            runOnUiThread(() -> results.setText(output));
         });
     }
     private void checkPolicies() {

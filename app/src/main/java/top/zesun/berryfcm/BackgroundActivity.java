@@ -33,6 +33,7 @@ public final class BackgroundActivity extends Ui {
         policy = text("", 13, false, muted);
         android.addView(policy);
         button(android, "一键放行 BerryFCM 后台策略（ADB / Root）", this::optimize, true);
+        button(android, "撤销本版 BerryFCM 添加的后台策略", this::restoreOwn, false);
         button(android, "打开忽略电池优化授权", () -> BackgroundSettings.requestBattery(this), false);
         button(android, "查看系统电池优化列表", () -> BackgroundSettings.batteryList(this), false);
         button(android, "打开应用设置（通知 / 电池）", () -> BackgroundSettings.details(this), false);
@@ -81,20 +82,40 @@ public final class BackgroundActivity extends Ui {
         else FcmMonitorService.stop(this);
     }
     private void renderPolicy() {
-        if (policy != null) policy.setText("忽略系统电池优化："
-                + (BackgroundSettings.batteryExempt(this) ? "已确认" : "未确认／未开启"));
+        if (policy == null) return;
+        android.app.NotificationManager notifications =
+                getSystemService(android.app.NotificationManager.class);
+        boolean notificationEnabled = notifications != null && notifications.areNotificationsEnabled();
+        policy.setText("忽略系统电池优化："
+                + (BackgroundSettings.batteryExempt(this) ? "已确认" : "未开启／未确认")
+                + "\n通知权限：" + (notificationEnabled ? "已开启" : "未开启／未确认")
+                + "\nRoot / ADB Shell：" + (prefs.shellRecentlyVerified()
+                        ? "近期验证通过" : "当前未验证")
+                + "\nOriginOS 自启动、关联启动与后台高耗电：需在系统页面手动确认");
     }
     private void optimize() {
         policy.setText("正在通过 Shell 设置并回读…");
         worker.execute(() -> {
             try (PrivilegeShell shell = PrivilegeAccess.open(this)) {
-                String result = BackgroundSettings.optimize(shell);
+                String result = BackgroundSettings.optimize(this, shell);
                 runOnUiThread(() -> { policy.setText(result); error("已执行，核对上方回读结果"); });
             } catch (Exception error) {
                 runOnUiThread(() -> policy.setText("自动设置失败：" + error.getMessage()));
             }
         });
     }
+    private void restoreOwn() {
+        policy.setText("正在恢复 BerryFCM 自己记录的后台策略…");
+        worker.execute(() -> {
+            try (PrivilegeShell shell = PrivilegeAccess.open(this)) {
+                String result = BackgroundSettings.restoreSelf(this, shell);
+                runOnUiThread(() -> policy.setText(result));
+            } catch (Exception error) {
+                runOnUiThread(() -> policy.setText("撤销失败，保留回滚记录：" + error.getMessage()));
+            }
+        });
+    }
+
     private void gmsPolicy(boolean allow) {
         policy.setText("正在修改 GMS 策略…");
         worker.execute(() -> {

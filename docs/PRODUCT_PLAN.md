@@ -281,3 +281,26 @@
 - **发布边界**：本轮以 GitHub Actions 编译/签名测试为准；无 Android 17 真机新证据时不能声称 TLS 真实握手已通过。正式 GitHub prerelease 仍需手动触发 `publish_release=true`，不擅自发布。
 
 **成本与取舍**：每次执行会调用轻量连接状态检查，manager 可复用已建立的 ADB 会话；比可能使用错误 Shell 通道的缓存标记更可靠。不改变监控计划周期，不修改 Root/KSU 核心规则。
+
+
+## 19. 当前开发进度与剩余工作（2026-11-18）
+
+**按代码覆盖范围的主观估算**：APK 约 75% 完成。不是功能验收通过率，也不是时间进度。G0 文档、G1 主模块结构、G5 GitHub 固定签名 CI 基本达成；G2 授权和 G3 监测/守护的代码已经落地但有设备权限边界；G4 在线更新逻辑与手动 Release 工作流已就绪但还没有正式 Release；G6 由用户负责实机验证，G7 等可靠算法实测通过后回移 KernelSU。
+
+| 当前模块 | 源码状态 | 待补充或待实机验证 |
+|---|---|---|
+| 首次授权 / Root / 无线 ADB / 静态端口 | 有完整 UI、通知栏 RemoteInput、mDNS 和 Shell UID 读回 | OriginOS TLS 握手、连接权限维持、通知栏可用性待实测 |
+| FCM Socket 观察、状态机、事件和自动/手动重连 | 有 Shell 逻辑、15 秒前台采样、gap 检测和日志 | 目标 ROM 的 UID/Socket 元信息可见性、短断联漏检需与原生 Diagnostics 对照 |
+| 应用 stopped 守护、搜索、多选、已选置顶 | 有检查/修复、90 秒手动巡检、后台约 5 分钟巡检、心跳 | ADB Shell 的 unstop 权限、长列表响应和修复后实际状态待实测 |
+| 后台运行与厂商设置 | 有 FGS、开机/更新广播、系统电池页、OriginOS 设置入口、任务隐藏、策略设置 | 系统强停不可保活；厂商私有设置只引导，不报假成功；需进一步完善逐项确认 |
+| 基础网络诊断与系统策略诊断 | 有 GMS Diagnostics 跳转、Shell 策略检查；本轮修复为无 Root/ADB 使用 Java Socket 检查 mtalk TCP 端口 | TCP 通断不代表 GMS 用户态连接或通知送达，三端口可达性尚待真实网络实测 |
+| 更新与交付 | 有固定签名、版本递增、Release 查询/下载/证书校验和系统安装器入口 | GitHub Releases 列表仍为空，正式灰度和旧版覆盖升级尚未闭环 |
+| KernelSU | 既有 KSU 模块/构建独立 | 等 APK 核心算法可靠后回移，共享逻辑前需差异测试 |
+
+**本轮具体开发（非手机验收）**：
+1. 将 `DiagnosticsActivity.checkNetwork` 由 `PrivilegeAccess.open` / Shell `toybox nc` 改为 Android App 自身 Java Socket 连接；无需 Root / ADB，3 秒连接超时（DNS 解析另计），结果只说明当前 APP 网络路径。
+2. `BackgroundSettings.optimize` 改成 **先读原值、记录所有权、写入、回读**。Android AppOps 原值无法解析时不写入，不再盲目把未知状态当成功；`BackgroundActivity` 增加对应的安全撤销入口和标准权限状态摘要。
+3. 对于新代码添加的自己 Doze 白名单及 RUN_*_IN_BACKGROUND AppOps，在记录的原值基础上允许恢复。旧版没有回滚记录的设置不能安全推测，明确不自动删除；如果外部已改动 AppOps，不覆盖外部值。
+4. 仍不强杀 GMS、不擅自修改 VPN/DNS/代理、不新增无障碍或新运行时权限、不改变 APK 包名及固定签名。Github Actions 编译/签名结果应单独写入 HANDOFF。
+
+**开发后续顺序**：P0 授权状态/监测缺失时不误报 + Shell 权限失败可诊断；P1 后台策略与应用守护状态逐项回读；P1 信息层级与交互；P2 实机接受后发布签名 Release；P2 APK 稳定后 KSU 算法回移。无实机证据时不将 TLS 配对标记为通过。

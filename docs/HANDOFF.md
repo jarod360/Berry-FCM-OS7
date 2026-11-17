@@ -145,3 +145,13 @@
 - **测试包**：`BerryFCM-v0.1.0-alpha.40`，Artifact id `14379855865`，ZIP 大小 7,357,296 字节。签名基线、`top.zesun.berryfcm` 包名和用户配置保持不变，可走覆盖安装流程，但目标 ROM 行为未验证。
 - **发布状态**：再次核对 GitHub Releases 列表为空。为遵循已确认的真机验收门槛，本轮**未执行** `publish_release=true`；当前旧版本仍不能从 App 内在线找到本次 Actions 测试 Artifact。正式 prerelease 发布时工作流会携带短/旧两种文件名以供过渡。
 - **最小真机验证**：首次打开检查授权卡和横向模式切换；无线调试系统页面下拉通知输入六位码；核对是否报告 `uid=2000(shell)`；再启用 FCM 监控并核对实际 Socket 证据。若新的 RSA/TLS 失败仍复现，保留原始错误与对应动作，优先审查 libadb-android/Conscrypt 的硬件 KeyStore 私钥路径，必要时参考 Shizuku 软件 RSA+AndroidKeyStore AES，不无依据重建 APK 签名。
+
+
+## 14. 按产品计划核对整体进度与本轮新增功能
+
+- 截至上一次已验签构建为 APK `alpha.40`：[Actions #44196211389](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44196211389)，FCM 模拟、模块结构检查、Gradle、固定签名及 Artifact 均通过；源码基线为 `f587b60`，后续只更新过文档。
+- **源码完成度估算约 75%**：七大 APK 页面及 K01–K09 多数有功能代码，但距离产品完成还有至少四类未闭环：OriginOS 真实授权/FCM UID 可见性；后台权限逐项回读与失败解释；首次安全 Release 在线覆盖升级；实测稳定后回移 KernelSU。不把源码覆盖率理解为实机通过率。
+- 用户明确由其负责实机验证，开发端继续独立推进未阻塞模块。不要每修一项都停下要求手机截图。
+- **本次修复**：`DiagnosticsActivity` 的三端口 TCP 基础连通性不再调用 Root/ADB Shell，直接以 Java Socket 连 `mtalk.google.com:5228/5229/5230`；保留 GMS 策略/UID 等特权诊断在 Shell 通道。运行结果不是推送送达证明。
+- **本次修复**：`BackgroundSettings.optimize(context,shell)` 先读并记录可识别的 Doze 与两个 AppOps 原值，执行后复查；新增 `restoreSelf` 与“撤销本版 BerryFCM 添加的后台策略”。禁止撤销未持有所有权的旧/外部设置，旧版未记录原值的变更不能凭猜测还原；权限不可读即不盲写。保活页面标准状态增加通知授权与 Root/ADB 近期验证，并明确厂商私有开关需手工确认。
+- **后续唯一开发优先级**：继续核对应用守护/后台 UI 的逐项状态及错误反馈；待 CI 构建成功后记录 Run、Artifact 和 commit。不要擅自创建 GitHub Release；首次 Release 必须保留旧文件名兼容包。
