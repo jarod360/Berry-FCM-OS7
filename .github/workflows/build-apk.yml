@@ -64,8 +64,8 @@ jobs:
           # This avoids hashing a binary stdout stream through shell utilities.
           actual="$(keytool -list -v -keystore "$RUNNER_TEMP/berryfcm-release.p12" -storetype PKCS12 -storepass "$BERRYFCM_KEYSTORE_PASSWORD" -alias "$BERRYFCM_KEY_ALIAS" | awk -F': ' '/SHA256:/{print $2; exit}' | tr -d ':' | tr '[:lower:]' '[:upper:]')"
           echo "Signing certificate SHA-256: ${actual:-<empty>}"
-          echo "Expected certificate SHA-256: D6506E38980A564BE06C101247AB54AA045AB565C2A5E935E7D47918084E5ECA"
-          if [ -z "$actual" ] || [ "$actual" != "D6506E38980A564BE06C101247AB54AA045AB565C2A5E935E7D47918084E5ECA" ]; then
+          echo "Expected certificate SHA-256: E95E76C92E9F70670241C7C040CCC6000E26910BBD1F9E35F1BA99063E998EDD"
+          if [ -z "$actual" ] || [ "$actual" != "E95E76C92E9F70670241C7C040CCC6000E26910BBD1F9E35F1BA99063E998EDD" ]; then
             echo "::error::Signing certificate fingerprint differs from the approved BerryFCM key."
             exit 1
           fi
