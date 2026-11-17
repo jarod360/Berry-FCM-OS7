@@ -2,6 +2,8 @@ plugins {
     id 'com.android.application'
 }
 
+def buildNumber = (System.getenv("BERRYFCM_VERSION_CODE") ?: "1").toInteger()
+
 android {
     namespace 'top.zesun.berryfcm'
     compileSdk 35
@@ -10,8 +12,20 @@ android {
         applicationId 'top.zesun.berryfcm'
         minSdk 26
         targetSdk 35
-        versionCode 1
-        versionName '0.1.0-alpha'
+        versionCode buildNumber
+        versionName "0.1.0-alpha.${buildNumber}"
+    }
+
+    signingConfigs {
+        release {
+            // A single private PKCS12 keystore is supplied through GitHub Actions secrets.
+            // Never commit the keystore or its password to this public repository.
+            storeFile file(System.getenv("BERRYFCM_KEYSTORE_FILE") ?: "${rootDir}/missing-release-key.p12")
+            storeType "PKCS12"
+            storePassword System.getenv("BERRYFCM_KEYSTORE_PASSWORD") ?: ""
+            keyAlias System.getenv("BERRYFCM_KEY_ALIAS") ?: "berryfcm"
+            keyPassword System.getenv("BERRYFCM_KEY_PASSWORD") ?: ""
+        }
     }
 
     compileOptions {
@@ -21,12 +35,14 @@ android {
 
     buildTypes {
         release {
+            signingConfig signingConfigs.release
             minifyEnabled false
         }
     }
 }
 
 dependencies {
+    implementation 'androidx.annotation:annotation:1.9.1'
     implementation 'com.github.MuntashirAkon:libadb-android:3.1.1'
     implementation 'org.conscrypt:conscrypt-android:2.5.3'
 }
