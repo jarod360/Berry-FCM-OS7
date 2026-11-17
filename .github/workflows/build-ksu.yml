@@ -44,10 +44,10 @@ jobs:
           test -f module/module.prop
           mkdir -p dist
           cd module
-          zip -qr ../dist/BerryFCM-KSU-v0.5.3-test.zip .
+          zip -qr ../dist/BerryFCM-KSU-v0.5.4-test.zip .
       - uses: actions/upload-artifact@v4
         with:
-          name: BerryFCM-KSU-v0.5.3-test
-          path: dist/BerryFCM-KSU-v0.5.3-test.zip
+          name: BerryFCM-KSU-v0.5.4-test
+          path: dist/BerryFCM-KSU-v0.5.4-test.zip
           if-no-files-found: error
           retention-days: 30
