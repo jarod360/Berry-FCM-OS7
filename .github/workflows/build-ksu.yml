@@ -1,0 +1,53 @@
+name: Build KernelSU ZIP
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'module/**'
+      - 'tests/**'
+      - '.github/workflows/build-ksu.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-ksu-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate shell scripts and FCM lifecycle monitor
+        run: |
+          sh -n module/customize.sh module/hotinstall.sh module/service.sh module/action.sh
+          sh -n module/bin/ctl.sh module/bin/fcm-monitor.sh
+          sh tests/fcm-monitor-smoke.sh
+      - name: Validate embedded WebUI JavaScript
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          html = Path('module/webroot/index.html').read_text(encoding='utf-8')
+          scripts = re.findall(r'<script[^>]*>(.*?)</script>', html, re.S)
+          if not scripts:
+              raise SystemExit('No inline WebUI script found')
+          Path('/tmp/berryfcm-webui.js').write_text('\n'.join(scripts), encoding='utf-8')
+          PY
+          node --check /tmp/berryfcm-webui.js
+      - name: Package KernelSU module
+        run: |
+          test -f module/module.prop
+          mkdir -p dist
+          cd module
+          zip -qr ../dist/BerryFCM-KSU-v0.5.3-test.zip .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BerryFCM-KSU-v0.5.3-test
+          path: dist/BerryFCM-KSU-v0.5.3-test.zip
+          if-no-files-found: error
+          retention-days: 30
