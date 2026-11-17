@@ -2,15 +2,18 @@ package top.zesun.berryfcm;
 
 import android.accessibilityservice.AccessibilityService;
 import android.content.ComponentName;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
+import android.provider.Settings;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -43,6 +46,69 @@ final class AccessibilityOps {
         return result;
     }
 
+    static boolean hasPersistentPermission(Context context) {
+        return context.checkSelfPermission("android.permission.WRITE_SECURE_SETTINGS")
+                == PackageManager.PERMISSION_GRANTED;
+    }
+
+    static String readEnabledDirect(Context context) {
+        ContentResolver resolver = context.getContentResolver();
+        String enabled = Settings.Secure.getString(resolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        int flag = Settings.Secure.getInt(resolver, Settings.Secure.ACCESSIBILITY_ENABLED, 0);
+        return (enabled == null ? "" : enabled) + "\n" + flag;
+    }
+
+    static boolean applyDirect(Context context, Set<String> previouslyManaged, Set<String> selected) {
+        if (!hasPersistentPermission(context)) throw new SecurityException("缺少 WRITE_SECURE_SETTINGS 授权");
+        ContentResolver resolver = context.getContentResolver();
+        String current = Settings.Secure.getString(resolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        String merged = mergeEnabled(current, previouslyManaged, selected);
+        boolean servicesWritten = Settings.Secure.putString(
+                resolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, merged);
+        boolean flagWritten = Settings.Secure.putInt(
+                resolver, Settings.Secure.ACCESSIBILITY_ENABLED, merged.isEmpty() ? 0 : 1);
+        return servicesWritten && flagWritten;
+    }
+
+    static String mergeEnabled(String current, Set<String> previouslyManaged, Set<String> selected) {
+        LinkedHashSet<String> result = new LinkedHashSet<>();
+        if (current != null && !current.isEmpty() && !"null".equals(current)) {
+            for (String component : current.split(":")) {
+                if (!component.isEmpty() && !previouslyManaged.contains(component)) result.add(component);
+            }
+        }
+        result.addAll(selected);
+        return String.join(":", result);
+    }
+
+    static void verifyEnabled(String raw, Set<String> previouslyManaged, Set<String> selected) {
+        String[] lines = raw == null ? new String[0] : raw.split("\\R", 2);
+        Set<String> actual = parseComponents(lines.length == 0 ? "" : lines[0]);
+        for (String component : selected) {
+            if (!actual.contains(component)) throw new IllegalStateException("系统未确认目标服务：" + component);
+        }
+        for (String component : previouslyManaged) {
+            if (!selected.contains(component) && actual.contains(component))
+                throw new IllegalStateException("系统仍返回已取消的服务：" + component);
+        }
+        int expectedFlag = actual.isEmpty() ? 0 : 1;
+        if (lines.length > 1) {
+            try {
+                int actualFlag = Integer.parseInt(lines[1].trim());
+                if (actualFlag != expectedFlag) throw new IllegalStateException("无障碍总开关状态与服务列表不一致");
+            } catch (NumberFormatException ignored) {
+                throw new IllegalStateException("无法读取无障碍总开关状态");
+            }
+        }
+    }
+
+    private static Set<String> parseComponents(String raw) {
+        Set<String> result = new LinkedHashSet<>();
+        if (raw == null || raw.trim().isEmpty() || "null".equals(raw.trim())) return result;
+        for (String component : raw.trim().split(":")) if (!component.isEmpty()) result.add(component);
+        return result;
+    }
+
     static String applyCommand(Set<String> previouslyManaged, Set<String> selected) {
         String old = join(previouslyManaged);
         String add = join(selected);
@@ -54,8 +120,9 @@ final class AccessibilityOps {
         return "cur=$(settings get secure enabled_accessibility_services 2>/dev/null); "
                 + "new=$(printf '' | " + awk + "); "
                 + "settings put secure enabled_accessibility_services \"$new\"; "
-                + "if [ -n \"$new\" ]; then settings put secure accessibility_enabled 1; fi; "
-                + "settings get secure enabled_accessibility_services";
+                + "if [ -n \"$new\" ]; then settings put secure accessibility_enabled 1; "
+                + "else settings put secure accessibility_enabled 0; fi; "
+                + "settings get secure enabled_accessibility_services; settings get secure accessibility_enabled";
     }
 
     static String readEnabledCommand() {
@@ -63,12 +130,9 @@ final class AccessibilityOps {
     }
 
     private static String join(Set<String> values) {
-        StringBuilder out = new StringBuilder();
-        for (String value : values) {
-            if (out.length() > 0) out.append(':');
-            out.append(value);
-        }
-        return out.toString();
+        List<String> sorted = new ArrayList<>(values);
+        Collections.sort(sorted);
+        return String.join(":", sorted);
     }
 
     private static String quote(String value) {
