@@ -56,17 +56,17 @@ footer{padding-bottom:18px}
   <div class="status"><span class="dot" id="dgms"></span><span>Google Play 服务</span><span class="value" id="vgms">—</span></div>
   <div class="status"><span class="dot" id="dstop"></span><span>GMS stopped 状态</span><span class="value" id="vstop">—</span></div>
   <div class="status"><span class="dot" id="dproc"></span><span>GMS 主进程</span><span class="value" id="vproc">—</span></div>
-  <div class="status"><span class="dot" id="dmcs"></span><span>FCM 长连接（5228–5230 / 443）</span><span class="value" id="vmcs">—</span></div>
+  <div class="status"><span class="dot" id="dmcs"></span><span>GMS FCM Socket（5228–5230 / mtalk 443 候选）</span><span class="value" id="vmcs">—</span></div>
   <div class="status"><span class="dot" id="dmiss"></span><span>未观察到连接时长</span><span class="value" id="vmiss">—</span></div>
   <div class="status"><span class="dot" id="drecv"></span><span>GMS 广播接收器（诊断）</span><span class="value" id="vrecv">—</span></div>
 </section>
 <section class="card" id="fcmTimeline"><div class="head"><h2>FCM 连接时间线</h2><button id="loadEvents">刷新事件</button></div>
   <div class="timeline-grid">
-    <div class="status"><span>本次连接建立</span><span class="value" id="tSince">—</span></div>
-    <div class="status"><span>当前连接时长</span><span class="value" id="tConnected">—</span></div>
-    <div class="status"><span>首次观察到断联</span><span class="value" id="tDown">—</span></div>
-    <div class="status"><span>连续未观察时长</span><span class="value" id="tMissing">—</span></div>
-    <div class="status"><span>最近恢复连接</span><span class="value" id="tRestore">—</span></div>
+    <div class="status"><span>本次首次观察连接</span><span class="value" id="tSince">—</span></div>
+    <div class="status"><span>当前观测时长</span><span class="value" id="tConnected">—</span></div>
+    <div class="status"><span>首次观察到连接缺失</span><span class="value" id="tDown">—</span></div>
+    <div class="status"><span>连续缺失观测时长</span><span class="value" id="tMissing">—</span></div>
+    <div class="status"><span>最近再次观察到连接</span><span class="value" id="tRestore">—</span></div>
     <div class="status"><span>最近重连请求</span><span class="value" id="tTry">—</span></div>
     <div class="status"><span>最近请求结果</span><span class="value" id="tResult">—</span></div>
     <div class="status"><span>自动/手动请求次数</span><span class="value" id="tAttempts">—</span></div>
@@ -157,15 +157,15 @@ footer{padding-bottom:18px}
    row('stop',j.gms_stopped===0?'good':j.gms_stopped===1?'bad':'warn',j.gms_stopped===0?'未停止':j.gms_stopped===1?'已停止':'未知');
    row('proc',j.gcm_persistent===1?'good':'bad',j.gcm_persistent===1?'运行中':'未运行');
    const fstate=j.fcm_state||'unknown',connected=fstate==='connected',missing=Number(j.fcm_missing_seconds||0);
-   const transport=j.fcm_transport==='tcp443'?'TCP 443（mtalk 地址匹配）':j.fcm_transport||'—';
-   const statusText={connected:'已观察到 '+transport,connecting:'检测到连接尝试，尚未建立',disconnected:j.fcm_last_seen>0?'未观察到 FCM 连接':'尚未观察到首次连接',unknown:'无法确认（本轮检测不可用）',stale:'采样已过期，状态未知',never_seen:'等待首次观察'};
-   const stateColor=connected?'good':fstate==='disconnected'&&j.fcm_last_seen>0?'bad':'warn';
+   const transport=j.fcm_transport==='tcp443'?'TCP 443（mtalk 地址候选）':j.fcm_transport||'—';
+   const statusText={connected:'已观察到 Socket：'+transport,connecting:'检测到连接尝试，尚未建立',disconnected:j.fcm_last_seen>0?'未观察到 FCM 连接':'尚未观察到首次连接',unknown:'无法确认（本轮检测不可用）',stale:'采样已过期，状态未知',never_seen:'等待首次观察'};
+   const stateColor=connected?(j.fcm_transport==='tcp443'?'warn':'good'):fstate==='disconnected'&&j.fcm_last_seen>0?'bad':'warn';
    row('mcs',stateColor,statusText[fstate]||'无法确认');
    row('miss',connected?'good':stateColor,connected?'0 秒':(fstate==='disconnected'||fstate==='connecting')?durationText(missing):'—');
    row('recv',j.receivers>0?'good':'warn',String(j.receivers));
    let verdict='当前无法确定 FCM 连接状态',color='warn';
    if(!j.gms_installed||j.gms_stopped===1||j.gcm_persistent!==1){verdict='GMS 未运行或已被停止';color='bad';}
-   else if(connected){verdict='已观察到 FCM 长连接';color='good';}
+   else if(connected){verdict=j.fcm_transport==='tcp443'?'已观察到 mtalk 地址匹配的 GMS TCP 443 候选':'已观察到 GMS UID 的 FCM 专用端口 Socket';color=j.fcm_transport==='tcp443'?'warn':'good';}
    else if(fstate==='connecting'){verdict='FCM 正在尝试连接，尚未建立';}
    else if(fstate==='unknown'||fstate==='stale'){verdict=fstate==='stale'?'采样已过期，不能判断在线状态':'FCM 连接状态无法确认';}
    else if(fstate==='disconnected'&&j.fcm_last_seen>0){verdict=missing>=120?'连续未观察到连接，等待/已触发恢复':'首次观察到连接消失';}
