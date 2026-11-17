@@ -60,11 +60,12 @@ jobs:
           printf '%s' "$BERRYFCM_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/berryfcm-release.p12"
           test -s "$RUNNER_TEMP/berryfcm-release.p12"
           keytool -list -keystore "$RUNNER_TEMP/berryfcm-release.p12" -storetype PKCS12 -storepass "$BERRYFCM_KEYSTORE_PASSWORD" -alias "$BERRYFCM_KEY_ALIAS" >/dev/null
-          # Pin the PUBLIC certificate fingerprint. This rejects accidentally switching signing keys.
-          actual="$(keytool -exportcert -keystore "$RUNNER_TEMP/berryfcm-release.p12" -storetype PKCS12 -storepass "$BERRYFCM_KEYSTORE_PASSWORD" -alias "$BERRYFCM_KEY_ALIAS" | sha256sum | awk '{print toupper($1)}')"
-          echo "Signing certificate SHA-256: $actual"
+          # Read the certificate fingerprint from keytool's parsed certificate output.
+          # This avoids hashing a binary stdout stream through shell utilities.
+          actual="$(keytool -list -v -keystore "$RUNNER_TEMP/berryfcm-release.p12" -storetype PKCS12 -storepass "$BERRYFCM_KEYSTORE_PASSWORD" -alias "$BERRYFCM_KEY_ALIAS" | awk -F': ' '/SHA256:/{print $2; exit}' | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          echo "Signing certificate SHA-256: ${actual:-<empty>}"
           echo "Expected certificate SHA-256: D6506E38980A564BE06C101247AB54AA045AB565C2A5E935E7D47918084E5ECA"
-          if [ "$actual" != "D6506E38980A564BE06C101247AB54AA045AB565C2A5E935E7D47918084E5ECA" ]; then
+          if [ -z "$actual" ] || [ "$actual" != "D6506E38980A564BE06C101247AB54AA045AB565C2A5E935E7D47918084E5ECA" ]; then
             echo "::error::Signing certificate fingerprint differs from the approved BerryFCM key."
             exit 1
           fi
