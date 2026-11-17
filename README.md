@@ -25,7 +25,7 @@
 
 ## 已验证和未验证
 
-- 最新已通过的 APK： [Actions #44152371697](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44152371697)（alpha.39），包括 FCM 监控模拟、模块结构测试、Gradle 编译、固定 P12 签名、apksigner 验证及 Artifact 上传。无线配对在 OriginOS 真机上仍需验证。
+- 最近确认已通过的 APK： [Actions #44197295228](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44197295228)（alpha.41），包括 FCM 监控模拟、模块结构测试、Gradle 编译、固定 P12 签名、apksigner 验证及 Artifact 上传。无线配对在 OriginOS 真机上仍需验证。
 - KernelSU 仍为 v0.5.4-test，源码与数据目录独立，不受 APK UI 迁移影响。
 - **GitHub Releases 目前尚无正式 APK**；普通 push 只发布 Actions Artifact。\`workflow_dispatch.publish_release\` 明确手动勾选后才创建预发布版本，应用内更新只读取正式 Release。
 - 未完成的 **真机验证**：OriginOS 系统通知栏是否呈现 RemoteInput、ADB Shell 能否看到 GMS UID Socket、stopped 修复权限、锁屏过夜采样、用户授权和系统安装器覆盖升级。**CI 绿灯不代表这些已经通过。**
@@ -45,3 +45,7 @@ Android API 优先，Root/ADB Shell 只做确有权限需求的功能。无法�
 APP 桌面名称及新版安装包文件名已缩短为 **BerryFCM**。底部导航与各功能模块使用 Apache-2.0 的 [Google Material Icons](https://github.com/google/material-design-icons) 矢量图标，启动器是原创的 FCM 消息通知图形，不再使用 Wi-Fi 弧线。
 
 旧 alpha.36 的在线更新检查器只认 `BerryFCM-Guardian-v...`，因此**首个新正式 prerelease 会同时附上旧名字兼容文件和 `BerryFCM-v...` 短名字文件，两份 APK 内容与固定签名相同**；新版本更新器兼容两者并优先使用新名字。GitHub Actions 普通构建仅提供测试 Artifact；未人工发布 GitHub Release 前，现有 APP 无法发现更新。
+
+## 2026-11-18 进度简述
+
+按产品计划，APK 已具备大部分页面和对应后端逻辑，功能代码完成度约 75%（主观估算，非验收通过率）；无线 ADB / GMS Socket 可见性、OriginOS 后台恢复、Release 在线覆盖升级仍需手机验证，APK 稳定后才开展 KernelSU 回移。本轮已将不需特权的 mtalk TCP 检测从 Shell 改为 App 原生 Socket，并为 BerryFCM 自身 Doze/AppOps 配置加入原值记录与安全回滚。旧版缺少原值记录的历史更改不会盲目撤销。

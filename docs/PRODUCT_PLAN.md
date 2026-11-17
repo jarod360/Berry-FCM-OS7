@@ -304,3 +304,5 @@
 4. 仍不强杀 GMS、不擅自修改 VPN/DNS/代理、不新增无障碍或新运行时权限、不改变 APK 包名及固定签名。Github Actions 编译/签名结果应单独写入 HANDOFF。
 
 **开发后续顺序**：P0 授权状态/监测缺失时不误报 + Shell 权限失败可诊断；P1 后台策略与应用守护状态逐项回读；P1 信息层级与交互；P2 实机接受后发布签名 Release；P2 APK 稳定后 KSU 算法回移。无实机证据时不将 TLS 配对标记为通过。
+
+**OriginOS 入口复核补充**：原界面“自启动”和“关联启动”两个按钮实际上调用同一个 `BackgroundSettings.autostart`，并没有分别到达两个不同页面。检索 [traccar](https://github.com/traccar/traccar-client-android) 等开源 Android 项目仅找到可参考的 Vivo 自启动管理组件，未证实当前 OriginOS 有单独可达的关联启动 Activity。因此合并为一个“打开 OriginOS 启动管理”按钮并增加明确的手工检查说明；后台高耗电按钮真实目的地是应用信息页，按实际目的改名，不声称直达电池开关。

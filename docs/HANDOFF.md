@@ -155,3 +155,9 @@
 - **本次修复**：`DiagnosticsActivity` 的三端口 TCP 基础连通性不再调用 Root/ADB Shell，直接以 Java Socket 连 `mtalk.google.com:5228/5229/5230`；保留 GMS 策略/UID 等特权诊断在 Shell 通道。运行结果不是推送送达证明。
 - **本次修复**：`BackgroundSettings.optimize(context,shell)` 先读并记录可识别的 Doze 与两个 AppOps 原值，执行后复查；新增 `restoreSelf` 与“撤销本版 BerryFCM 添加的后台策略”。禁止撤销未持有所有权的旧/外部设置，旧版未记录原值的变更不能凭猜测还原；权限不可读即不盲写。保活页面标准状态增加通知授权与 Root/ADB 近期验证，并明确厂商私有开关需手工确认。
 - **后续唯一开发优先级**：继续核对应用守护/后台 UI 的逐项状态及错误反馈；待 CI 构建成功后记录 Run、Artifact 和 commit。不要擅自创建 GitHub Release；首次 Release 必须保留旧文件名兼容包。
+
+## 15. alpha.41 编译验签通过与后续入口整理
+
+- [Actions #44197295228](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44197295228) / commit `a8a351e`：`BerryFCM-v0.1.0-alpha.41` Artifact 已上传（ID `14379252792`），六项关键门槛：FCM Shell 模拟、模块检查、APK Java/Android 编译、固定签名 Release 编译、apksigner、上传均成功。仅验证 CI，不代表 OriginOS 实测通过。
+- 在此基础上继续修复 OriginOS 自启动和关联启动按钮重复指向同一 Activity 的误导行为；新版本以一个入口和明确说明替代重复入口。仍保持与 Shizuku/GKD/Traccar 等开源项目交互取舍一致，不捏造 ROM 私有 Activity。
+- 不产生 GitHub Release，等待用户自行实机验收并确认进入发布阶段。

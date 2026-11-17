@@ -55,7 +55,7 @@
 
 ## 启动器图标
 
-新版以 `res/mipmap-anydpi-v26/ic_launcher.xml` 自适应图标为主：纯蓝背景，白色信号弧线+圆点，不使用渐变或复杂装饰；支持圆形遮罩和 Android 13+ 单色主题图标。新图标需重新云编译，手机桌面缓存可能在安装更新后短时显示旧图标。
+新版以 `res/mipmap-anydpi-v26/ic_launcher.xml` 自适应图标为主：蓝色背景、消息气泡及通知标记，不使用渐变或复杂装饰；支持圆形遮罩和 Android 13+ 单色主题图标。新图标需重新云编译，手机桌面缓存可能在安装更新后短时显示旧图标。
 
 ## 旧测试版在线升级路径
 
@@ -64,3 +64,7 @@
 ### Conscrypt / AndroidKeyStore 配对兼容性
 
 新版使用独立的 `berry_fcm_adb_identity_v3` RSA 身份，按 [Google Conscrypt #718](https://github.com/google/conscrypt/issues/718) 同类错误修复补充 `DIGEST_NONE`、`ENCRYPTION_PADDING_NONE` 与 RSA-PSS 签名填充。更新后需要在系统“无线调试”重新配对一次；**不要求重新生成 APK 安装签名，也不删除旧证书**。这只是有源码依据的候选修复，仍必须在 OriginOS 真机确认 TLS 握手及 Shell UID。
+
+### 最近源码完善
+
+`alpha.41` 增加无 Root/ADB 的 mtalk Java Socket 网络诊断，以及带原始状态记录和撤销入口的 BerryFCM 自身 Doze/AppOps 后台策略。OriginOS 自启动/关联启动无可靠可验证的独立快捷入口时，只提供真实的系统启动管理入口及手动检查说明。

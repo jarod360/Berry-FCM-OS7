@@ -43,9 +43,9 @@ public final class BackgroundActivity extends Ui {
         button(android, "撤销 BerryFCM 添加的后台网络放行", () -> gmsNetwork(false), false);
 
         LinearLayout vendor = card("OriginOS 后台管理", "自启动、关联启动、允许后台高耗电通常为厂商私有开关，不能把打开设置页当成自动授权成功。");
-        button(vendor, "自启动：打开 OriginOS 设置", () -> BackgroundSettings.autostart(this), true);
-        button(vendor, "关联启动：打开 OriginOS 设置", () -> BackgroundSettings.autostart(this), false);
-        button(vendor, "允许后台高耗电：打开应用电池设置", () -> BackgroundSettings.details(this), false);
+        button(vendor, "打开 OriginOS 启动管理", () -> BackgroundSettings.autostart(this), true);
+        line(vendor, "自启动 / 关联启动", "在系统启动管理内分别检查。尚无经证实可直达“关联启动”的独立入口，不能把同一页面重复伪装成两个入口。", null);
+        button(vendor, "后台高耗电：进入应用信息", () -> BackgroundSettings.details(this), false);
         line(vendor, "最近任务锁定", "打开系统最近任务列表，找到 BerryFCM 卡片并从菜单锁定。此开关没有可验证的标准 Android 接口，需要手动操作。", null);
         toggle(vendor, "隐藏 BerryFCM 最近任务卡片", prefs.hideRecents(), value -> {
             if (RecentTasks.apply(this, value)) {
