@@ -123,7 +123,7 @@ scan_sockets() {
 
     # Learn peer IPs observed on the dedicated MCS ports during this boot.
     printf '%s\n' "$raw" | awk -v u="$uid" '
-      ($1=="ESTAB" || $1=="ESTABLISHED" || $1=="SYN-SENT" || $1=="SYN_SENT") {
+      ($1=="ESTAB" || $1=="ESTABLISHED") {
         if (!match($0,/uid:[0-9]+/)) next
         owner=substr($0,RSTART+4,RLENGTH-4)+0; if(owner%100000!=u%100000) next
         peer=$5; port=peer; sub(/^.*:/,"",port)
