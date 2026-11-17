@@ -161,3 +161,11 @@
 - [Actions #44197295228](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44197295228) / commit `a8a351e`：`BerryFCM-v0.1.0-alpha.41` Artifact 已上传（ID `14379252792`），六项关键门槛：FCM Shell 模拟、模块检查、APK Java/Android 编译、固定签名 Release 编译、apksigner、上传均成功。仅验证 CI，不代表 OriginOS 实测通过。
 - 在此基础上继续修复 OriginOS 自启动和关联启动按钮重复指向同一 Activity 的误导行为；新版本以一个入口和明确说明替代重复入口。仍保持与 Shizuku/GKD/Traccar 等开源项目交互取舍一致，不捏造 ROM 私有 Activity。
 - 不产生 GitHub Release，等待用户自行实机验收并确认进入发布阶段。
+
+## 16. 当前已签名 APK：alpha.42（本轮最终构建）
+
+- APK 源码 commit：[879b5db](https://github.com/jarod360/Berry-FCM-OS7/commit/879b5db4d2ae239e376eeeb418953392971a2a1d)；固定签名构建 [Actions #44197684568](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44197684568) 全部成功。
+- 测试 Artifact：`BerryFCM-v0.1.0-alpha.42`，Artifact ID `14380091886`，压缩文件大小 7,357,687 字节。Shell 监测模拟、模块测试、Java/Android 编译、固定证书准备、Release 构建、签名验证、上传均通过。
+- 本轮相较 alpha.40：原生 APP 无 Root/ADB 的 mtalk 三端口 TCP 检测；BerryFCM 自身 Doze 与后台 AppOps 更改先记录原状态、回读、可撤销；后台页面增加通知权限和 Shell 新鲜度提示；修正 OriginOS 自启动/关联启动重复跳页的误导。
+- **未验收**：OriginOS 真机 TLS 配对、Shell UID Socket 权限、后台过夜/开机自动恢复、原始 AppOps 命令厂商兼容、完整 Release 在线覆盖升级；不以 CI 成功代替。
+- 未执行正式 Release；用户负责真机验证，开发继续按第 19 节优先级推进。未经实测不要回移不确定的 Shell 规则到 KernelSU。

@@ -25,7 +25,7 @@
 
 ## 已验证和未验证
 
-- 最近确认已通过的 APK： [Actions #44197295228](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44197295228)（alpha.41），包括 FCM 监控模拟、模块结构测试、Gradle 编译、固定 P12 签名、apksigner 验证及 Artifact 上传。无线配对在 OriginOS 真机上仍需验证。
+- 最新已通过的 APK： [Actions #44197684568](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44197684568)（alpha.42），包括 FCM 监控模拟、模块结构测试、Gradle 编译、固定 P12 签名、apksigner 验证及 Artifact 上传。无线配对在 OriginOS 真机上仍需验证。
 - KernelSU 仍为 v0.5.4-test，源码与数据目录独立，不受 APK UI 迁移影响。
 - **GitHub Releases 目前尚无正式 APK**；普通 push 只发布 Actions Artifact。\`workflow_dispatch.publish_release\` 明确手动勾选后才创建预发布版本，应用内更新只读取正式 Release。
 - 未完成的 **真机验证**：OriginOS 系统通知栏是否呈现 RemoteInput、ADB Shell 能否看到 GMS UID Socket、stopped 修复权限、锁屏过夜采样、用户授权和系统安装器覆盖升级。**CI 绿灯不代表这些已经通过。**

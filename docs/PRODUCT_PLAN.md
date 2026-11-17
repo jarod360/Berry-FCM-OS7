@@ -306,3 +306,5 @@
 **开发后续顺序**：P0 授权状态/监测缺失时不误报 + Shell 权限失败可诊断；P1 后台策略与应用守护状态逐项回读；P1 信息层级与交互；P2 实机接受后发布签名 Release；P2 APK 稳定后 KSU 算法回移。无实机证据时不将 TLS 配对标记为通过。
 
 **OriginOS 入口复核补充**：原界面“自启动”和“关联启动”两个按钮实际上调用同一个 `BackgroundSettings.autostart`，并没有分别到达两个不同页面。检索 [traccar](https://github.com/traccar/traccar-client-android) 等开源 Android 项目仅找到可参考的 Vivo 自启动管理组件，未证实当前 OriginOS 有单独可达的关联启动 Activity。因此合并为一个“打开 OriginOS 启动管理”按钮并增加明确的手工检查说明；后台高耗电按钮真实目的地是应用信息页，按实际目的改名，不声称直达电池开关。
+
+**本轮 CI 完成状态**：本节新增 Java Socket 诊断与策略回滚代码已通过 [APK Actions #44197295228（alpha.41）](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44197295228)；OriginOS 入口修正及全部累计代码再次通过 [APK Actions #44197684568（alpha.42）](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44197684568)。以上为源码、模拟和签名验收，不是设备层验收。
