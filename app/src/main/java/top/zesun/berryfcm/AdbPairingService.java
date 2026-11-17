@@ -63,19 +63,31 @@ public final class AdbPairingService extends Service {
             android.os.Bundle reply = RemoteInput.getResultsFromIntent(intent);
             if (reply != null) value = reply.getCharSequence(KEY_CODE);
             String code = value == null ? "" : value.toString().trim();
+            // If mDNS is blocked by the ROM, permit "37123:123456" entirely
+            // inside the notification, without switching back from Developer Options.
+            if (selectedPort <= 0) {
+                java.util.regex.Matcher fallback = java.util.regex.Pattern.compile(
+                        "^([0-9]{2,5})[ :#/]([0-9]{6})$").matcher(code);
+                if (fallback.matches()) {
+                    selectedPort = Integer.parseInt(fallback.group(1));
+                    code = fallback.group(2);
+                }
+            }
             if (!code.matches("[0-9]{6}") || selectedPort <= 0 || selectedPort > 65535) {
-                publish("配对码应为 6 位数字；确认无线调试配对端口已发现", true, selectedPort);
+                publish("请输入六位码；若未发现端口，请输入“端口:六位码”", true, selectedPort);
                 return START_REDELIVER_INTENT;
             }
             stopDiscovery();
             publish("配对中，正在验证 ADB 身份…", false, 0);
             final int p = selectedPort;
-            worker.execute(() -> pair(p, code));
+            final String pairingCode = code;
+            worker.execute(() -> pair(p, pairingCode));
             return START_REDELIVER_INTENT;
         }
         port = intent == null ? 0 : intent.getIntExtra("manual_port", 0);
-        publish(port > 0 ? "已指定配对端口 " + port + "；可直接从通知输入配对码"
-                : "正在发现本机无线 ADB 配对端口…", port > 0, port);
+        publish(port > 0 ? "已指定配对端口 " + port + "；从通知输入配对码"
+                : "正在发现本机配对端口；若自动发现失败，可在通知输入“端口:六位码”",
+                true, port);
         if (port <= 0) startDiscovery();
         return START_REDELIVER_INTENT;
     }
@@ -188,9 +200,10 @@ public final class AdbPairingService extends Service {
             PendingIntent pending = PendingIntent.getForegroundService(this, 10, reply,
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
             Notification.Action input = new Notification.Action.Builder(
-                    android.R.drawable.ic_menu_edit, "输入六位配对码", pending)
+                    android.R.drawable.ic_menu_edit,
+                    selectedPort > 0 ? "输入六位配对码" : "输入配对端口和配对码", pending)
                     .addRemoteInput(new RemoteInput.Builder(KEY_CODE)
-                            .setLabel("无线 ADB 配对码").build())
+                            .setLabel(selectedPort > 0 ? "六位配对码" : "例如 37123:123456").build())
                     .build();
             b.addAction(input);
         }

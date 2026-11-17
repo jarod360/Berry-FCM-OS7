@@ -41,3 +41,5 @@
 > 最近已验证的模块化 APK 固定签名构建：[Actions #44139303543](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44139303543)（alpha.30）。后续 KSU 功能追平提交仍须重新编译和验签。公开证书指纹及四个 Secrets 不变。
 
 > [APK Actions #44140579529](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44140579529) 的 alpha.31 已固定签名且 apksigner 验证通过，未发布正式 Release。后续兼容性调整仍需重验。
+
+> 更新页面读取 GitHub API 已改为 Android 26+ 支持的 InputStream 循环读取，[APK #44141173241](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44141173241) 验签成功（alpha.32）。随后配对流程兜底代码仍需重新编译。

@@ -11,6 +11,7 @@ for class in MainActivity AuthActivity MonitorActivity GuardActivity BackgroundA
   need "$class" "$manifest"
 done
 need 'RemoteInput' "$src/AdbPairingService.java"
+need '37123:123456' "$src/AdbPairingService.java"
 need '_adb-tls-pairing._tcp' "$src/AdbPairingService.java"
 need 'NsdManager' "$src/AdbPairingService.java"
 need 'localAddress' "$src/AdbPairingService.java"
