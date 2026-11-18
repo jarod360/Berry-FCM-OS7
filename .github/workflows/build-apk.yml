@@ -298,7 +298,10 @@ jobs:
           grep -F "package: name='top.zesun.berryfcm' versionCode='${BUILD_NUMBER}'" badging.txt
       - name: Create GitHub prerelease from original verified APK
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # A target with workflow differences from main requires Workflows:write.
+          # GITHUB_TOKEN cannot receive that permission; use the owner's scoped
+          # release token here only, never during signing or building.
+          GH_TOKEN: ${{ secrets.BERRYFCM_RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           BUILD_NUMBER: ${{ steps.accepted.outputs.number }}
           TARGET_SHA: ${{ steps.accepted.outputs.sha }}
@@ -383,7 +386,10 @@ jobs:
           grep -F "package: name='top.zesun.berryfcm' versionCode='${BUILD_NUMBER}'" badging.txt
       - name: Create GitHub prerelease from original verified APK
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # A target with workflow differences from main requires Workflows:write.
+          # GITHUB_TOKEN cannot receive that permission; use the owner's scoped
+          # release token here only, never during signing or building.
+          GH_TOKEN: ${{ secrets.BERRYFCM_RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           BUILD_NUMBER: ${{ github.run_number }}
           TARGET_SHA: ${{ github.sha }}
