@@ -1,0 +1,19 @@
+name: Native FCM shell verification
+on:
+  push:
+    branches: [verify/native-fcm-smoke]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check shell syntax and native FCM regression
+        run: |
+          sh -n app/src/main/assets/fcm-monitor.sh
+          sh -n tests/apk-native-fcm-smoke.sh
+          sh tests/apk-native-fcm-smoke.sh
+          sh -n module/bin/fcm-monitor.sh
+          sh tests/fcm-monitor-smoke.sh
