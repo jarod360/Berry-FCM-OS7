@@ -12,6 +12,7 @@ import android.content.SharedPreferences;
 import android.content.Intent;
 import android.net.ConnectivityManager;
 import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
@@ -118,6 +119,9 @@ public final class FcmMonitorService extends Service {
     static String lastEvents(Context context) {
         return context.getSharedPreferences(SNAPSHOT, MODE_PRIVATE).getString("events", "");
     }
+    static String lastEnvironmentEvents(Context context) {
+        return context.getSharedPreferences(SNAPSHOT, MODE_PRIVATE).getString("environment_events", "");
+    }
     static String lastRecoveryEvents(Context context) {
         return context.getSharedPreferences(SNAPSHOT, MODE_PRIVATE).getString("recovery_events", "");
     }
@@ -201,6 +205,14 @@ public final class FcmMonitorService extends Service {
             networkCallback = new ConnectivityManager.NetworkCallback() {
                 @Override public void onAvailable(Network network) { onNetworkChange(); }
                 @Override public void onLost(Network network) { onNetworkChange(); }
+                private String lastTransport = "";
+                @Override public void onCapabilitiesChanged(Network network, NetworkCapabilities caps) {
+                    String transport = transportName(caps);
+                    if (!transport.equals(lastTransport)) {
+                        lastTransport = transport;
+                        onNetworkChange();
+                    }
+                }
             };
             if (networkManager != null) networkManager.registerDefaultNetworkCallback(networkCallback);
         } catch (RuntimeException ignored) { networkCallback = null; }
@@ -316,6 +328,8 @@ public final class FcmMonitorService extends Service {
                     throw new IllegalStateException("监测脚本版本不匹配");
                 String events = result.substring(eventsStart + "\nBERRY_EVENTS_BEGIN".length(), recoveryStart).trim();
                 String recovery = result.substring(recoveryStart + "\nBERRY_RECOVERY_BEGIN".length()).trim();
+                recordEnvironment(parsed);
+                json = parsed.toString();
                 failureStreak = 0;
                 nextAttemptElapsed = 0;
                 getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
@@ -366,6 +380,71 @@ public final class FcmMonitorService extends Service {
             getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
                     .putString("error", "手动重连请求失败：" + safeError(error)).apply();
         }
+    }
+
+    private static String transportName(NetworkCapabilities caps) {
+        if (caps == null) return "unknown";
+        StringBuilder names = new StringBuilder();
+        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) names.append("VPN+");
+        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) names.append("WiFi+");
+        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) names.append("Cell+");
+        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) names.append("Ethernet+");
+        return names.length() == 0 ? "other" : names.substring(0, names.length() - 1);
+    }
+
+    // Sample context, not GMS route: do not log SSIDs, addresses, or tokens.
+    // Environment changes are event-driven by the existing sample and add
+    // no probes or privileged commands.
+    private void recordEnvironment(JSONObject snapshot) throws org.json.JSONException {
+        String network = "unknown", validated = "unknown";
+        String screen = "unknown", idle = "unknown", powerSave = "unknown", gmsExempt = "unknown";
+        try {
+            ConnectivityManager manager = getSystemService(ConnectivityManager.class);
+            if (manager != null) {
+                Network active = manager.getActiveNetwork();
+                if (active == null) network = "none";
+                else {
+                    NetworkCapabilities caps = manager.getNetworkCapabilities(active);
+                    network = transportName(caps);
+                    if (caps != null) validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) ? "yes" : "no";
+                }
+            }
+        } catch (RuntimeException ignored) { }
+        try {
+            PowerManager power = getSystemService(PowerManager.class);
+            if (power != null) {
+                screen = power.isInteractive() ? "on" : "off";
+                idle = power.isDeviceIdleMode() ? "yes" : "no";
+                powerSave = power.isPowerSaveMode() ? "yes" : "no";
+                gmsExempt = power.isIgnoringBatteryOptimizations(GuardOps.GMS) ? "yes" : "no";
+            }
+        } catch (RuntimeException ignored) { }
+        JSONObject env = new JSONObject();
+        env.put("network", network);
+        env.put("android_validated", validated);
+        env.put("screen", screen);
+        env.put("device_idle", idle);
+        env.put("power_save", powerSave);
+        env.put("gms_doze_exempt", gmsExempt);
+        snapshot.put("app_environment", env);
+        String state = snapshot.optString("fcm_state", "unknown");
+        String description = "FCM=" + state + "; AppNetwork=" + network
+                + "; AndroidValidated=" + validated + "; screen=" + screen
+                + "; idle=" + idle + "; powerSave=" + powerSave + "; GMSDozeExempt=" + gmsExempt;
+        SharedPreferences stored = getSharedPreferences(SNAPSHOT, MODE_PRIVATE);
+        if (description.equals(stored.getString("environment_key", ""))
+                && session.equals(stored.getString("environment_session", ""))) return;
+        String event = (System.currentTimeMillis() / 1000) + "|environment|" + description;
+        String history = stored.getString("environment_events", "");
+        String[] lines = history.split("\\n");
+        StringBuilder bounded = new StringBuilder();
+        for (int i = Math.max(0, lines.length - 79); i < lines.length; i++) {
+            if (!lines[i].isEmpty()) bounded.append(lines[i]).append('\n');
+        }
+        bounded.append(event);
+        stored.edit().putString("environment_key", description)
+                .putString("environment_session", session)
+                .putString("environment_events", bounded.toString()).apply();
     }
 
     private static String safeError(Exception error) {
