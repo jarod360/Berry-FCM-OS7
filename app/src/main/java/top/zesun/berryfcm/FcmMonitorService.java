@@ -35,7 +35,6 @@ public final class FcmMonitorService extends Service {
     private static final int NOTIFICATION_ID = 7212;
     private static final String CHECK = "berryfcm.monitor.check";
     private static final String RECONNECT = "berryfcm.monitor.reconnect";
-    private static final String REFRESH_DISPLAY = "berryfcm.monitor.display";
     private final ScheduledExecutorService worker = Executors.newSingleThreadScheduledExecutor();
     private volatile boolean scheduled;
     private boolean installed;
@@ -101,10 +100,23 @@ public final class FcmMonitorService extends Service {
         return "后台服务运行中";
     }
     static void checkNow(Context context) { start(context, CHECK); }
-    static void refreshDisplay(Context context) {
-        if (!isRunning()) return;
-        try { context.startService(new Intent(context, FcmMonitorService.class).setAction(REFRESH_DISPLAY)); }
-        catch (RuntimeException ignored) { /* existing notification remains until next refresh */ }
+    // Preserve the previously selected notification channel across upgrades.
+    // Never switch to a different channel to evade a user's notification setting.
+    static String monitorChannelId(Context context) {
+        return new AppPrefs(context).quietMonitor() ? QUIET_CHANNEL : CHANNEL;
+    }
+
+    static void ensureMonitorChannel(Context context) {
+        NotificationManager manager = context.getSystemService(NotificationManager.class);
+        if (manager == null) return;
+        String id = monitorChannelId(context);
+        if (manager.getNotificationChannel(id) == null) {
+            NotificationChannel channel = new NotificationChannel(id,
+                    QUIET_CHANNEL.equals(id) ? "FCM 静音监测" : "FCM 后台监测",
+                    NotificationManager.IMPORTANCE_LOW);
+            channel.setSound(null, null);
+            manager.createNotificationChannel(channel);
+        }
     }
     static String manualReconnect(Context context) {
         return start(context, RECONNECT)
@@ -190,19 +202,12 @@ public final class FcmMonitorService extends Service {
 
     @Override public void onCreate() {
         super.onCreate();
-        NotificationManager manager = getSystemService(NotificationManager.class);
-        NotificationChannel active = new NotificationChannel(CHANNEL,
-                "FCM 后台监测", NotificationManager.IMPORTANCE_LOW);
-        manager.createNotificationChannel(active);
-        NotificationChannel quiet = new NotificationChannel(QUIET_CHANNEL,
-                "FCM 静音监测", NotificationManager.IMPORTANCE_LOW);
-        quiet.setSound(null, null);
-        manager.createNotificationChannel(quiet);
+        ensureMonitorChannel(this);
         startForeground(NOTIFICATION_ID, notification());
         registerResumeTriggers();
     }
     private Notification notification() {
-        String channel = new AppPrefs(this).quietMonitor() ? QUIET_CHANNEL : CHANNEL;
+        String channel = monitorChannelId(this);
         PendingIntent open = PendingIntent.getActivity(this, 0,
                 new Intent(this, MainActivity.class),
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
@@ -238,15 +243,6 @@ public final class FcmMonitorService extends Service {
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         newestStartId = startId;
         AppPrefs prefs = new AppPrefs(this);
-        if (intent != null && REFRESH_DISPLAY.equals(intent.getAction())) {
-            if (scheduled) {
-                startForeground(NOTIFICATION_ID, notification());
-                lastNotificationText = notificationText();
-                return START_STICKY;
-            }
-            stopIfIneligible(startId);
-            return START_NOT_STICKY;
-        }
         if ((!prefs.monitorEnabled() && !prefs.guardEnabled()) || !PrivilegeAccess.canRunInBackground(this)) {
             stopIfIneligible(startId);
             return START_NOT_STICKY;

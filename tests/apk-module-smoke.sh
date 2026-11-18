@@ -252,7 +252,13 @@ need 'createAuxiliaryPermissions()' "$src/AuthActivity.java"
 need 'refreshAuxiliaryPermissions()' "$src/AuthActivity.java"
 need 'BackgroundSettings.associatedStart(this)' "$src/AuthActivity.java"
 need 'BackgroundSettings.powerSettings(this)' "$src/AuthActivity.java"
-need 'FcmMonitorService.refreshDisplay(this)' "$src/AuthActivity.java"
+need 'BackgroundSettings.monitorNotifications(this)' "$src/AuthActivity.java"
+need 'FcmMonitorService.monitorChannelId(activity)' "$src/BackgroundSettings.java"
+need 'sampleElapsed >= checkStarted' "$src/FcmMonitorService.java"
+need 'reconnectQueued.set(false)' "$src/FcmMonitorService.java"
+if grep -qE 'prefs\.quietMonitor\(enabled\)|FcmMonitorService\.refreshDisplay' "$src/AuthActivity.java"; then
+    echo 'Monitoring notification settings must not switch channels or start foreground service'; exit 1
+fi
 if grep -nE 'BackgroundSettings\.(batteryExempt|originAutoStartStatus|backgroundRestriction|monitorNotificationStatus)|FcmTileService\.(offered|displayStatus)|areNotificationsEnabled' "$src/PrivilegeAccess.java" "$src/FcmMonitorService.java" "$src/BootReceiver.java"; then
   echo 'Optional system permissions must not block background task execution' >&2; exit 1
 fi

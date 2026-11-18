@@ -28,6 +28,8 @@ public final class GuardOpsSmoke {
             throw new AssertionError("GMS must appear once");
         for (String batch : batches) if (batch.split("p='", -1).length - 1 > 5)
             throw new AssertionError("Batch exceeds bounded shell duration");
-        System.out.println("PASS: selected guard targets are not silently truncated; bounded batches and one GMS target");
+        if (!GuardOps.heartbeatCommand().equals("am broadcast --user 0 -a com.google.android.intent.action.MCS_HEARTBEAT -p com.google.android.gms 2>&1"))
+            throw new AssertionError("Guard heartbeat must be one exported, targeted request");
+        System.out.println("PASS: selected guard targets are not silently truncated; bounded batches, one GMS target and one targeted heartbeat");
     }
 }
