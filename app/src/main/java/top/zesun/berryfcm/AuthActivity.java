@@ -16,7 +16,6 @@ import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.EditText;
-import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import java.util.concurrent.ExecutorService;
@@ -81,13 +80,10 @@ public final class AuthActivity extends Ui {
         detail.setPadding(0, dp(5), 0, dp(1));
         card.addView(detail);
 
-        LinearLayout chooser = card("授权方式", "无线 ADB 通常只需配对一次。");
-        HorizontalScrollView scroll = new HorizontalScrollView(this);
-        scroll.setHorizontalScrollBarEnabled(false);
+        LinearLayout chooser = card("授权方式", "无线 ADB 通常只需配对一次；选择其他方式不会立即切换。");
         tabs = new LinearLayout(this);
-        tabs.setOrientation(LinearLayout.HORIZONTAL);
-        scroll.addView(tabs);
-        chooser.addView(scroll);
+        tabs.setOrientation(LinearLayout.VERTICAL);
+        chooser.addView(tabs);
 
         LinearLayout steps = card("操作步骤", null);
         instructions = new LinearLayout(this);
@@ -178,6 +174,7 @@ public final class AuthActivity extends Ui {
         });
         tileRow = permissionRow(display, "FCM 快捷磁贴", this::addTile);
         removeTileButton = button(display, "移除 FCM 快捷磁贴", () -> {
+            if (tileRequestPending) { error("请先完成系统的磁贴添加确认"); return; }
             FcmTileService.setOffered(this, false);
             refreshAuxiliaryPermissions();
         }, false);
@@ -203,15 +200,7 @@ public final class AuthActivity extends Ui {
         else {
             auxiliaryReading = true;
             permissionText(autoStartRow, "自启动", "正在读取");
-            permissionWorker.execute(() -> {
-                String result = BackgroundSettings.originAutoStartStatus(this);
-                runOnUiThread(() -> {
-                    auxiliaryReading = false;
-                    if (isDestroyed() || isFinishing()) return;
-                    if (auxiliaryAgain) { auxiliaryAgain = false; refreshAuxiliaryPermissions(); }
-                    else permissionText(autoStartRow, "自启动", result);
-                });
-            });
+            readAutoStartPermission();
         }
         permissionText(associatedRow, "关联启动", "需在系统确认");
         permissionText(highPowerRow, "允许后台高耗电", "需在系统确认");
@@ -224,6 +213,26 @@ public final class AuthActivity extends Ui {
         permissionText(monitorNotificationRow, "监控通知类别", BackgroundSettings.monitorNotificationStatus(this, prefs.quietMonitor()));
         permissionText(tileRow, "FCM 快捷磁贴", FcmTileService.displayStatus(this));
         removeTileButton.setVisibility(FcmTileService.offered(this) ? View.VISIBLE : View.GONE);
+    }
+
+    private void readAutoStartPermission() {
+        permissionWorker.execute(() -> {
+            String result;
+            try { result = BackgroundSettings.originAutoStartStatus(this); }
+            catch (RuntimeException error) { result = "无法读取"; }
+            final String value = result;
+            runOnUiThread(() -> {
+                if (isDestroyed() || isFinishing()) { auxiliaryReading = false; return; }
+                if (auxiliaryAgain) {
+                    auxiliaryAgain = false;
+                    // One additional async read, not another full page refresh.
+                    readAutoStartPermission();
+                } else {
+                    auxiliaryReading = false;
+                    permissionText(autoStartRow, "自启动", value);
+                }
+            });
+        });
     }
 
     private void openRecentsForLock() {
@@ -286,21 +295,28 @@ public final class AuthActivity extends Ui {
 
     private void renderTabs() {
         tabs.removeAllViews();
+        LinearLayout group = null;
         for (int i = 0; i < MODES.length; i++) {
+            if (i == 0 || i == 3) {
+                group = new LinearLayout(this);
+                group.setOrientation(LinearLayout.HORIZONTAL);
+                tabs.addView(group, new LinearLayout.LayoutParams(-1, -2));
+            }
             final String mode = MODES[i];
             boolean active = mode.equals(selected);
             TextView tab = text(LABELS[i], 13, active, active ? 0xffffffff : ink);
             tab.setGravity(Gravity.CENTER);
-            tab.setPadding(dp(12), dp(8), dp(12), dp(8));
+            tab.setPadding(dp(4), dp(8), dp(4), dp(8));
+            tab.setMinHeight(dp(44));
             GradientDrawable bg = new GradientDrawable();
             bg.setColor(active ? 0xff365ed6 : (surface == 0xfff4f6fa ? 0xffebeff8 : 0xff293650));
             bg.setCornerRadius(dp(12));
             tab.setBackground(bg);
             tab.setFocusable(true);
             tab.setContentDescription(LABELS[i] + (active ? "，当前选中" : "，点击切换"));
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-2, dp(42));
-            params.rightMargin = dp(7);
-            tabs.addView(tab, params);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -2, 1);
+            params.setMargins(dp(3), dp(3), dp(3), dp(3));
+            group.addView(tab, params);
             tab.setOnClickListener(v -> {
                 if (checking || AdbPairingService.isPairingActive() || PrivKitShell.isStarting()) {
                     error("当前授权正在进行，请先完成或取消");
@@ -651,6 +667,7 @@ public final class AuthActivity extends Ui {
                     if (isDestroyed() || isFinishing()) return;
                     boolean wireless = AppPrefs.WIRELESS.equals(candidate);
                     status.setText(wireless && prefs.pairingRejected() ? "授权已失效，请重新配对" : "连接失败");
+                    status.setTextColor(danger);
                     detail.setText(wireless ? "请确认无线调试已开启，再试一次。\n具体原因：" + message : message);
                     renderInstructions();
                 });
@@ -659,7 +676,8 @@ public final class AuthActivity extends Ui {
     }
 
     private void renderStatus() {
-        if (status == null) return;
+        if (status == null || checking) return;
+        status.setTextColor(muted);
         if (AppPrefs.EXTERNAL.equals(selected)) {
             status.setText("电脑 USB · 初始化指引");
             detail.setText("这不是 APK 的授权模式。电脑启用 ADB TCP 后，回到 ADB TCP 标签连接验证。");
@@ -667,18 +685,22 @@ public final class AuthActivity extends Ui {
         }
         String mode = prefs.mode();
         if (!selected.equals(mode)) {
+            boolean ready = PrivilegeAccess.readyForUserAction(this);
             status.setText("当前使用：" + (AppPrefs.ROOT.equals(mode) ? "Root" : AppPrefs.SHIZUKU.equals(mode) ? "Shizuku" : AppPrefs.STATIC.equals(mode) ? "ADB TCP" : "无线 ADB"));
-            detail.setText("这里是候选连接的设置，尚未切换后台连接方式。");
+            status.setTextColor(ready ? success : warning);
+            detail.setText((ready ? "当前方式可用" : "当前方式需要授权") + "；这里是候选方式，尚未切换。");
             return;
         }
         if (AppPrefs.SHIZUKU.equals(selected)) {
             status.setText(ShizukuShell.readiness());
+            status.setTextColor(ShizukuShell.authorizedUid() >= 0 ? success : warning);
             detail.setText(ShizukuShell.authorizedUid() >= 0
                     ? "使用独立 Binder 服务；不需要 BerryFCM 持续连接无线调试。实际采样结果以监控页为准。"
                     : "需先启动 Shizuku 并完成一次应用授权；原配对身份保留。");
         } else if (AppPrefs.WIRELESS.equals(selected)) {
             if (PrivKitShell.isConnected()) {
                 status.setText("授权成功");
+                status.setTextColor(success);
                 detail.setText("服务正在运行，可以使用 FCM 监控。");
             } else if (AdbPairingService.isPairingActive()) {
                 status.setText("正在配对");
@@ -688,6 +710,7 @@ public final class AuthActivity extends Ui {
                 detail.setText("正在连接无线调试。");
             } else if (prefs.pairingRejected()) {
                 status.setText("授权已失效");
+                status.setTextColor(danger);
                 detail.setText("系统已拒绝原有配对，请重新配对。");
             } else if (prefs.adbPaired()) {
                 boolean failed = !PrivKitShell.lastStartupError(this).isEmpty();
@@ -698,12 +721,14 @@ public final class AuthActivity extends Ui {
                 status.setText(failed ? "配对失败" : "需要 ADB 授权");
                 detail.setText(failed ? "请重新打开系统配对码页面并输入六位码。具体原因见下方。" : "首次使用请完成无线配对。若已经配对，可检查已有授权。");
             }
-        } else if (prefs.shellRecentlyVerified()) {
-            status.setText("Shell 已验证");
+        } else if (PrivilegeAccess.readyForUserAction(this)) {
+            status.setText("Shell 上次验证成功");
+            status.setTextColor(success);
             detail.setText(mode + " · " + prefs.shellIdentity()
-                    + "\n此结果只证明近期 Shell 可用，GMS 原生状态读取权限仍须单独验证。");
+                    + "\n每次实际命令都会验证 Shell 身份；不代表当前存在持续连接。");
         } else if (!prefs.shellError().isEmpty() && mode.equals(prefs.shellMode())) {
             status.setText("授权连接失败");
+            status.setTextColor(danger);
             detail.setText(prefs.shellError() + "\n" + prefs.pairingStatus());
         } else {
             status.setText("未验证当前 Shell");

@@ -60,7 +60,7 @@ need 'SIGNATURE_PADDING_RSA_PSS' "$src/AdbConnectionManager.java"
 need 'DIGEST_NONE' "$src/AdbConnectionManager.java"
 need 'ENCRYPTION_PADDING_NONE' "$src/AdbConnectionManager.java"
 need 'berry_fcm_adb_identity_v3' "$src/AdbConnectionManager.java"
-need 'HorizontalScrollView' "$src/AuthActivity.java"
+need 'group.addView(tab, params)' "$src/AuthActivity.java"
 # Single-tap pairing starts the notification, then opens wireless settings.
 need '开始配对并打开无线调试' "$src/AuthActivity.java"
 need 'openWirelessDebugging()' "$src/AuthActivity.java"
@@ -297,3 +297,9 @@ status_classes="$(mktemp -d)"
 javac -d "$status_classes" "$src/MonitorStatus.java" "$root/tests/MonitorStatusSmoke.java"
 java -cp "$status_classes" top.zesun.berryfcm.MonitorStatusSmoke
 rm -rf "$status_classes"
+
+need 'lastAttemptKey = attemptKey' "$src/FcmMonitorService.java"
+need 'stopSelfResult(startId)' "$src/FcmMonitorService.java"
+need 'error_session' "$src/FcmMonitorService.java"
+need 'registerOnSharedPreferenceChangeListener(reportListener)' "$src/GuardActivity.java"
+need 'unregisterOnSharedPreferenceChangeListener(reportListener)' "$src/GuardActivity.java"

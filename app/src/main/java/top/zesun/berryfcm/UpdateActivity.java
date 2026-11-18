@@ -150,7 +150,12 @@ public final class UpdateActivity extends Ui {
                     download.setVisibility(newer ? View.VISIBLE : View.GONE);
                 });
             } catch (Exception error) {
-                runOnUiThread(() -> { checking = false; details.setText("检查更新失败：" + error.getMessage()); download.setVisibility(View.GONE); });
+                runOnUiThread(() -> {
+                    checking = false;
+                    if (isDestroyed() || isFinishing()) return;
+                    details.setText("检查更新失败：" + error.getMessage());
+                    download.setVisibility(View.GONE);
+                });
             } finally { if (conn != null) conn.disconnect(); }
         });
     }

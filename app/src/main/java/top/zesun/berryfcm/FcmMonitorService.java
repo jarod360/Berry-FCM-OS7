@@ -53,6 +53,10 @@ public final class FcmMonitorService extends Service {
     private final AtomicBoolean checkQueued = new AtomicBoolean();
     private final AtomicBoolean reconnectQueued = new AtomicBoolean();
     private String installedMode;
+    private String lastAttemptKey = "";
+    private java.util.concurrent.ScheduledFuture<?> periodic;
+    private final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+    private int newestStartId;
     private AdbConnectionManager adb;
     private long lastGuardAt;
     private Network observedNetwork;
@@ -92,8 +96,9 @@ public final class FcmMonitorService extends Service {
         if (!isRunning()) return "后台服务未运行";
         if (!prefs.monitorEnabled()) return "应用守护运行中";
         long age = sampleAgeSeconds(context);
+        if (!currentError(context).isEmpty()) return "采样失败，后台重试中";
         if (age < 0 || age > 90) return "等待本次有效采样";
-        return lastError(context).isEmpty() ? "后台服务运行中" : "采样失败，后台重试中";
+        return "后台服务运行中";
     }
     static void checkNow(Context context) { start(context, CHECK); }
     static void refreshDisplay(Context context) {
@@ -121,7 +126,9 @@ public final class FcmMonitorService extends Service {
             return true;
         } catch (RuntimeException error) {
             context.getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
-                    .putString("error", "系统禁止启动后台监测：" + error.getMessage()).apply();
+                    .putString("error", "系统禁止启动后台监测：" + error.getMessage())
+                    .putString("error_session", activeSession)
+                    .putString("error_mode", prefs.connectionKey()).apply();
             return false;
         }
     }
@@ -145,6 +152,12 @@ public final class FcmMonitorService extends Service {
     }
     static String lastError(Context context) {
         return context.getSharedPreferences(SNAPSHOT, MODE_PRIVATE).getString("error", "");
+    }
+    static String currentError(Context context) {
+        SharedPreferences stored = context.getSharedPreferences(SNAPSHOT, MODE_PRIVATE);
+        return activeSession.equals(stored.getString("error_session", "no-session"))
+                && new AppPrefs(context).connectionKey().equals(stored.getString("error_mode", ""))
+                ? stored.getString("error", "") : "";
     }
     static long nextAttemptIn(Context context) {
         if (!isRunning()) return 0;
@@ -196,7 +209,7 @@ public final class FcmMonitorService extends Service {
         long age = sampleAgeSeconds(this);
         JSONObject data = lastSnapshot(this);
         return MonitorStatus.resolve(true, prefs.monitorEnabled(), isRunning(), age,
-                !lastError(this).isEmpty(), "gms".equals(data.optString("fcm_source")),
+                !currentError(this).isEmpty(), "gms".equals(data.optString("fcm_source")),
                 data.optString("fcm_state")).label;
     }
 
@@ -209,6 +222,7 @@ public final class FcmMonitorService extends Service {
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
+        newestStartId = startId;
         AppPrefs prefs = new AppPrefs(this);
         if (intent != null && REFRESH_DISPLAY.equals(intent.getAction())) {
             if (scheduled) {
@@ -216,15 +230,11 @@ public final class FcmMonitorService extends Service {
                 lastNotificationText = notificationText();
                 return START_STICKY;
             }
-            stopForeground(STOP_FOREGROUND_REMOVE);
-            stopSelf();
+            stopIfIneligible(startId);
             return START_NOT_STICKY;
         }
         if ((!prefs.monitorEnabled() && !prefs.guardEnabled()) || !PrivilegeAccess.canRunInBackground(this)) {
-            scheduled = false;
-            if (session.equals(activeSession)) activeSession = "";
-            stopForeground(STOP_FOREGROUND_REMOVE);
-            stopSelf();
+            stopIfIneligible(startId);
             return START_NOT_STICKY;
         }
         startForeground(NOTIFICATION_ID, notification());
@@ -238,7 +248,8 @@ public final class FcmMonitorService extends Service {
                     .putLong("attempt_time", 0)
                     .putString("attempt_state", "pending").apply();
             scheduled = true;
-            worker.scheduleWithFixedDelay(() -> runSafe(false), 0, 15, TimeUnit.SECONDS);
+            if (periodic == null || periodic.isCancelled() || periodic.isDone())
+                periodic = worker.scheduleWithFixedDelay(() -> runSafe(false), 0, 15, TimeUnit.SECONDS);
         }
         String action = intent == null ? null : intent.getAction();
         if (CHECK.equals(action) && !firstStart) queueCheck(true);
@@ -249,6 +260,20 @@ public final class FcmMonitorService extends Service {
             });
         }
         return START_STICKY;
+    }
+
+    // Lifecycle changes are serialized on Android's main thread. A delayed
+    // stop from an old worker must not kill a newer user start.
+    private void stopIfIneligible(int startId) {
+        AppPrefs prefs = new AppPrefs(this);
+        if (startId != newestStartId || (scheduled
+                && (prefs.monitorEnabled() || prefs.guardEnabled())
+                && PrivilegeAccess.canRunInBackground(this))) return;
+        if (!stopSelfResult(startId)) return;
+        scheduled = false;
+        if (session.equals(activeSession)) activeSession = "";
+        if (periodic != null) periodic.cancel(false);
+        stopForeground(STOP_FOREGROUND_REMOVE);
     }
 
     private void registerResumeTriggers() {
@@ -316,7 +341,9 @@ public final class FcmMonitorService extends Service {
             }
         } catch (RuntimeException ignored) { lock = null; }
         try { runOnce(requested); }
-        catch (RuntimeException error) { recordFailure(error); }
+        catch (RuntimeException error) {
+            if (scheduled && session.equals(activeSession)) recordFailure(error);
+        }
         finally {
             if (lock != null && lock.isHeld()) lock.release();
             if (PrivilegeAccess.canRunInBackground(this)) refreshNotification();
@@ -329,6 +356,8 @@ public final class FcmMonitorService extends Service {
         nextAttemptElapsed = SystemClock.elapsedRealtime() + backoff;
         getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
                 .putString("error", safeError(error))
+                .putString("error_session", session)
+                .putString("error_mode", new AppPrefs(this).connectionKey())
                 .putString("attempt_state", "failed")
                 .putLong("next_attempt_elapsed", nextAttemptElapsed).apply();
     }
@@ -348,15 +377,13 @@ public final class FcmMonitorService extends Service {
     private void runOnce(boolean requested) {
         AppPrefs p = new AppPrefs(this);
         if ((!p.monitorEnabled() && !p.guardEnabled()) || !PrivilegeAccess.canRunInBackground(this)) {
-            scheduled = false;
-            if (session.equals(activeSession)) activeSession = "";
-            stopForeground(STOP_FOREGROUND_REMOVE);
-            stopSelf();
+            main.post(() -> stopIfIneligible(newestStartId));
             return;
         }
         final String attemptKey = p.connectionKey();
-        boolean modeChanged = !attemptKey.equals(installedMode);
+        boolean modeChanged = !attemptKey.equals(lastAttemptKey);
         if (p.monitorEnabled() && (requested || modeChanged || SystemClock.elapsedRealtime() >= nextAttemptElapsed)) {
+            lastAttemptKey = attemptKey;
             getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
                     .putLong("attempt_time", System.currentTimeMillis())
                     .putString("attempt_state", "running")
@@ -427,29 +454,36 @@ public final class FcmMonitorService extends Service {
                 getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE).edit()
                         .putString("report", report).putLong("last_run", System.currentTimeMillis()).apply();
             } catch (Exception error) {
-                getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE).edit()
-                        .putString("report", "守护检查未执行：" + safeError(error))
-                        .putLong("last_run", System.currentTimeMillis()).apply();
+                if (scheduled && session.equals(activeSession) && p.guardEnabled()
+                        && attemptKey.equals(p.connectionKey()) && !Thread.currentThread().isInterrupted())
+                    getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE).edit()
+                            .putString("report", "守护检查失败：" + safeError(error))
+                            .putLong("last_run", System.currentTimeMillis()).apply();
             }
         }
     }
 
     private void manualReconnectInternal() {
+        AppPrefs p = new AppPrefs(this);
+        if (!scheduled || !session.equals(activeSession) || !p.monitorEnabled()
+                || !PrivilegeAccess.canRunInBackground(this)) return;
+        String mode = p.mode();
+        String key = p.connectionKey();
         try {
-            AppPrefs p = new AppPrefs(this);
-            if (!p.monitorEnabled()) throw new IllegalStateException("FCM 监控未启用");
-            String mode = p.mode();
-            String key = p.connectionKey();
             if (!installed || !key.equals(installedMode)) {
                 installScript(p, mode);
                 installed = true;
                 installedMode = key;
             }
+            if (!scheduled || !p.monitorEnabled() || !key.equals(p.connectionKey())) return;
             execute(p, mode, monitorPrefix(p, mode) + "reconnect");
-            runSafe(true);
+            if (key.equals(p.connectionKey())) runSafe(true);
         } catch (Exception error) {
-            getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
-                    .putString("error", "手动重连请求失败：" + safeError(error)).apply();
+            if (scheduled && session.equals(activeSession) && p.monitorEnabled() && key.equals(p.connectionKey()))
+                getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
+                        .putString("error", "手动重连请求失败：" + safeError(error))
+                        .putString("error_session", session)
+                        .putString("error_mode", key).apply();
         }
     }
 
@@ -635,6 +669,8 @@ public final class FcmMonitorService extends Service {
             try { unregisterReceiver(resumeReceiver); }
             catch (RuntimeException ignored) { }
         }
+        main.removeCallbacksAndMessages(null);
+        if (periodic != null) periodic.cancel(true);
         worker.shutdownNow();
         stopForeground(STOP_FOREGROUND_REMOVE);
         super.onDestroy();

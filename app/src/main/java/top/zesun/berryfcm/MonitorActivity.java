@@ -114,7 +114,7 @@ public final class MonitorActivity extends Ui {
         JSONObject j = FcmMonitorService.lastSnapshot(this);
         long sample = j.optLong("fcm_sample_time", 0);
         long age = FcmMonitorService.sampleAgeSeconds(this);
-        String lastError = FcmMonitorService.lastError(this);
+        String lastError = FcmMonitorService.currentError(this);
         String state = j.optString("fcm_state", "never_seen");
         boolean nativeState = "gms".equals(j.optString("fcm_source"));
         long attempt = FcmMonitorService.lastAttemptAt(this);
@@ -138,7 +138,7 @@ public final class MonitorActivity extends Ui {
         int retryIn = j.optInt("fcm_retry_in", 0);
         String progress = AppPrefs.WIRELESS.equals(prefs.mode()) && !PrivKitShell.isConnected()
                 ? PrivKitShell.status() + "；可以在连接设置中启动服务，无需重新配对。"
-                : FcmMonitorService.lastError(this).isEmpty()
+                : FcmMonitorService.currentError(this).isEmpty()
                 ? "后台将持续检查；如长时间无数据，请检查通知及系统后台策略。"
                 : "后台正在自动重试，无需手动重复配对。";
         current.setText("最近检查：" + (sample <= 0 ? "暂无" : time(sample)

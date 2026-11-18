@@ -53,6 +53,16 @@ public final class GuardActivity extends Ui {
     private Switch running;
     private java.util.concurrent.Future<?> watchFuture;
     private long operationGeneration;
+    private final android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
+    private android.content.SharedPreferences guardReport;
+    private String renderedReport;
+    private Set<String> renderedTargets;
+    private final Runnable refreshReport = this::refreshStoredReport;
+    private final android.content.SharedPreferences.OnSharedPreferenceChangeListener reportListener =
+            (store, key) -> {
+                ui.removeCallbacks(refreshReport);
+                ui.post(refreshReport);
+            };
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -129,8 +139,8 @@ public final class GuardActivity extends Ui {
         button(advanced, "运行 90 秒巡检", this::watchNinetySeconds, false);
         button(advanced, "请求 GMS 心跳", this::requestHeartbeat, false);
         LinearLayout output = disclosure(actions, "检查日志", false);
-        report = text(getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE)
-                .getString("report", "尚未检查"), 12, false, muted);
+        guardReport = getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE);
+        report = text(guardReport.getString("report", "尚未检查"), 12, false, muted);
         report.setTextIsSelectable(true);
         output.addView(report);
         renderSelected();
@@ -226,6 +236,10 @@ public final class GuardActivity extends Ui {
         if (selectedEntries == null) return;
         Set<String> target = new HashSet<>(prefs.guardTargets());
         target.add(GuardOps.GMS);
+        String previous = guardReport.getString("report", "");
+        if (target.equals(renderedTargets) && previous.equals(renderedReport)) return;
+        renderedTargets = new HashSet<>(target);
+        renderedReport = previous;
         List<App> chosen = new ArrayList<>();
         for (String pkg : target) chosen.add(selectedApp(pkg));
         chosen.sort(Comparator.comparingInt((App app) ->
@@ -408,13 +422,23 @@ public final class GuardActivity extends Ui {
         });
     }
 
-    @Override protected void onResume() {
-        super.onResume();
+    private void refreshStoredReport() {
+        if (isDestroyed() || isFinishing()) return;
+        if (!operationRunning) report.setText(guardReport.getString("report", "尚未检查"));
         renderSelected();
         renderGuardStatus();
     }
 
+    @Override protected void onResume() {
+        super.onResume();
+        renderedTargets = null; // re-read app installation state after returning
+        guardReport.registerOnSharedPreferenceChangeListener(reportListener);
+        refreshStoredReport();
+    }
+
     @Override protected void onPause() {
+        guardReport.unregisterOnSharedPreferenceChangeListener(reportListener);
+        ui.removeCallbacks(refreshReport);
         if (watchFuture != null) {
             operationGeneration++;
             watchFuture.cancel(true);

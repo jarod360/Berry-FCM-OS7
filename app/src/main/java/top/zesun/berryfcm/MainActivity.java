@@ -83,7 +83,7 @@ public final class MainActivity extends Ui {
             } else if (wireless && prefs.adbPaired() && !prefs.pairingRejected()) {
                 boolean failed = !PrivKitShell.lastStartupError(this).isEmpty() || "服务启动失败".equals(PrivKitShell.status());
                 state.setText(failed ? "服务启动失败" : "服务未启动");
-                summary.setText("请到 ADB 授权页面启动服务。已有配对可直接使用，无需重复配对。");
+                summary.setText("请到 ADB 授权页面启动服务。可先尝试原有配对，无需立即重复配对。");
                 monitorButton.setText(failed ? "重新启动" : "启动服务");
             } else {
                 state.setText(wireless ? "需要 ADB 授权" : "需要授权");
@@ -110,7 +110,7 @@ public final class MainActivity extends Ui {
         JSONObject snapshot = FcmMonitorService.lastSnapshot(this);
         long stamp = snapshot.optLong("fcm_sample_time", 0);
         long age = FcmMonitorService.sampleAgeSeconds(this);
-        String lastError = FcmMonitorService.lastError(this);
+        String lastError = FcmMonitorService.currentError(this);
         String observed = snapshot.optString("fcm_state", "never_seen");
         boolean nativeState = "gms".equals(snapshot.optString("fcm_source"));
         MonitorStatus.State verdict = MonitorStatus.resolve(true, enabled, true,
