@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, build/adb-compat]
     paths:
       - 'app/**'
       - 'build.gradle'
@@ -217,7 +217,7 @@ jobs:
 
   publish_release:
     name: Promote existing signed APK
-    if: (github.event_name == 'workflow_dispatch' && inputs.publish_release == true) || (github.event_name == 'push' && github.ref == 'refs/heads/build/native-fcm-batch' && contains(github.event.head_commit.message, '[promote-test:'))
+    if: (github.event_name == 'workflow_dispatch' && inputs.publish_release == true) || (github.event_name == 'push' && github.ref == 'refs/heads/build/adb-compat' && contains(github.event.head_commit.message, '[promote-test:'))
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -357,7 +357,7 @@ jobs:
   publish_test_release:
     name: Publish explicitly approved test prerelease (same run, no rebuild)
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/build/native-fcm-batch' && contains(github.event.head_commit.message, '[publish-test]') && needs.build.result == 'success'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/build/adb-compat' && contains(github.event.head_commit.message, '[publish-test]') && needs.build.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
