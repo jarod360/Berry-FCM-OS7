@@ -291,7 +291,13 @@ request_reconnect() {
     case "$state" in connecting|disconnected) :;; *) decision=not_disconnected; return 0;; esac
     interval="$(retry_interval)"
     [ "$reason" = manual ] && interval=60
-    if [ "$last_try_mono" -gt 0 ] && [ "$nowm" -ge "$last_try_mono" ] && [ $((nowm-last_try_mono)) -lt "$interval" ]; then decision=cooldown; return 0; fi
+    if [ "$last_try_mono" -gt 0 ] && [ "$nowm" -ge "$last_try_mono" ] && [ $((nowm-last_try_mono)) -lt "$interval" ]; then
+        decision=cooldown
+        if [ "$reason" = manual ]; then
+            record_event reconnect_skipped "手动恢复未发送：距上次请求不足60秒，剩余 $((interval-nowm+last_try_mono)) 秒"
+        fi
+        return 0
+    fi
     stopped="$(is_gms_stopped)"
     [ "$stopped" = 0 ] || { decision=gms_stopped_unknown; record_event reconnect_skipped "GMS stopped 状态为 $stopped，未发送广播"; return 0; }
     last_try_mono="$nowm"; last_try_epoch="$nowe"; attempts=$((attempts+1))
@@ -300,15 +306,17 @@ request_reconnect() {
     # Same recovery request as Google FCM Diagnostics (see fcmfix-coloros).
     # A disconnected MCS transport needs a reconnect, not a heartbeat.
     action=com.google.android.intent.action.GCM_RECONNECT
+    sender_uid="$(id -u 2>/dev/null || echo unknown)"
     reply="$("$AM_BIN" broadcast --user 0 -a "$action" -p "$GMS" 2>&1)"
     rc=$?
     if [ "$rc" -eq 0 ] && printf '%s\n' "$reply" | grep -q 'Broadcast completed:' &&
         ! printf '%s\n' "$reply" | grep -qiE 'Permission Denial|SecurityException|not allowed|Error:|result=-[0-9]'; then
         last_result=requested; decision=requested
-        record_event reconnect_requested "$reason 已发送 ${action##*.}；等待 Google 确认连接恢复（第 $attempts 次）"
+        completion="$(printf '%s\n' "$reply" | grep 'Broadcast completed:' | tail -n 1)"
+        record_event reconnect_requested "$reason UID=$sender_uid ${action##*.} exit=$rc $completion；等待原生确认（第 $attempts 次）"
     else
         last_result=failed; decision=request_failed
-        record_event reconnect_failed "$reason ${action##*.} 请求失败（exit=$rc）：$reply"
+        record_event reconnect_failed "$reason UID=$sender_uid ${action##*.} exit=$rc：$reply"
     fi
     save_state
 }
