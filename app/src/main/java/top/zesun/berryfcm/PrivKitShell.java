@@ -1,6 +1,8 @@
 package top.zesun.berryfcm;
 
 import android.content.Context;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.content.SharedPreferences;
 import android.provider.Settings;
 import android.os.Looper;
@@ -101,6 +103,7 @@ final class PrivKitShell {
     static boolean canRecoverExisting(Context context) {
         AppPrefs prefs = new AppPrefs(context);
         return AppPrefs.WIRELESS.equals(prefs.mode()) && !prefs.pairingRejected()
+                && localNetworkAllowed(context)
                 && (prefs.adbPaired() || hasStoredIdentity(context))
                 && !AdbPairingService.isPairingActive()
                 && wirelessDebuggingState(context) == 1;
@@ -133,6 +136,20 @@ final class PrivKitShell {
                 foregroundRecovery.set(false);
             }
         }, "berry-adb-recovery").start();
+    }
+
+    static boolean localNetworkAllowed(Context context) {
+        return Build.VERSION.SDK_INT < 37
+                || context.checkSelfPermission("android.permission.ACCESS_LOCAL_NETWORK")
+                        == PackageManager.PERMISSION_GRANTED;
+    }
+
+    static void recordPairingDiscoveryFailure(Context context, String reason) {
+        startPrefs(context).edit().putString("pairing_discovery_error", reason).apply();
+    }
+
+    static void clearPairingDiscoveryFailure(Context context) {
+        startPrefs(context).edit().remove("pairing_discovery_error").apply();
     }
 
     static int wirelessDebuggingState(Context context) {
@@ -226,6 +243,8 @@ final class PrivKitShell {
             startPrefs(context).edit().remove("last_error").apply();
             return;
         }
+        if (!localNetworkAllowed(context))
+            throw new IOException("系统未授予局域网权限，无法自动发现无线 ADB 连接端口");
         if (!explicit && !canRecoverExisting(context))
             throw new IOException("等待真实配对认证");
         autoAttempted = true;
@@ -373,6 +392,9 @@ final class PrivKitShell {
                 + "\n最近启动结果：" + p.getString("last_result", "none")
                 + "\n最近启动请求时间（epoch ms）：" + stamp
                 + "\n自动启动冷却剩余（秒）：" + ((cooldownRemaining(context) + 999) / 1000)
+                + "\nAndroid SDK：" + Build.VERSION.SDK_INT
+                + " · 局域网权限：" + (localNetworkAllowed(context) ? "可用" : "未授予")
+                + "\n配对端口发现错误：" + p.getString("pairing_discovery_error", "")
                 + "\n最近启动失败原因：" + lastStartupError(context)
                 + "\n最近独立服务启动日志：\n" + (startupTrace.isEmpty() ? p.getString(TRACE_KEY, "") : startupTrace)
                 + "\n说明：启动尝试计数不是成功连接次数；日常 Binder 命令不增加此计数。";
