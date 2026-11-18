@@ -134,6 +134,7 @@ public final class MainActivity extends Ui {
         RecentTasks.apply(this, prefs.hideRecents());
         wasAuthorized = authorizationReady();
         if (authorizationReady()) FcmMonitorService.resumeIfNeeded(this);
+        else PrivKitShell.recoverOnForeground(this);
         ui.removeCallbacks(refresh);
         ui.post(refresh);
     }
