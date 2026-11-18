@@ -2,12 +2,30 @@ package top.zesun.berryfcm;
 
 import android.app.PendingIntent;
 import android.content.Intent;
+import android.content.Context;
+import android.content.ComponentName;
+import android.content.pm.PackageManager;
 import android.os.Build;
 import android.service.quicksettings.Tile;
 import android.service.quicksettings.TileService;
 
 /** Quick Settings action belongs to the FCM monitor, not AccessibilityService. */
 public final class FcmTileService extends TileService {
+    // Manifest default is disabled. Only an explicit settings action exposes
+    // the tile; declaring the service is not user consent to add a tile.
+    static boolean offered(Context context) {
+        return context.getPackageManager().getComponentEnabledSetting(
+                new ComponentName(context, FcmTileService.class))
+                == PackageManager.COMPONENT_ENABLED_STATE_ENABLED;
+    }
+    static void setOffered(Context context, boolean enabled) {
+        context.getPackageManager().setComponentEnabledSetting(
+                new ComponentName(context, FcmTileService.class),
+                enabled ? PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+                        : PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                PackageManager.DONT_KILL_APP);
+    }
+
     @Override public void onStartListening() {
         super.onStartListening();
         refreshTile();
@@ -23,12 +41,13 @@ public final class FcmTileService extends TileService {
         tile.setLabel("BerryFCM");
         if (Build.VERSION.SDK_INT >= 29)
             tile.setSubtitle(!ready ? "需要授权" : enabled ? "监控运行中 · 点击检查" : "监控未运行");
-        tile.setState(enabled ? Tile.STATE_ACTIVE : Tile.STATE_INACTIVE);
+        tile.setState(!ready ? Tile.STATE_UNAVAILABLE : enabled ? Tile.STATE_ACTIVE : Tile.STATE_INACTIVE);
         tile.updateTile();
     }
     @Override public void onClick() {
         super.onClick();
         boolean ready = authorized();
+        if (!ready) { refreshTile(); return; }
         if (ready && new AppPrefs(this).monitorEnabled() && FcmMonitorService.isRunning()) {
             FcmMonitorService.checkNow(this);
         } else {

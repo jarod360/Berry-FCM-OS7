@@ -16,6 +16,20 @@ final class PrivilegeAccess {
                 && prefs.mode().equals(prefs.shellMode()) && prefs.shellError().isEmpty()
                 && !prefs.shellIdentity().isEmpty();
     }
+    // A first pairing exchange is not authorization. Allow background startup
+    // only with a live service or a previously verified transport that can
+    // legitimately recover. This preserves recovery for established users.
+    static boolean canRunInBackground(Context context) {
+        AppPrefs prefs = new AppPrefs(context);
+        if (readyForUserAction(context)) return true;
+        return AppPrefs.WIRELESS.equals(prefs.mode())
+                && prefs.adbPaired() && !prefs.pairingRejected()
+                && AppPrefs.WIRELESS.equals(prefs.shellMode())
+                && prefs.shellIdentity().matches("(?s)^uid=2000(?:\\D.*)?$")
+                && !AdbPairingService.isPairingActive()
+                && PrivKitShell.wirelessDebuggingState(context) == 1;
+    }
+
     static String probe(Context context, String mode, String host, int port) throws Exception {
         if (AppPrefs.ROOT.equals(mode)) {
             try (PrivilegeShell shell = new RootShell(context)) {

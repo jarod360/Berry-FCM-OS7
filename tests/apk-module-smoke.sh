@@ -227,3 +227,11 @@ if grep -Eq 'autoConnectLocal|pairLocal|connectTls' "$src/AdbConnectionManager.j
 fi
 javac -d "$classes" "$src/PairingGate.java" "$root/tests/PairingGateSmoke.java"
 java -cp "$classes" top.zesun.berryfcm.PairingGateSmoke
+
+# No unsolicited tile or persistent first-run unauthorized monitoring.
+need 'android:enabled="false"' "$manifest"
+need 'FcmTileService.setOffered(this, true)' "$src/SettingsActivity.java"
+need 'Tile.STATE_UNAVAILABLE' "$src/FcmTileService.java"
+need 'canRunInBackground(context)' "$src/FcmMonitorService.java"
+need 'canRunInBackground(this)' "$src/FcmMonitorService.java"
+need 'STOP_FOREGROUND_REMOVE' "$src/FcmMonitorService.java"

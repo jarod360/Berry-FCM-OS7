@@ -69,6 +69,7 @@
         </service>
         <service
             android:name=".FcmTileService"
+            android:enabled="false"
             android:label="BerryFCM 监控"
             android:icon="@drawable/ic_bf_fcm"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
@@ -76,7 +77,6 @@
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE" />
             </intent-filter>
-            <meta-data android:name="android.service.quicksettings.ACTIVE_TILE" android:value="true" />
         </service>
     </application>
 </manifest>
