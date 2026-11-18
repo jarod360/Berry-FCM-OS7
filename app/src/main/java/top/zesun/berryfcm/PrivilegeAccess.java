@@ -12,16 +12,16 @@ final class PrivilegeAccess {
                 return identity;
             }
         }
-        AdbConnectionManager adb = AdbConnectionManager.get(context);
-        synchronized (adb) {
-            boolean connected = AppPrefs.WIRELESS.equals(mode) ? adb.autoConnectLocal(context)
-                    : AppPrefs.STATIC.equals(mode) && adb.connectStatic(host, port);
-            if (!connected) throw new IllegalStateException("候选 ADB 未连接");
-            String identity = adb.shell("id").trim();
-            if (!identity.matches("(?s)^uid=2000(?:\\D.*)?$"))
-                throw new IllegalStateException("ADB Shell 身份异常");
-            return identity;
+        if (AppPrefs.SHIZUKU.equals(mode)) {
+            try (PrivilegeShell shell = new ShizukuShell(context)) {
+                String identity = shell.execute("id").trim();
+                if (!identity.matches("(?s)^uid=(0|2000)(?:\\D.*)?$"))
+                    throw new IllegalStateException("Shizuku Shell 身份异常");
+                return identity;
+            }
         }
+        AdbConnectionManager adb = AdbConnectionManager.get(context);
+        return adb.executeOnce(context, mode, host, port, "id");
     }
 
     static PrivilegeShell open(Context context) throws Exception {
@@ -33,6 +33,19 @@ final class PrivilegeAccess {
             if (!identity.contains("uid=0")) throw new IllegalStateException("Root 未授权");
             prefs.shellVerified(identity);
             return shell;
+        }
+        if (AppPrefs.SHIZUKU.equals(mode)) {
+            ShizukuShell shell = new ShizukuShell(context);
+            try {
+                String identity = shell.execute("id").trim();
+                if (!identity.matches("(?s)^uid=(0|2000)(?:\\D.*)?$"))
+                    throw new IllegalStateException("Shizuku Shell 身份异常");
+                if (mode.equals(prefs.mode())) prefs.shellVerified(identity);
+                return shell;
+            } catch (Exception error) {
+                if (mode.equals(prefs.mode())) prefs.shellFailed(error.getMessage());
+                throw error;
+            }
         }
         if (AppPrefs.WIRELESS.equals(mode) || AppPrefs.STATIC.equals(mode)) {
             AdbShell shell = new AdbShell(context, mode, prefs.host(), prefs.staticPort());

@@ -16,7 +16,7 @@ import java.util.concurrent.Executors;
 public final class MonitorActivity extends Ui {
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler ui = new Handler(Looper.getMainLooper());
-    private TextView current, technical, events, eventsFull, recoveryEvents;
+    private TextView current, technical, events, eventsFull, recoveryEvents, environmentEvents;
     private final Runnable update = new Runnable() {
         @Override public void run() { render(); ui.postDelayed(this, 10000); }
     };
@@ -84,6 +84,10 @@ public final class MonitorActivity extends Ui {
         recoveryEvents = text("暂无恢复记录", 13, false, ink);
         recoveryEvents.setTextIsSelectable(true);
         recovery.addView(recoveryEvents);
+        LinearLayout environment = disclosure(timeline, "网络与休眠状态变化", false);
+        environmentEvents = text("暂无环境记录", 13, false, ink);
+        environmentEvents.setTextIsSelectable(true);
+        environment.addView(environmentEvents);
         line(timeline, "网络诊断", "Google 原生诊断和 TCP 可达性", () -> go(DiagnosticsActivity.class));
     }
 
@@ -136,11 +140,16 @@ public final class MonitorActivity extends Ui {
                 + (FcmMonitorService.nextAttemptIn(this) > 0 ? " · " + FcmMonitorService.nextAttemptIn(this) + " 秒后重试" : "")
                 + "\n" + progress
                 + (lastError.isEmpty() ? "" : "\n采样异常：" + lastError));
+        JSONObject env = j.optJSONObject("app_environment");
         technical.setText("原始状态：" + state
                 + "\n状态来源：" + (nativeState ? "Google GMS 原生 MCS" : nativeReason)
                 + "\nTCP 辅助证据：" + j.optString("fcm_tcp_hint", "无")
                 + "\n服务器：" + j.optString("fcm_transport", "无")
                 + "  " + j.optString("fcm_remote", "")
+                + (env == null ? "" : "\n采样环境（本应用）：" + env.optString("network", "unknown")
+                    + " · 屏幕 " + localValue(env.optString("screen"))
+                    + " · Doze " + localValue(env.optString("device_idle"))
+                    + "\nGMS Doze 白名单：" + localValue(env.optString("gms_doze_exempt")))
                 + "\n最后关闭错误码：" + j.optString("fcm_last_close_code", "无")
                 + "\n原生连接成功事件：" + j.optInt("fcm_native_connected_events", 0) + " 条"
                 + "\n上次观察在线：" + time(j.optLong("fcm_last_seen", 0))
@@ -153,8 +162,18 @@ public final class MonitorActivity extends Ui {
         events.setText(eventText(lines, 6));
         eventsFull.setText(eventText(lines, 24));
         recoveryEvents.setText(eventText(FcmMonitorService.lastRecoveryEvents(this).split("\\n"), 24));
+        environmentEvents.setText(eventText(FcmMonitorService.lastEnvironmentEvents(this).split("\\n"), 24));
     }
 
+    private static String localValue(String value) {
+        switch (value) {
+            case "yes": return "是";
+            case "no": return "否";
+            case "on": return "亮屏";
+            case "off": return "熄屏";
+            default: return "未知";
+        }
+    }
     private String recoveryLabel(String value) {
         switch (value) {
             case "requested": return "请求已提交，等待原生状态确认";
@@ -181,7 +200,8 @@ public final class MonitorActivity extends Ui {
                     : parts[1].equals("reconnect_failed") ? "恢复请求失败"
                     : parts[1].equals("connection_restored") ? "原生状态恢复"
                     : parts[1].equals("reconnect_skipped") ? "恢复请求跳过"
-                    : parts[1].equals("sample_gap") ? "采样中断" : parts[1];
+                    : parts[1].equals("sample_gap") ? "采样中断"
+                    : parts[1].equals("environment") ? "采样环境变化（非 GMS 路由证据）" : parts[1];
             result.append(stamp).append("  ").append(label).append("\n")
                     .append(parts[2]).append("\n\n");
         }

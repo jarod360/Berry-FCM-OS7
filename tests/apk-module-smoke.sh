@@ -20,8 +20,22 @@ if grep -q 'adbConnected' "$src/FcmMonitorService.java"; then
   echo 'Cached ADB transport would bypass mode changes' >&2
   exit 1
 fi
-need 'adb.autoConnectLocal(this)' "$src/FcmMonitorService.java"
-need 'adb.connectStatic(prefs.host(), prefs.staticPort())' "$src/FcmMonitorService.java"
+# ADB pairing identity persists, but each execution closes its transport.
+need 'adb.executeOnce(this, mode, prefs.host(), prefs.staticPort(), command)' "$src/FcmMonitorService.java"
+need 'synchronized String executeOnce' "$src/AdbConnectionManager.java"
+need 'finally { disconnectSession(); }' "$src/AdbConnectionManager.java"
+# Check the command transaction itself, not only the pairing cleanup.
+transaction="$(sed -n '/synchronized String executeOnce(/,/synchronized String shell(/p' "$src/AdbConnectionManager.java")"
+printf '%s\n' "$transaction" | grep -q 'finally {'
+printf '%s\n' "$transaction" | grep -q 'disconnectSession();'
+need 'return adb.executeOnce' "$src/AdbShell.java"
+need 'return adb.executeOnce' "$src/PrivilegeAccess.java"
+need 'Shizuku.bindUserService' "$src/ShizukuShell.java"
+need 'Binder.getCallingUid() != ownerUid' "$src/BerryShellUserService.java"
+need 'Shizuku.requestPermission' "$src/AuthActivity.java"
+need 'android.permission.INTERACT_ACROSS_USERS_FULL' "$manifest"
+need 'dev.rikka.shizuku:api:13.1.5' "$root/app/build.gradle"
+test -s "$root/app/src/main/aidl/top/zesun/berryfcm/IBerryShell.aidl"
 need 'shellInvalidate' "$src/AppPrefs.java"
 need 'shellInvalidate' "$src/AdbPairingService.java"
 need 'R.drawable.ic_bf_auth' "$src/AdbPairingService.java"
