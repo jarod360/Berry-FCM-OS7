@@ -488,3 +488,13 @@ alpha.46（#44228259741）已通过 API 37.0 SDK 安装、依赖解析、原生�
 
 ### 集中测试包准入修正（2026-11-18）
 用户同意自检到可验证时发布测试 APK，供现有版本应用内在线升级；不要求等所有真机功能验证后才发布测试 prerelease，不得当稳定正式版。检查原厂 Priv Kit v0.20.0 manifest 与 NSD 实现：无 NEARBY_WIFI_DEVICES 依赖，移除本项目额外的强制附近 Wi-Fi 权限请求（保留上游自己的标准声明，targetSdk35）。授权配对通知回复复用已在前台的服务，不以过期回复创建新的前台服务；结束提示 15 秒后消失，可点击授权页。首次成功自动监控，但已有明确关闭偏好不因重新授权被重置。厂商自启动读取转后台线程；辅助权限继续未知时据实显示。守护目标以每批最多5个执行，避免25个应用的最坏情况超45秒单命令超时，检查未安装的目标不执行 unstop。在实际容器 JDK 中执行仓库原始 PairingGateSmoke、LaunchCooldownSmoke、GuardOpsSmoke，通过并比对六个源文件 Git blob SHA；更新的守护分批用例随完整 CI 执行。此前累计静态匹配不是完整CI证据。待一次集中 SDK/Gradle/脚本/模块/固定签名/验签后，才以同一个通过产物发布测试 Release；主分支与KSU不改。厂商关联启动、高耗电、锁定回读尚未有证据，仍需真机协同核对。
+
+### 集中自检及测试发布准入记录
+
+- 2026-11-18 用户已明确授权自检通过后发布一份可在线升级的测试 prerelease；不修改 main、不提前回移 KSU。开发基线 [898905d](https://github.com/jarod360/Berry-FCM-OS7/commit/898905dc2d446c158f0f0bee6f04c8662acaedbc)。
+- 实际 JDK 执行 PairingGateSmoke、LaunchCooldownSmoke 与原始及新增的 GuardOpsSmoke，均 PASS；源码/用例 Git blob SHA 与仓库逐一一致。新增分批守护 25 个目标 + GMS（6 批，每批至多5个、GMS仅一次）PASS。纠正已迁移到 AuthActivity 的磁贴图标静态断言。
+- 唯一集中构建提交 [e84dbb3](https://github.com/jarod360/Berry-FCM-OS7/commit/e84dbb342344d50e4c9e71604e8e84f3ca3dd241) 已推送 `build/native-fcm-batch`，与开发基线仅 workflow 不同。该提交的明确 [publish-test] 标识及分支限制代表本次用户授权；只有原生 Shell 回归、模块检查、完整 Gradle 编译、合并权限检查、固定签名和 Artifact 上传全部通过，发布 job 才会下载这一运行的同一 APK，再验签和包名/版本号，创建对应 commit 的 GitHub prerelease（双兼容 APK 名称，非 latest 稳定版）。发布不重新编译；不通过任何关卡就不发布。
+- 当前已核对分支更新成功，但未获取 CI 最终状态或 Release URL。不标记构建或发布成功。可通过 [Actions](https://github.com/jarod360/Berry-FCM-OS7/actions/workflows/build-apk.yml?query=branch%3Abuild%2Fnative-fcm-batch) 或提交状态 berryfcm/build、berryfcm/test-release 核对真实结果。原厂私有权限尚未验证的项由目标手机实测；无需等待稳定版发布才做测试升级。
+
+### 2026-11-18 集中构建失败修复
+- [Actions #44242562721](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44242562721)：SDK、原生 FCM 模拟以及完整 APK 模块/权限 scope 回归均实际通过；`compileDebugJavaWithJavac` 唯一报错 `PrivKitShell.java:92`，官方 `createAdbManager` 声明 checked `PrivilegeStartupException`，Java 包装方法遗漏 throws。已查明所有三处调用方已声明 throws Exception，直接向上透传原始异常供现有诊断，无额外捕获或授权逻辑变动。签名/发布未执行。只针对已确认的完整构建失败修正，仍以同一个通过产物自动发布用户已批准的测试 prerelease。
