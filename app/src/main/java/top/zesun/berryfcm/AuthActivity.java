@@ -59,6 +59,7 @@ public final class AuthActivity extends Ui {
     private boolean automaticCheckDone;
     private boolean startAfterSettings;
     private String selectedFailure = "";
+    private String pendingAction = "";
     private boolean leftForSettings;
     private int pendingPairPort = -1;
     private static final int SHIZUKU_PERMISSION = 130;
@@ -409,6 +410,7 @@ public final class AuthActivity extends Ui {
         final String mode = selected;
         if (AppPrefs.EXTERNAL.equals(mode)) return;
         checking = true;
+        pendingAction = "正在停止 " + methodName(mode);
         renderStatus();
         worker.execute(() -> {
             try {
@@ -418,6 +420,7 @@ public final class AuthActivity extends Ui {
                 if (mode.equals(prefs.mode())) FcmMonitorService.stop(this);
                 runOnUiThread(() -> {
                     checking = false;
+                    pendingAction = "";
                     if (isDestroyed() || isFinishing()) return;
                     selectedFailure = "";
                     renderStatus();
@@ -426,7 +429,8 @@ public final class AuthActivity extends Ui {
             } catch (RuntimeException failure) {
                 runOnUiThread(() -> {
                     checking = false;
-                    if (!isDestroyed()) error("停止失败：" + failure.getMessage());
+                    pendingAction = "";
+                    if (!isDestroyed()) { error("停止失败：" + failure.getMessage()); renderStatus(); }
                 });
             }
         });
@@ -437,6 +441,7 @@ public final class AuthActivity extends Ui {
         final String mode = selected;
         if (AppPrefs.EXTERNAL.equals(mode)) return;
         checking = true;
+        pendingAction = "正在重启 " + methodName(mode);
         renderStatus();
         worker.execute(() -> {
             try {
@@ -446,6 +451,7 @@ public final class AuthActivity extends Ui {
                 if (mode.equals(prefs.mode())) FcmMonitorService.stop(this);
                 runOnUiThread(() -> {
                     checking = false;
+                    pendingAction = "";
                     if (isDestroyed() || isFinishing()) return;
                     prefs.servicePaused(mode, false);
                     startSelectedService();
@@ -453,7 +459,8 @@ public final class AuthActivity extends Ui {
             } catch (RuntimeException failure) {
                 runOnUiThread(() -> {
                     checking = false;
-                    if (!isDestroyed()) error("重启失败：" + failure.getMessage());
+                    pendingAction = "";
+                    if (!isDestroyed()) { error("重启失败：" + failure.getMessage()); renderStatus(); }
                 });
             }
         });
@@ -710,6 +717,7 @@ public final class AuthActivity extends Ui {
             automaticCheckDone = true;
         }
         checking = true;
+        pendingAction = "正在验证 " + methodName(candidate) + " 授权";
         renderStatus();
         worker.execute(() -> {
             try {
@@ -719,6 +727,7 @@ public final class AuthActivity extends Ui {
                 prefs.enableMonitorOnFirstAuthorization();
                 runOnUiThread(() -> {
                     checking = false;
+                    pendingAction = "";
                     if (isDestroyed() || isFinishing()) return;
                     selectedFailure = "";
                     FcmMonitorService.resumeIfNeeded(this);
@@ -729,6 +738,7 @@ public final class AuthActivity extends Ui {
                 String message = PrivKitShell.errorChain(ex);
                 runOnUiThread(() -> {
                     checking = false;
+                    pendingAction = "";
                     if (isDestroyed() || isFinishing()) return;
                     selectedFailure = message;
                     renderStatus();
@@ -749,7 +759,16 @@ public final class AuthActivity extends Ui {
     private void renderStatus() {
         if (status == null) return;
         String currentMode = prefs.mode();
-        detail.setText("当前来源：" + methodName(currentMode));
+        boolean pairing = AdbPairingService.isPairingActive();
+        boolean starting = PrivKitShell.isStarting();
+        boolean busy = checking || pairing || starting;
+        String operation = checking ? pendingAction
+                : pairing ? "正在无线 ADB 配对"
+                : starting ? "正在启动无线 ADB 服务" : "";
+        boolean affectsCurrent = checking ? selected.equals(currentMode)
+                : AppPrefs.WIRELESS.equals(currentMode);
+        detail.setText("当前来源：" + methodName(currentMode)
+                + (busy && !affectsCurrent ? "\n当前操作：" + operation : ""));
         if (AppPrefs.EXTERNAL.equals(currentMode)) {
             status.setText("不可直接启动");
             status.setTextColor(muted);
@@ -758,19 +777,17 @@ public final class AuthActivity extends Ui {
             failurePanel.setVisibility(View.GONE);
             return;
         }
-        boolean busy = checking || PrivKitShell.isStarting()
-                || AdbPairingService.isPairingActive();
         boolean running = isModeRunning(currentMode);
         String failure = selected.equals(currentMode) ? selectedFailure : "";
         if (failure.isEmpty() && !prefs.servicePaused(currentMode)) {
             if (AppPrefs.WIRELESS.equals(currentMode)) failure = PrivKitShell.lastStartupError(this);
             else if (currentMode.equals(prefs.shellMode())) failure = prefs.shellError();
         }
-        String state = busy ? "处理中" : running ? "已启动"
+        String state = busy && affectsCurrent ? operation : running ? "已启动"
                 : !failure.isEmpty() ? "启动失败" : "已停止";
         status.setText(state);
-        status.setTextColor(running ? success : "启动失败".equals(state) ? danger
-                : busy ? warning : muted);
+        status.setTextColor(busy && affectsCurrent ? warning
+                : running ? success : "启动失败".equals(state) ? danger : muted);
         stateToggle.setImageResource(running
                 ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play);
         stateToggle.setColorFilter(running ? success : accent);
