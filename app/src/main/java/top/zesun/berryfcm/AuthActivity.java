@@ -377,7 +377,9 @@ public final class AuthActivity extends Ui {
         } else if (AppPrefs.WIRELESS.equals(selected) && prefs.adbPaired()) {
             status.setText(PrivKitShell.isConnected() ? "独立服务已连接" : "配对已完成 · 服务未连接");
             String monitorError = FcmMonitorService.lastError(this);
-            detail.setText(prefs.monitorEnabled()
+            detail.setText(!PrivKitShell.isConnected()
+                    ? PrivKitShell.status() + "\n点击下方启动独立服务，保留原配对身份。"
+                    : prefs.monitorEnabled()
                     ? monitorError.isEmpty()
                         ? PrivKitShell.status() + "\n日常采样通过 Binder 执行；服务停止时可启动服务，无需重新配对。"
                         : "最近采样异常：" + monitorError + "\n可到监控页检查，无需重新配对。"

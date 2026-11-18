@@ -80,7 +80,10 @@ public final class MainActivity extends Ui {
         String brief = lastError.replace('\n', ' ').replace('\r', ' ');
         if (brief.length() > 110) brief = brief.substring(0, 110) + "…";
 
+        boolean wireless = AppPrefs.WIRELESS.equals(prefs.mode());
+        boolean independentReady = !wireless || PrivKitShell.isConnected();
         if (!enabled) state.setText("监控未开启");
+        else if (!independentReady) state.setText("等待独立服务");
         else if (!FcmMonitorService.isRunning()) state.setText("后台监控未运行");
         else if (!lastError.isEmpty()) state.setText("采样异常 · 等待自动恢复");
         else if (stamp <= 0) state.setText(attempt > 0 ? "等待首次有效采样" : "监控启动中");
@@ -110,20 +113,21 @@ public final class MainActivity extends Ui {
                 + (brief.isEmpty() ? "" : "\n错误：" + brief));
 
         boolean initial = AppPrefs.WIRELESS.equals(prefs.mode()) && !prefs.adbPaired();
-        boolean failed = enabled && !lastError.isEmpty() && !prefs.shellError().isEmpty();
+        boolean failed = (enabled || prefs.guardEnabled())
+                && (!independentReady || (!lastError.isEmpty() && !prefs.shellError().isEmpty()));
         issue.setVisibility(initial || failed ? View.VISIBLE : View.GONE);
         if (initial) {
             actionTitle.setText("尚未完成无线 ADB 配对");
-            actionDetail.setText("仅首次需要配对。配对后会自动连接并启动 FCM 采样。");
+            actionDetail.setText("仅首次需要配对。配对后自动启动独立服务，再开始 FCM 采样。");
             actionButton.setText("前往无线配对");
         } else if (failed) {
-            actionTitle.setText("监控正在自动重试");
+            actionTitle.setText(!independentReady ? PrivKitShell.status() : "监控正在自动重试");
             actionDetail.setText(AppPrefs.SHIZUKU.equals(prefs.mode())
                     ? "确认 Shizuku 服务已启动并授权；恢复后会自动检查。"
                     : AppPrefs.WIRELESS.equals(prefs.mode())
-                    ? "配对身份仍保留，通常无需重新配对；请查看采样异常。"
+                    ? "配对身份仍保留。独立服务未运行时，在连接设置中启动即可，不必重新配对。"
                     : "请确认所选 Shell 权限及连接方式。");
-            actionButton.setText("检查连接与授权");
+            actionButton.setText(!independentReady ? "打开服务设置" : "检查连接与授权");
         }
     }
 

@@ -8,6 +8,7 @@ def buildNumber = (System.getenv("BERRYFCM_VERSION_CODE") ?: "1").toInteger()
 android {
     namespace 'top.zesun.berryfcm'
     compileSdk 37
+    buildToolsVersion '37.0.0'
 
     defaultConfig {
         applicationId 'top.zesun.berryfcm'
