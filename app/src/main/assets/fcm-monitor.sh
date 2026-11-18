@@ -273,7 +273,7 @@ import_native_events() {
 }
 
 is_gms_stopped() {
-    line="$("$DUMPSYS_BIN" -t 3 package "$GMS" 2>/dev/null | grep -E '^[[:space:]]*User 0:[[:space:]]+.*installed=' | head -n 1)"
+    line="$("$DUMPSYS_BIN" -t 3 package "$GMS" 2>/dev/null | grep -E '^[[:space:]]*User 0:[[:space:]]+.*stopped=' | head -n 1)"
     case " $line " in *' stopped=false '*) echo 0;; *' stopped=true '*) echo 1;; *) echo -1;; esac
 }
 
@@ -319,7 +319,7 @@ observe() {
     [ "$nowm" -gt 0 ] && [ "$nowe" -gt 0 ] || return 12
     # Keep the previous observation only as a hint across a suspend gap.
     # Never represent that gap as proven continuous downtime.
-    previous_down_observed=0; previous_down_state="$state"
+    previous_down_observed=0; previous_down_state="$state"; previous_missing_epoch="$missing_epoch"
     case "$state" in connecting|disconnected) previous_down_observed="$down_observed";; esac
     decision=not_evaluated
     gap_detected=0
@@ -367,10 +367,14 @@ EOF_RESULT
     fi
     case "$observed" in
       connected)
-        if [ "$state" = connecting ] || [ "$state" = disconnected ]; then
+        if [ "$previous_down_state" = connecting ] || [ "$previous_down_state" = disconnected ]; then
             last_restore="$nowe"
-            if [ "$last_result" = requested ] && [ "$last_try_epoch" -ge "$missing_epoch" ] && [ "$last_try_epoch" -gt 0 ]; then last_result=restored; fi
-            record_event connection_restored 'GMS 原生状态确认连接成功（不保证每条消息送达）'
+            if [ "$last_result" = requested ] && [ "$last_try_epoch" -ge "$previous_missing_epoch" ] && [ "$last_try_epoch" -gt 0 ]; then last_result=restored; fi
+            if [ "$gap_detected" = 1 ]; then
+                record_event connection_restored '采样间隔后发现 GMS 已恢复连接；恢复具体时刻未知'
+            else
+                record_event connection_restored 'GMS 原生状态确认连接成功（不保证每条消息送达）'
+            fi
         fi
         state=connected; last_seen="$nowe"; missing_since=0; missing_epoch=0; down_observed=0; retry_streak=0
         conn_since=0; conn_since_mono=0
@@ -420,16 +424,15 @@ auto_recovery() {
     fi
     decision=waiting_duration
     # When GMS reports a current, timed outage, honor its duration.
-    # Without a native duration, use observed evidence, never historical Close
-    # timestamps. An explicit Not connected state is eligible after 15s;
-    # Connecting is given 120s to finish naturally.
+    # Use repeated observed evidence too, since GMS may reset its timer on
+    # fallback attempts. Never use historical Close timestamps as a duration.
+    # Give Connecting 120s; a confirmed Disconnected state needs 15s.
     required=120
-    [ "$duration" -lt 0 ] && [ "$state" = disconnected ] && required=15
+    [ "$state" = disconnected ] && required=15
     observed_age=0
     if [ "$down_observed" -gt 0 ] && [ "$nowm" -ge "$down_observed" ]; then
         observed_age=$((nowm-down_observed))
     fi
-    if [ "$duration" -ge 0 ] && [ "$duration" -lt 120 ]; then return 0; fi
     if [ "$duration" -ge 120 ] || [ "$observed_age" -ge "$required" ]; then
         decision=waiting_confirmation
         if [ "$observed_age" -ge 15 ]; then request_reconnect auto; return 0; fi
@@ -442,7 +445,7 @@ auto_recovery() {
     # outage or a prior down observation old enough to be eligible can trigger
     # a second fresh read in the same awake window. No continuous-duration claim.
     [ "$gap_detected" = 1 ] || return 0
-    if [ "$duration" -lt 0 ] && [ "$state" != "$previous_down_state" ]; then return 0; fi
+    if [ "$duration" -lt 120 ] && [ "$state" != "$previous_down_state" ]; then return 0; fi
     decision=waiting_confirmation
     first_state="$state"; first_remote="$remote"; first_duration="$duration"
     [ "${BERRY_FCM_TEST_MODE:-0}" = 1 ] || sleep 2
@@ -451,7 +454,7 @@ auto_recovery() {
         [ "$source" = gms ] && [ "$state" = "$first_state" ] &&
         [ "$remote" = "$first_remote" ] &&
         { { [ "$first_duration" -ge 120 ] && [ "$duration" -ge "$first_duration" ]; } ||
-          { [ "$first_duration" -lt 0 ] && { [ "$duration" -lt 0 ] || [ "$duration" -ge 120 ]; }; }; }; then
+          { [ "$first_duration" -lt 120 ] && { [ "$duration" -lt 0 ] || [ "$first_duration" -lt 0 ] || [ "$duration" -ge "$first_duration" ]; }; }; }; then
         record_event recovery_confirmed '两次读取均确认 GMS 尚未连接，已达到恢复条件'
         request_reconnect auto
     else
