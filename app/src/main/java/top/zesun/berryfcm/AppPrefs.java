@@ -19,6 +19,9 @@ final class AppPrefs {
         p = context.getSharedPreferences("berry_fcm_guardian", Context.MODE_PRIVATE);
     }
     String mode() { return p.getString("mode", WIRELESS); }
+    // A selected tab is not proof that its transport was authorized.
+    String authTab() { return p.getString("auth_tab", mode()); }
+    void authTab(String value) { p.edit().putString("auth_tab", value).apply(); }
     void mode(String value) {
         if (!value.equals(mode())) {
             p.edit().putString("mode", value).putLong("shell_verified_at", 0).apply();
