@@ -326,3 +326,9 @@ need 'PrivKitShell.recoverOnForeground(this)' "$src/AuthActivity.java"
 need 'hasStoredIdentity(context)' "$src/PrivKitShell.java"
 need 'foregroundRecovery.compareAndSet(false, true)' "$src/PrivKitShell.java"
 echo 'PASS: Priv Kit host integration and persisted-identity recovery wiring'
+
+# Notification-only failures cannot cancel scheduled sampling; scope GMS network policy to user 0.
+need 'Monitor notification refresh failed' "$src/FcmMonitorService.java"
+need 'periodic.isCancelled() || periodic.isDone()' "$src/FcmMonitorService.java"
+need 'list packages -U --user 0' "$src/BackgroundSettings.java"
+need 'list packages -U --user 0' "$root/app/src/main/assets/fcm-monitor.sh"

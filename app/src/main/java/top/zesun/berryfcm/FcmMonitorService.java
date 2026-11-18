@@ -238,8 +238,8 @@ public final class FcmMonitorService extends Service {
         if (!scheduled) return;
         String text = notificationText();
         if (text.equals(lastNotificationText)) return;
-        lastNotificationText = text;
         getSystemService(NotificationManager.class).notify(NOTIFICATION_ID, notification());
+        lastNotificationText = text;
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
@@ -260,9 +260,11 @@ public final class FcmMonitorService extends Service {
                     .putLong("attempt_time", 0)
                     .putString("attempt_state", "pending").apply();
             scheduled = true;
-            if (periodic == null || periodic.isCancelled() || periodic.isDone())
-                periodic = worker.scheduleWithFixedDelay(() -> runSafe(false), 0, 15, TimeUnit.SECONDS);
         }
+        // Restart a terminated periodic future on a subsequent eligible start,
+        // not just on initial Service creation.
+        if (periodic == null || periodic.isCancelled() || periodic.isDone())
+            periodic = worker.scheduleWithFixedDelay(() -> runSafe(false), 0, 15, TimeUnit.SECONDS);
         String action = intent == null ? null : intent.getAction();
         if (CHECK.equals(action) && !firstStart) queueCheck(true);
         if (RECONNECT.equals(action) && reconnectQueued.compareAndSet(false, true)) {
@@ -370,8 +372,12 @@ public final class FcmMonitorService extends Service {
             if (scheduled && session.equals(activeSession)) recordFailure(error);
         }
         finally {
-            if (lock != null && lock.isHeld()) lock.release();
-            if (PrivilegeAccess.canRunInBackground(this)) refreshNotification();
+            try { if (lock != null && lock.isHeld()) lock.release(); }
+            catch (RuntimeException error) { android.util.Log.w("BerryFCM", "Sample wake lock release failed", error); }
+            // A vendor notification exception must not escape the scheduled
+            // task and permanently cancel monitoring. Display is optional.
+            try { if (scheduled && session.equals(activeSession)) refreshNotification(); }
+            catch (RuntimeException error) { android.util.Log.w("BerryFCM", "Monitor notification refresh failed", error); }
         }
     }
 

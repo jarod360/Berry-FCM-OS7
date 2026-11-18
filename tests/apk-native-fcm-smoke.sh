@@ -18,6 +18,12 @@ esac
 MOCK
 cat > "$TMP/bin/cmd" <<'MOCK'
 #!/bin/sh
+# package list must be scoped to user 0; reject a multi-user query.
+case "$*" in
+  *'--user 0'*) ;;
+  *) echo 'package:com.google.android.gms uid:99910200'; exit 0;;
+esac
+echo 'package:com.google.android.gms.example uid:10201'
 echo 'package:com.google.android.gms uid:10200'
 MOCK
 cat > "$TMP/bin/ss" <<'MOCK'
