@@ -33,6 +33,10 @@ if [ "${MCS_AM_FAIL:-0}" = 1 ]; then
     exit 1
 fi
 echo 'Broadcast completed: result=0'
+# Model a reconnect that actually leads to a new native connected sample.
+if [ -n "${MCS_AM_CONNECTED_FIXTURE:-}" ]; then
+    cp "$MCS_AM_CONNECTED_FIXTURE" "$MCS_FIXTURE"
+fi
 MOCK
 cat > "$TMP/bin/date" <<'MOCK'
 #!/bin/sh
@@ -266,3 +270,36 @@ run monitor; requests 3
 j="$(run snapshot)"; assert_json "$j" fcm_recovery_decision=gms_stopped_unknown
 unset MCS_STOPPED
 echo 'PASS: untimed FCM down, third-party shell, suspend restoration, reconnect timer reset, interrupted confirmation and stopped GMS'
+
+# Root-mode regression: exactly the command proved effective on the device.
+# Do not infer success from am exit/result alone: require the next native read.
+unset BERRY_FCM_ADB_SHELL
+rm -f "$BERRY_FCM_DATA"/mcs-monitor.state "$BERRY_FCM_DATA"/mcs-evidence "$BERRY_FCM_DATA"/mcs-monitor-events.log
+: > "$MCS_AM_LOG"
+printf '%s\n' 'DeviceID: [fixture]' 'Not connected' > "$MCS_FIXTURE"
+export MCS_AM_CONNECTED_FIXTURE="$TMP/root-connected"
+printf '%s\n' 'DeviceID: [fixture]' 'connected=mtalk.google.com/108.177.98.188,port=5228' 'connectTime=00:01/00:00' > "$MCS_AM_CONNECTED_FIXTURE"
+settime 16000
+run monitor; requests 0
+settime 16015
+run monitor; requests 1
+test "$(cat "$MCS_AM_LOG")" = 'broadcast --user 0 -a com.google.android.intent.action.GCM_RECONNECT -p com.google.android.gms'
+j="$(run snapshot)"
+assert_json "$j" fcm_last_result=requested
+run recovery-events | grep -q 'auto UID=.*GCM_RECONNECT exit=0 Broadcast completed: result=0'
+settime 16030
+run monitor; requests 1
+j="$(run snapshot)"
+assert_json "$j" fcm_state=connected
+assert_json "$j" fcm_last_result=restored
+run recovery-events | grep -q 'connection_restored'
+unset MCS_AM_CONNECTED_FIXTURE
+# A manual attempt inside the one-minute rate limit must leave an explicit skip
+# record rather than claim that it sent the command.
+settime 16040
+printf '%s\n' 'DeviceID: [fixture]' 'Not connected' > "$MCS_FIXTURE"
+run reconnect; requests 1
+j="$(run snapshot)"
+assert_json "$j" fcm_recovery_decision=cooldown
+run recovery-events | grep -q '手动恢复未发送'
+echo 'PASS: Root automatic recovery command and native recovery confirmation, explicit manual cooldown'
