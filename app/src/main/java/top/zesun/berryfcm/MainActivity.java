@@ -112,20 +112,20 @@ public final class MainActivity extends Ui {
                 + (FcmMonitorService.nextAttemptIn(this) > 0 ? " · " + FcmMonitorService.nextAttemptIn(this) + " 秒后重试" : "")
                 + (brief.isEmpty() ? "" : "\n错误：" + brief));
 
-        boolean initial = AppPrefs.WIRELESS.equals(prefs.mode()) && !prefs.adbPaired();
+        boolean initial = wireless && !independentReady && !prefs.adbPaired();
         boolean failed = (enabled || prefs.guardEnabled())
                 && (!independentReady || (!lastError.isEmpty() && !prefs.shellError().isEmpty()));
         issue.setVisibility(initial || failed ? View.VISIBLE : View.GONE);
         if (initial) {
-            actionTitle.setText("尚未完成无线 ADB 配对");
-            actionDetail.setText("仅首次需要配对。配对后自动启动独立服务，再开始 FCM 采样。");
+            actionTitle.setText(prefs.pairingEvidenceLabel());
+            actionDetail.setText("检查当前身份或执行实际配对；通过认证后自动启动服务。");
             actionButton.setText("前往无线配对");
         } else if (failed) {
             actionTitle.setText(!independentReady ? PrivKitShell.status() : "监控正在自动重试");
             actionDetail.setText(AppPrefs.SHIZUKU.equals(prefs.mode())
                     ? "确认 Shizuku 服务已启动并授权；恢复后会自动检查。"
                     : AppPrefs.WIRELESS.equals(prefs.mode())
-                    ? "配对身份仍保留。独立服务未运行时，在连接设置中启动即可，不必重新配对。"
+                    ? prefs.pairingEvidenceLabel() + "；请在连接设置中验证并启动服务。"
                     : "请确认所选 Shell 权限及连接方式。");
             actionButton.setText(!independentReady ? "打开服务设置" : "检查连接与授权");
         }

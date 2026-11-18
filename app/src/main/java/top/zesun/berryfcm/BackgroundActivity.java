@@ -95,7 +95,7 @@ public final class BackgroundActivity extends Ui {
                 + (BackgroundSettings.batteryExempt(this) ? "已确认" : "未开启／未确认")
                 + "\n通知权限：" + (notificationEnabled ? "已开启" : "未开启／未确认")
                 + "\n连接方式：" + (AppPrefs.WIRELESS.equals(prefs.mode())
-                        ? prefs.adbPaired() ? PrivKitShell.status() : "尚未无线配对"
+                        ? PrivKitShell.isConnected() ? PrivKitShell.status() : prefs.pairingEvidenceLabel()
                         : AppPrefs.ROOT.equals(prefs.mode()) ? "Root（后台按需验证）"
                         : AppPrefs.SHIZUKU.equals(prefs.mode()) ? ShizukuShell.readiness()
                         : "静态 ADB TCP（后台按需连接）")

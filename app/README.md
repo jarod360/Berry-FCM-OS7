@@ -76,3 +76,11 @@
 - 开源依据：[GKD](https://github.com/gkd-kit/gkd) 的实际 Priv Kit 依赖和 [Priv Kit v0.20.0](https://github.com/priv-kit/priv-kit/tree/v0.20.0) 的官方 nativeStarterCommand / Binder 命令接口。
 - [专项检查 #44227839661](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44227839661) 已通过；[集中构建 alpha.47](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44228547705) 已成功编译、固定签名和验签。源码未合并 main，也未发布 Release。
 - 实机验收必须分开核对：旧配对覆盖安装、一次启动服务后普通采样不再建立无线 ADB、Wi-Fi/移动网络切换仍可执行 Binder、服务死亡时提示和限频恢复、Root/静态 TCP/可选 Shizuku 回归；不能仅凭 APK 编译成功宣布通知问题已解决。
+
+### alpha.47 实机配对成功、独立服务无法启动的修复
+
+此问题发生于旧 libadb 的连接端口发现阶段，即配对身份已保存、但尚未执行独立服务的启动命令。后续版本使用 Priv Kit 的现代 connect-port 发现接口并继续复用原 BerryFCM v3 密钥。
+
+已配对用户覆盖安装（不要清除数据）后，保持系统无线调试打开，进入连接设置。如果服务已经连上，无需任何操作；尚未启动时点击「启动独立服务」。如果自动发现仍失败，点击「打开无线调试并自动启动」，核对系统无线调试已开启，返回 APP 即尝试启动。如果仍失败，可从系统无线调试首页读取 IP 地址后面的**连接端口**，在「连接端口发现失败？手动启动」中填写。不要使用配对码弹窗的端口，也无需生成新配对码。
+
+首次配对流程已改为等待独立服务实际握手与 UID 回读。启动成功后关闭 ADB 连接；系统允许时可关闭无线调试并继续验证 Binder 及 FCM 采样。手机真正重启、服务死亡或系统撤销配对时应分开处理，不将普通发现失败标成配对失效。

@@ -27,6 +27,9 @@ public final class AuthActivity extends Ui {
     private TextView status, detail;
     private String selected;
     private boolean checking;
+    private boolean automaticCheckDone;
+    private boolean startAfterSettings;
+    private boolean leftForSettings;
     private int pendingPairPort = -1;
     private static final int SHIZUKU_PERMISSION = 130;
     private final Shizuku.OnRequestPermissionResultListener shizukuPermission = (code, grant) -> {
@@ -51,7 +54,7 @@ public final class AuthActivity extends Ui {
         detail.setPadding(0, dp(5), 0, dp(1));
         card.addView(detail);
 
-        LinearLayout chooser = card("选择连接方式", "已 Root 推荐 Root；已启动 Shizuku 可选独立服务，无需保持无线 ADB 连接。");
+        LinearLayout chooser = card("选择连接方式", "无线 ADB 配对后仅用于启动独立服务；Root 和 Shizuku 为可选方式。");
         HorizontalScrollView scroll = new HorizontalScrollView(this);
         scroll.setHorizontalScrollBarEnabled(false);
         tabs = new LinearLayout(this);
@@ -113,10 +116,12 @@ public final class AuthActivity extends Ui {
     }
 
     private void wireless() {
-        if (prefs.adbPaired()) {
-            step("已保存配对身份", "配对身份保留。独立服务启动后，后台通过 Binder 执行，不再周期性连接无线 ADB。");
+        if (PrivKitShell.isConnected() || prefs.adbPaired()) {
+            step(PrivKitShell.isConnected() ? "独立服务运行中" : prefs.pairingEvidenceLabel(),
+                    "服务启动时真实认证；日常监控不再连接 ADB。");
             button(instructions, PrivKitShell.isConnected() && AppPrefs.WIRELESS.equals(prefs.mode()) ? "启动 / 检查 FCM 监控" : "启动独立服务", () -> {
                 if (!AppPrefs.WIRELESS.equals(prefs.mode()) || !PrivKitShell.isConnected()) {
+                    prefs.wirelessConnectPort(0);
                     checkShell();
                     return;
                 }
@@ -125,11 +130,33 @@ public final class AuthActivity extends Ui {
                 FcmMonitorService.checkNow(this);
                 go(MonitorActivity.class);
             }, true);
+            button(instructions, "打开无线调试并自动启动", this::openWirelessForStart, false);
+            LinearLayout direct = disclosure(instructions, "连接端口发现失败？手动启动", false);
+            connectPortFallback(direct);
             LinearLayout repair = disclosure(instructions, "重新配对 / 无线调试设置", false);
             wirelessSteps(repair);
         } else {
+            button(instructions, "检查已有配对并启动", this::checkShell, false);
+            LinearLayout direct = disclosure(instructions, "手动连接已有配对", false);
+            connectPortFallback(direct);
             wirelessSteps(instructions);
         }
+    }
+
+    private void connectPortFallback(LinearLayout parent) {
+        stepIn(parent, "无线调试连接端口", "在系统无线调试首页查看 IP 地址和端口。只填写端口数字，不是六位配对码页面的端口。");
+        EditText field = field(parent, "例如 39123", prefs.wirelessConnectPort() > 0 ? String.valueOf(prefs.wirelessConnectPort()) : "", true);
+        button(parent, "使用连接端口启动服务", () -> {
+            int port = parsePort(field.getText().toString());
+            if (port == 0) { error("请输入有效连接端口"); return; }
+            prefs.wirelessConnectPort(port);
+            checkShell();
+        }, true);
+        button(parent, "恢复自动发现并启动", () -> {
+            prefs.wirelessConnectPort(0);
+            checkShell();
+        }, false);
+        button(parent, "打开无线调试设置", this::openWirelessForStart, false);
     }
 
     private void wirelessSteps(LinearLayout parent) {
@@ -137,7 +164,7 @@ public final class AuthActivity extends Ui {
                 "点击后启动配对通知并跳到系统无线调试；打开“使用配对码配对设备”。");
         button(parent, "开始配对并打开无线调试", () -> beginPair(0), true);
         stepIn(parent, "2 · 在通知栏输入六位码",
-                "停留在系统配对码页面，下拉通知栏输入六位码。BerryFCM 会自动搜索配对端口。");
+                "等待通知显示已发现本机配对服务，再展开通知输入六位码。没有发现服务时不显示输入框。");
         stepIn(parent, "3 · 自动运行",
                 "配对成功后自动启动独立服务，并开启 FCM 采样，不必再次授权。");
         LinearLayout fallback = disclosure(parent, "端口无法发现？手动输入", false);
@@ -158,7 +185,7 @@ public final class AuthActivity extends Ui {
     }
 
     private void stepFallback(LinearLayout fallback) {
-        TextView tip = text("自动发现端口失败时，可直接在通知栏输入“端口:六位码”，例如 37123:123456。",
+        TextView tip = text("手动指定仅作为故障诊断备用，正常配对无需端口。",
                 12, false, muted);
         tip.setPadding(0, dp(5), 0, dp(8));
         fallback.addView(tip);
@@ -250,6 +277,7 @@ public final class AuthActivity extends Ui {
     }
 
     private void beginPair(int manualPort) {
+        if (checking) return;
         pendingPairPort = manualPort;
         if (Build.VERSION.SDK_INT < 30) {
             error("系统不支持 Android 11 无线 ADB 配对");
@@ -276,8 +304,8 @@ public final class AuthActivity extends Ui {
         }
         try {
             AdbPairingService.begin(this, manualPort);
-            status.setText("正在等待配对码");
-            detail.setText("系统无线调试页面打开后，选择使用配对码配对设备，并下拉通知栏输入。");
+            status.setText("正在等待系统配对服务");
+            detail.setText("系统页面选择使用配对码配对设备；发现服务后通知才允许输入六位码。");
             pendingPairPort = -1;
             openWirelessDebugging();
         } catch (RuntimeException e) {
@@ -296,6 +324,18 @@ public final class AuthActivity extends Ui {
             return;
         }
         if (pendingPairPort >= 0) beginPair(pendingPairPort);
+    }
+
+    private void openWirelessForStart() {
+        if (checking) return;
+        startAfterSettings = true;
+        leftForSettings = false;
+        openWirelessDebugging();
+    }
+
+    @Override protected void onPause() {
+        super.onPause();
+        if (startAfterSettings) leftForSettings = true;
     }
 
     private void openWirelessDebugging() {
@@ -329,6 +369,10 @@ public final class AuthActivity extends Ui {
     private void checkShell(String host, int port) {
         if (checking || AppPrefs.EXTERNAL.equals(selected)) return;
         final String candidate = selected;
+        if (AppPrefs.WIRELESS.equals(candidate)) {
+            if (AdbPairingService.isPairingActive()) return;
+            automaticCheckDone = true;
+        }
         checking = true;
         status.setText("正在检查候选连接…");
         detail.setText("验证成功后才切换后台连接方式；失败保留原设置。");
@@ -349,8 +393,10 @@ public final class AuthActivity extends Ui {
                 String message = ex.getMessage() == null ? "连接失败" : ex.getMessage();
                 runOnUiThread(() -> {
                     checking = false;
-                    status.setText("候选连接未通过");
-                    detail.setText(message + "\n后台仍使用原有连接方式。");
+                    boolean wireless = AppPrefs.WIRELESS.equals(candidate);
+                    status.setText(wireless ? prefs.pairingEvidenceLabel() : "候选连接未通过");
+                    detail.setText(message);
+                    renderInstructions();
                 });
             }
         });
@@ -374,11 +420,11 @@ public final class AuthActivity extends Ui {
             detail.setText(ShizukuShell.authorizedUid() >= 0
                     ? "使用独立 Binder 服务；不需要 BerryFCM 持续连接无线调试。实际采样结果以监控页为准。"
                     : "需先启动 Shizuku 并完成一次应用授权；原配对身份保留。");
-        } else if (AppPrefs.WIRELESS.equals(selected) && prefs.adbPaired()) {
-            status.setText(PrivKitShell.isConnected() ? "独立服务已连接" : "配对已完成 · 服务未连接");
+        } else if (AppPrefs.WIRELESS.equals(selected)) {
+            status.setText(PrivKitShell.isConnected() ? "独立服务已连接" : prefs.pairingEvidenceLabel());
             String monitorError = FcmMonitorService.lastError(this);
             detail.setText(!PrivKitShell.isConnected()
-                    ? PrivKitShell.status() + "\n点击下方启动独立服务，保留原配对身份。"
+                    ? PrivKitShell.status() + "\n启动时验证当前密钥。若系统拒绝，需配对。"
                     : prefs.monitorEnabled()
                     ? monitorError.isEmpty()
                         ? PrivKitShell.status() + "\n日常采样通过 Binder 执行；服务停止时可启动服务，无需重新配对。"
@@ -401,6 +447,22 @@ public final class AuthActivity extends Ui {
 
     @Override protected void onResume() {
         super.onResume();
+        if (startAfterSettings && leftForSettings) {
+            startAfterSettings = false;
+            leftForSettings = false;
+            if (!checking && AppPrefs.WIRELESS.equals(selected) && !PrivKitShell.isConnected()) {
+                prefs.wirelessConnectPort(0);
+                checkShell();
+                return;
+            }
+        }
+        if (!automaticCheckDone && !checking && !AdbPairingService.isPairingActive()
+                && AppPrefs.WIRELESS.equals(selected) && !PrivKitShell.isConnected()
+                && !prefs.pairingRejected() && PrivKitShell.wirelessDebuggingState(this) == 1) {
+            automaticCheckDone = true;
+            checkShell();
+            return;
+        }
         if (!checking) {
             renderStatus();
             if (instructions != null && (AppPrefs.WIRELESS.equals(selected) || AppPrefs.SHIZUKU.equals(selected)))

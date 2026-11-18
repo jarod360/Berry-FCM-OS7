@@ -14,6 +14,12 @@ import kotlinx.coroutines.BuildersKt;
 import priv.kit.core.Privilege;
 import priv.kit.core.PrivilegeConfig;
 import priv.kit.core.PrivilegeServerInfo;
+import priv.kit.core.PrivilegeStartupException;
+import priv.kit.core.adb.PrivilegeAdbManager;
+import priv.kit.core.adb.PrivilegeAdbConnectionOptions;
+import priv.kit.core.adb.PrivilegeAdbWirelessDebuggingControl;
+import priv.kit.core.adb.PrivilegeAdbPairingResult;
+import priv.kit.core.adb.PrivilegeAdbPairingCheckResult;
 import priv.kit.core.command.PrivilegeCommand;
 import priv.kit.core.command.PrivilegeCommandProcess;
 import priv.kit.core.command.PrivilegeCommandResult;
@@ -21,6 +27,8 @@ import priv.kit.core.command.PrivilegeCommandResult;
 /** ADB launches the official Priv Kit starter once; commands use Binder. */
 final class PrivKitShell {
     private static final Privilege KIT = Privilege.INSTANCE;
+    private static final String ADB_NAME = "BerryFCM";
+    private static volatile String startupTrace = "";
     private static boolean autoAttempted;
     private static final long RECOVERY_COOLDOWN_MS = 300000L;
     private static final String START_PREFS = "berry_privkit_start";
@@ -53,7 +61,10 @@ final class PrivKitShell {
 
     private static void rememberLaunch(Context context) throws IOException {
         // Persist before opening ADB. A process crash must not erase throttling.
-        if (!startPrefs(context).edit()
+        SharedPreferences p = startPrefs(context);
+        if (!p.edit()
+                .putLong("attempt_count", p.getLong("attempt_count", 0) + 1)
+                .putString("last_result", "requested")
                 .putLong("elapsed", SystemClock.elapsedRealtime())
                 .putLong("wall", System.currentTimeMillis())
                 .putInt("boot", bootCount(context)).commit())
@@ -72,7 +83,86 @@ final class PrivKitShell {
 
     static synchronized void allowStart(Context context) {
         autoAttempted = false;
-        startPrefs(context).edit().clear().apply();
+        startPrefs(context).edit().remove("elapsed").remove("wall").remove("boot").apply();
+    }
+
+    private static PrivilegeAdbManager manager() { return KIT.createAdbManager(ADB_NAME); }
+
+    static int wirelessDebuggingState(Context context) {
+        try { return Settings.Global.getInt(context.getContentResolver(), "adb_wifi_enabled", -1); }
+        catch (RuntimeException ignored) { return -1; }
+    }
+
+    static int discoverPairingPort() throws Exception {
+        PrivilegeAdbManager adb = manager();
+        return BuildersKt.<Integer>runBlocking(EmptyCoroutineContext.INSTANCE,
+                (scope, continuation) -> {
+                    try { return adb.discoverPairingPort(6000L, continuation); }
+                    catch (PrivilegeStartupException ex) { throw new IllegalStateException(ex); }
+                });
+    }
+
+    static synchronized void pair(Context context, int port, String code) throws Exception {
+        PrivilegeAdbManager adb = manager();
+        startupTrace = "";
+        PrivilegeAdbPairingResult result = BuildersKt.<PrivilegeAdbPairingResult>runBlocking(
+                EmptyCoroutineContext.INSTANCE, (scope, continuation) -> {
+                    try { return adb.pair(code, port, 15000L, continuation); }
+                    catch (PrivilegeStartupException ex) { throw new IllegalStateException(ex); }
+                });
+        if (result == null || result.getPort() != port)
+            throw new IOException("配对未返回有效结果");
+        new AppPrefs(context).markPairingExchange();
+        allowStart(context);
+        // A new explicit pairing must not complete against a legacy Binder.
+        if (isConnected()) {
+            KIT.shutdownServer();
+            long end = SystemClock.elapsedRealtime() + 5000L;
+            while (isConnected() && SystemClock.elapsedRealtime() < end) Thread.sleep(100L);
+            if (isConnected()) throw new IOException("旧独立服务尚未停止");
+        }
+    }
+
+    private static void verifyPairing(Context context, Integer port) throws Exception {
+        AppPrefs prefs = new AppPrefs(context);
+        PrivilegeAdbManager adb = manager();
+        PrivilegeAdbPairingCheckResult result;
+        try {
+            result = BuildersKt.<PrivilegeAdbPairingCheckResult>runBlocking(
+                    EmptyCoroutineContext.INSTANCE, (scope, continuation) -> {
+                        try { return adb.checkPairing(port, 15000L, continuation); }
+                        catch (PrivilegeStartupException ex) { throw new IllegalStateException(ex); }
+                    });
+        } catch (Exception ex) {
+            prefs.pairingUnavailable();
+            throw ex;
+        }
+        switch (result.getStatus()) {
+            case PAIRED:
+                prefs.markAdbPaired();
+                return;
+            case UNPAIRED:
+                prefs.rejectAdbIdentity();
+                throw new IOException("系统拒绝 BerryFCM 当前密钥，请重新配对");
+            default:
+                prefs.pairingUnavailable();
+                throw new IOException("ADB 认证未确认：" + result.getFailureMessage());
+        }
+    }
+
+    private static PrivilegeServerInfo launch(Integer port) throws Exception {
+        // One upstream identity for pairing, check and startup. With null port
+        // upstream chooses both the reachable local address and port.
+        PrivilegeAdbConnectionOptions options = new PrivilegeAdbConnectionOptions(
+                port, PrivilegeAdbWirelessDebuggingControl.NEVER, false, 15000L, 3, 1000L);
+        return BuildersKt.<PrivilegeServerInfo>runBlocking(EmptyCoroutineContext.INSTANCE,
+                (scope, continuation) -> {
+                    try { return KIT.startAdb(options, 20000L, ADB_NAME, line -> {
+                        String next = startupTrace + line.getSource() + ": " + line.getMessage() + "\n";
+                        startupTrace = next.length() > 7000 ? next.substring(next.length() - 7000) : next;
+                    }, continuation); }
+                    catch (Exception ex) { throw new IllegalStateException(ex); }
+                });
     }
 
     static synchronized void start(Context context) throws Exception {
@@ -82,13 +172,15 @@ final class PrivKitShell {
     private static void start(Context context, boolean explicit) throws Exception {
         if (Looper.myLooper() == Looper.getMainLooper())
             throw new IllegalStateException("独立服务必须在后台启动");
-        if (!new AppPrefs(context).adbPaired()) throw new IOException("请先完成无线 ADB 配对");
         if (isConnected() && KIT.pingServer()) {
             autoAttempted = false;
             return;
         }
+        if (!explicit && (AdbPairingService.isPairingActive() || !new AppPrefs(context).adbPaired()))
+            throw new IOException("等待真实配对认证");
         autoAttempted = true;
         status = "正在启动独立服务";
+        boolean launched = false;
         try {
             long grace = SystemClock.elapsedRealtime() + 5000L;
             while (!isConnected() && SystemClock.elapsedRealtime() < grace)
@@ -105,24 +197,38 @@ final class PrivKitShell {
                                 + " 秒；无需重新配对");
                     }
                 }
-                String launch = KIT.getNativeStarterCommand();
+                AppPrefs prefs = new AppPrefs(context);
+                int manual = prefs.wirelessConnectPort();
+                prefs.wirelessConnectPort(0);
+                Integer port = manual > 0 ? manual : null;
+                if (port == null && wirelessDebuggingState(context) == 0) {
+                    prefs.pairingUnavailable();
+                    throw new IOException("系统无线调试未开启");
+                }
                 rememberLaunch(context);
-                AdbConnectionManager.get(context).executeOnce(context,
-                        AppPrefs.WIRELESS, "127.0.0.1", 0, launch);
-                long deadline = SystemClock.elapsedRealtime() + 15000L;
-                while (!isConnected() && SystemClock.elapsedRealtime() < deadline)
-                    Thread.sleep(150L);
+                launched = true;
+                startupTrace = "";
+                status = "正在真实验证 ADB 认证";
+                verifyPairing(context, port);
+                status = "认证通过，正在启动独立服务";
+                PrivilegeServerInfo result = launch(port);
+                if (result == null || result.getUid() != 2000)
+                    throw new IOException("独立服务未返回 UID 2000");
             }
             if (!isConnected() || !KIT.pingServer())
                 throw new IOException("独立服务未回传有效的 UID 2000 Binder");
+            if (launched) startPrefs(context).edit().putString("last_result", "binder_ready").apply();
             autoAttempted = false;
             status = "独立服务运行中";
         } catch (InterruptedException ex) {
+            if (launched) startPrefs(context).edit().putString("last_result", "interrupted").apply();
             Thread.currentThread().interrupt();
             status = "独立服务启动已中断";
             throw ex;
         } catch (Exception ex) {
-            status = "独立服务启动失败，请在授权设置中重新启动，无需重新配对";
+            if (launched) startPrefs(context).edit().putString("last_result", "failed").apply();
+            status = new AppPrefs(context).pairingRejected()
+                    ? "系统拒绝当前密钥，需要配对" : "独立服务启动失败，请查看认证和启动日志";
             throw ex;
         }
     }
@@ -155,6 +261,24 @@ final class PrivKitShell {
         } finally {
             process.close();
         }
+    }
+
+    // Read-only: sharing diagnostics must neither open ADB nor start a server.
+    static String diagnostic(Context context) {
+        SharedPreferences p = startPrefs(context);
+        PrivilegeServerInfo info = KIT.getServerState().getValue();
+        boolean live = info != null && info.getLifecycleBinder().isBinderAlive();
+        long stamp = p.getLong("wall", 0);
+        return "权限模式：" + new AppPrefs(context).mode()
+                + "\nADB 认证证据：" + new AppPrefs(context).pairingEvidenceLabel()
+                + "\nBinder：" + (live ? "存活 · UID=" + info.getUid() + " · PID=" + info.getPid() : "未连接")
+                + "\n本 APP 进程 PID：" + android.os.Process.myPid()
+                + "\n累计 ADB 启动尝试：" + p.getLong("attempt_count", 0)
+                + "\n最近启动结果：" + p.getString("last_result", "none")
+                + "\n最近启动请求时间（epoch ms）：" + stamp
+                + "\n自动启动冷却剩余（秒）：" + ((cooldownRemaining(context) + 999) / 1000)
+                + "\n最近独立服务启动日志：\n" + startupTrace
+                + "\n说明：启动尝试计数不是成功连接次数；日常 Binder 命令不增加此计数。";
     }
 
     static synchronized void stop() {

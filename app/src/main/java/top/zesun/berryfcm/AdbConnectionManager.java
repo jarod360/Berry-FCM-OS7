@@ -61,11 +61,7 @@ final class AdbConnectionManager extends AbsAdbConnectionManager {
                     .build();
             generator.initialize(spec);
             generator.generateKeyPair();
-            // The new identity must be paired explicitly; do not claim the prior
-            // v1/v2 identity has authenticated the current TLS client.
-            AppPrefs prefs = new AppPrefs(context);
-            prefs.shellFailed("ADB 身份已更新；请重新进行无线配对");
-            prefs.pairingStatus("TLS 身份已修复，等待重新配对");
+            // This separate identity is for explicit legacy ADB TCP only.
         }
         privateKey = (PrivateKey) store.getKey(KEY_ALIAS, null);
         certificate = store.getCertificate(KEY_ALIAS);
@@ -76,28 +72,6 @@ final class AdbConnectionManager extends AbsAdbConnectionManager {
     @NonNull @Override protected PrivateKey getPrivateKey() { return privateKey; }
     @NonNull @Override protected Certificate getCertificate() { return certificate; }
     @NonNull @Override protected String getDeviceName() { return "BerryFCM"; }
-
-    synchronized boolean pairLocal(int pairingPort, String code) throws Exception {
-        disconnectSession();
-        try { return pair("127.0.0.1", pairingPort, code); }
-        finally { disconnectSession(); }
-    }
-
-    synchronized boolean autoConnectLocal(Context context) throws Exception {
-        if ("wireless".equals(activeTransport) && isConnected()) return true;
-        disconnectSession();
-        try {
-            setThrowOnUnauthorised(true);
-            boolean connected = connectTls(context.getApplicationContext(), 8000);
-            if (connected) activeTransport = "wireless";
-            return connected;
-        } catch (InterruptedException error) {
-            // libadb also reports mDNS timeout as InterruptedException.
-            // Do not confuse disappearance of adbd with loss of pairing.
-            if (Thread.currentThread().isInterrupted()) throw error;
-            throw new IOException("未发现本机无线 ADB 服务；请确认无线调试已开启", error);
-        }
-    }
 
     synchronized boolean connectStatic(String host, int port) throws Exception {
         if ("static".equals(activeTransport) && port == staticPort
@@ -121,8 +95,8 @@ final class AdbConnectionManager extends AbsAdbConnectionManager {
     synchronized String executeOnce(Context context, String mode, String host, int port,
             String command) throws Exception {
         try {
-            boolean connected = AppPrefs.WIRELESS.equals(mode)
-                    ? autoConnectLocal(context) : connectStatic(host, port);
+            if (!AppPrefs.STATIC.equals(mode)) throw new IOException("无线 ADB 必须使用 Priv Kit");
+            boolean connected = connectStatic(host, port);
             if (!connected) throw new IOException("ADB 暂未连接");
             String identity = shell("id").trim();
             if (!identity.matches("(?s)^uid=2000(?:\\D.*)?$"))

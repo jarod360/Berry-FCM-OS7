@@ -25,18 +25,12 @@ need 'adb.executeOnce(this, mode, prefs.host(), prefs.staticPort(), command)' "$
 need 'PrivKitShell.execute(this, command)' "$src/FcmMonitorService.java"
 need 'PrivKitShell.execute(context, command)' "$src/AdbShell.java"
 need 'PrivKitShell.start(context)' "$src/PrivilegeAccess.java"
-need 'KIT.getNativeStarterCommand()' "$src/PrivKitShell.java"
 need 'KIT.startCommand(request, 45000L, continuation)' "$src/PrivKitShell.java"
 need 'io.github.priv-kit:priv-core:0.20.0' "$root/app/build.gradle"
 need 'autoAttempted' "$src/PrivKitShell.java"
 need 'RECOVERY_COOLDOWN_MS' "$src/PrivKitShell.java"
 need 'getLifecycleBinder().isBinderAlive()' "$src/PrivKitShell.java"
-need 'PrivKitShell.allowStart(this)' "$src/AdbPairingService.java"
-# The only direct ADB call in PrivKitShell must be the native starter.
-test "$(grep -c 'executeOnce(' "$src/PrivKitShell.java")" -eq 1
-need 'AppPrefs.WIRELESS, "127.0.0.1", 0, launch' "$src/PrivKitShell.java"
 need 'synchronized String executeOnce' "$src/AdbConnectionManager.java"
-need 'finally { disconnectSession(); }' "$src/AdbConnectionManager.java"
 # Check the command transaction itself, not only the pairing cleanup.
 transaction="$(sed -n '/synchronized String executeOnce(/,/synchronized String shell(/p' "$src/AdbConnectionManager.java")"
 printf '%s\n' "$transaction" | grep -q 'finally {'
@@ -50,15 +44,10 @@ need 'android.permission.INTERACT_ACROSS_USERS_FULL' "$manifest"
 need 'dev.rikka.shizuku:api:13.1.5' "$root/app/build.gradle"
 test -s "$root/app/src/main/aidl/top/zesun/berryfcm/IBerryShell.aidl"
 need 'shellInvalidate' "$src/AppPrefs.java"
-need 'shellInvalidate' "$src/AdbPairingService.java"
 need 'R.drawable.ic_bf_auth' "$src/AdbPairingService.java"
 need 'R.drawable.ic_bf_fcm' "$src/FcmMonitorService.java"
 need 'R.drawable.ic_bf_fcm' "$src/SettingsActivity.java"
 need '@drawable/ic_bf_fcm' "$manifest"
-need '37123:123456' "$src/AdbPairingService.java"
-need '_adb-tls-pairing._tcp' "$src/AdbPairingService.java"
-need 'NsdManager' "$src/AdbPairingService.java"
-need 'localAddress' "$src/AdbPairingService.java"
 need 'setOnApplyWindowInsetsListener' "$src/Ui.java"
 need 'setTheme(R.style.AppThemeDark)' "$src/Ui.java"
 need 'AppThemeDark' "$root/app/src/main/res/values/styles.xml"
@@ -77,7 +66,6 @@ need '开始配对并打开无线调试' "$src/AuthActivity.java"
 need 'openWirelessDebugging()' "$src/AuthActivity.java"
 need 'Settings\$WirelessDebuggingActivity' "$src/AuthActivity.java"
 need 'onRequestPermissionsResult' "$src/AuthActivity.java"
-need 'prefs.markAdbPaired()' "$src/AdbPairingService.java"
 need 'prefs.monitorEnabled(true)' "$src/AdbPairingService.java"
 need 'FcmMonitorService.start(this)' "$src/AdbPairingService.java"
 need 'lastAttemptAt' "$src/FcmMonitorService.java"
@@ -200,3 +188,26 @@ echo 'PASS: APK navigation modules, notification ADB pairing, FCM guard, insets,
 if grep -q "android.os.ServiceSpecificException" "$src/BerryShellUserService.java"; then
   echo "Hidden Android exception import in Shizuku service"; exit 1
 fi
+
+# One identity and the official upstream discovery/authorization/start path.
+need 'adb.discoverPairingPort(6000L, continuation)' "$src/PrivKitShell.java"
+need 'adb.pair(code, port, 15000L, continuation)' "$src/PrivKitShell.java"
+need 'adb.checkPairing(port, 15000L, continuation)' "$src/PrivKitShell.java"
+need 'KIT.startAdb(options, 20000L, ADB_NAME' "$src/PrivKitShell.java"
+need 'PrivKitShell.discoverPairingPort()' "$src/AdbPairingService.java"
+need 'gate.submit(generation, port)' "$src/AdbPairingService.java"
+need 'gate.ready(generation, found)' "$src/AdbPairingService.java"
+need 'PrivKitShell.pair(this, selectedPort, code)' "$src/AdbPairingService.java"
+need 'PrivKitShell.start(this)' "$src/AdbPairingService.java"
+need 'PrivKitShell.execute(this, "id")' "$src/AdbPairingService.java"
+need 'prefs.rejectAdbIdentity()' "$src/PrivKitShell.java"
+need 'privkit_pairing_history' "$src/AppPrefs.java"
+need 'startAfterSettings && leftForSettings' "$src/AuthActivity.java"
+if grep -Eq 'AdbConnectionManager|executeOnce\(' "$src/PrivKitShell.java" "$src/AdbPairingService.java"; then
+  echo 'Wireless pairing and bootstrap must not call legacy libadb'; exit 1
+fi
+if grep -Eq 'autoConnectLocal|pairLocal|connectTls' "$src/AdbConnectionManager.java"; then
+  echo 'Legacy manager must be static TCP only'; exit 1
+fi
+javac -d "$classes" "$src/PairingGate.java" "$root/tests/PairingGateSmoke.java"
+java -cp "$classes" top.zesun.berryfcm.PairingGateSmoke
