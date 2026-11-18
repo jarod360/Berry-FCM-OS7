@@ -27,7 +27,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.json.JSONObject;
 
-/** Foreground monitoring runs independently of activities; all shell writes are serialized. */
+/** Foreground monitoring runs independently of activities; only MCS state writes are serialized. */
 public final class FcmMonitorService extends Service {
     private static final String SNAPSHOT = "berry_fcm_monitor_snapshot";
     // Preserve the existing silent channel ID across upgrades.
@@ -64,7 +64,7 @@ public final class FcmMonitorService extends Service {
     private static volatile boolean wakeLockHeld;
     private final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
     private int newestStartId;
-    private AdbConnectionManager adb;
+    private volatile AdbConnectionManager adb;
     private long lastGuardAt;
     private Network observedNetwork;
     private String lastNotificationText = "";
