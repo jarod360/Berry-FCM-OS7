@@ -1,6 +1,6 @@
 #!/system/bin/sh
 # BerryFCM APK: GMS MCS dump is authoritative; TCP is auxiliary evidence.
-# Only observes GMS-owned TCP sockets and requests GCM_RECONNECT; it never
+# Only observes GMS-owned TCP sockets and requests targeted recovery broadcasts; it never
 # changes DNS, VPN, proxy, routing, or kills/restarts Google Play services.
 set -u
 
@@ -297,15 +297,21 @@ request_reconnect() {
     last_try_mono="$nowm"; last_try_epoch="$nowe"; attempts=$((attempts+1))
     retry_streak=$((retry_streak+1)); last_try_reason="$reason"; last_result=failed
     save_state
-    reply="$("$AM_BIN" broadcast --user 0 -a com.google.android.intent.action.GCM_RECONNECT -p "$GMS" 2>&1)"
+    # After two unsuccessful recovery requests, try the GMS heartbeat action as a
+    # separate diagnostic experiment, still subject to the same retry cooldown.
+    action=com.google.android.intent.action.GCM_RECONNECT
+    if [ "$reason" = auto ] && [ "$retry_streak" -ge 3 ] && [ $((retry_streak % 2)) -eq 1 ]; then
+        action=com.google.android.intent.action.MCS_HEARTBEAT
+    fi
+    reply="$("$AM_BIN" broadcast --user 0 -a "$action" -p "$GMS" 2>&1)"
     rc=$?
     if [ "$rc" -eq 0 ] && printf '%s\n' "$reply" | grep -q 'Broadcast completed:' &&
         ! printf '%s\n' "$reply" | grep -qiE 'Permission Denial|SecurityException|not allowed|Error:|result=-[0-9]'; then
         last_result=requested
-        record_event reconnect_requested "$reason 已提交 GCM_RECONNECT；等待 GMS 原生状态确认（第 $attempts 次）"
+        record_event reconnect_requested "$reason 已发送 ${action##*.}；等待 Google 确认连接恢复（第 $attempts 次）"
     else
         last_result=failed
-        record_event reconnect_failed "$reason 重连广播未确认（exit=$rc）：$reply"
+        record_event reconnect_failed "$reason ${action##*.} 请求失败（exit=$rc）：$reply"
     fi
     save_state
 }
@@ -314,8 +320,10 @@ observe() {
     load_state
     nowm="$(num "$(monotime)")"; nowe="$(num "$(now_epoch)")"
     [ "$nowm" -gt 0 ] && [ "$nowe" -gt 0 ] || return 12
+    gap_detected=0
     if [ "$sample_epoch" -gt 0 ] && [ "$nowe" -gt "$sample_epoch" ] && [ $((nowe-sample_epoch)) -gt 90 ]; then
-        record_event sample_gap '采样曾中断；当前状态重新读取 GMS'
+        gap_detected=1
+        record_event sample_gap "后台检查中断 $((nowe-sample_epoch)) 秒；正在重新读取 Google 状态"
         state=unknown; missing_since=0; missing_epoch=0; conn_since=0; down_observed=0
     fi
     dump="$("$DUMPSYS_BIN" -t 5 activity service "$GMS/.gcm.GcmService" 2>&1)"
@@ -433,9 +441,26 @@ case "${1:-status}" in
             { [ "$state" = disconnected ] || [ "$state" = connecting ]; } &&
             [ "$missing_since" -gt 0 ] && [ "$down_observed" -gt 0 ]; then
             nowm="$(num "$(monotime)")"
-            if [ "$nowm" -ge "$missing_since" ] && [ $((nowm-missing_since)) -ge 120 ] &&
-                [ "$nowm" -ge "$down_observed" ] && [ $((nowm-down_observed)) -ge 15 ]; then
-                request_reconnect auto
+            if [ "$nowm" -ge "$missing_since" ] && [ $((nowm-missing_since)) -ge 120 ]; then
+                if [ "$nowm" -ge "$down_observed" ] && [ $((nowm-down_observed)) -ge 15 ]; then
+                    request_reconnect auto
+                elif [ "$gap_detected" = 1 ] && [ "$duration" -ge 120 ]; then
+                    # Deep sleep may repeatedly interrupt the 15-second scheduler.
+                    # Confirm a long native outage twice in the same awake window,
+                    # only when a recovery attempt is actually due.
+                    interval="$(retry_interval)"
+                    if [ "$last_try_mono" -eq 0 ] || [ $((nowm-last_try_mono)) -ge "$interval" ]; then
+                        first_remote="$remote"; first_duration="$duration"
+                        [ "${BERRY_FCM_TEST_MODE:-0}" = 1 ] || sleep 2
+                        observe || exit $?
+                        if { [ "$state" = disconnected ] || [ "$state" = connecting ]; } &&
+                            [ "$source" = gms ] && [ "$duration" -ge "$first_duration" ] &&
+                            [ "$remote" = "$first_remote" ]; then
+                            record_event recovery_confirmed "休眠后两次确认 FCM 仍断开，已持续 $duration 秒"
+                            request_reconnect auto
+                        fi
+                    fi
+                fi
             fi
         fi
         ;;
