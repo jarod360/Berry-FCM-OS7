@@ -408,3 +408,6 @@ alpha.60 device screenshot confirms automatic pairing discovery works but start 
 
 ### Authorization UI simplification
 Each actual runtime method (Wireless ADB, Root, Shizuku, ADB TCP) has one status and bold [启动][停止][重启]. No BerryFCM Shell/UserService/Binder technical names in the main UI; diagnostics, pairing and manual ports are under disclosures. Stopping root or explicit TCP only stops BerryFCM's use/background tasks, not system root or adbd; wireless stops the app's own privilege server, and Shizuku stops the app's bound user service without shutting down Shizuku itself. Inactive selected method is 未启动 rather than wrongly saying 当前使用 Shizuku. Paused state blocks background task gate.
+
+### Compact authorization state and inline failure diagnostics
+Auth page now shows a single large actual state (已启动/已停止/启动失败/处理中), small 来源：无线 ADB/Root/Shizuku/ADB TCP, and one play/pause icon toggling selected transport. On real startup failure, the summary appears directly below; full error + Priv Kit trace can be expanded/copied. Method chooser and pairing are collapsed. Wireless ADB crash null-unboxing fixed in previous commit; real device Binder start remains unverified.

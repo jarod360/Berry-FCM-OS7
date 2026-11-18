@@ -16,6 +16,7 @@ import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.EditText;
+import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import java.util.concurrent.ExecutorService;
@@ -28,7 +29,9 @@ public final class AuthActivity extends Ui {
     private static final String[] LABELS = {"无线 ADB", "Root", "Shizuku", "ADB TCP", "电脑 USB"};
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private LinearLayout tabs, instructions;
-    private TextView status, detail;
+    private TextView status, detail, errorSummary, errorLog;
+    private LinearLayout failurePanel;
+    private ImageButton stateToggle;
     private TextView autoStartRow, associatedRow, highPowerRow, lockRow, batteryRow, notificationRow, monitorNotificationRow, restrictionRow, tileRow;
     private android.widget.Button removeTileButton;
     private String selected;
@@ -50,7 +53,8 @@ public final class AuthActivity extends Ui {
                     renderStatus();
                 } else if (pairing) renderStatus();
             }
-            ui.postDelayed(this, 1000);
+            if (!checking) renderStatus();
+            ui.postDelayed(this, 2000);
         }
     };
     private boolean automaticCheckDone;
@@ -77,22 +81,68 @@ public final class AuthActivity extends Ui {
         title("授权管理", "选择方式，管理启停");
 
         LinearLayout card = card("授权状态", null);
-        status = text("检查状态中", 20, true, ink);
-        card.addView(status);
+        LinearLayout stateRow = new LinearLayout(this);
+        stateRow.setGravity(Gravity.CENTER_VERTICAL);
+        card.addView(stateRow);
+        LinearLayout labels = new LinearLayout(this);
+        labels.setOrientation(LinearLayout.VERTICAL);
+        stateRow.addView(labels, new LinearLayout.LayoutParams(0, -2, 1));
+        status = text("已停止", 21, true, ink);
+        labels.addView(status);
         detail = text("", 12, false, muted);
-        detail.setTextIsSelectable(true);
-        detail.setPadding(0, dp(5), 0, dp(1));
-        card.addView(detail);
+        detail.setPadding(0, dp(4), 0, 0);
+        labels.addView(detail);
 
-        LinearLayout chooser = card("授权方式", null);
+        stateToggle = new ImageButton(this);
+        stateToggle.setScaleType(android.widget.ImageView.ScaleType.CENTER_INSIDE);
+        stateToggle.setPadding(dp(13), dp(13), dp(13), dp(13));
+        GradientDrawable toggleSurface = new GradientDrawable();
+        toggleSurface.setColor(dark ? 0xff2c3b58 : 0xffe9eef8);
+        toggleSurface.setCornerRadius(dp(14));
+        stateToggle.setBackground(toggleSurface);
+        stateToggle.setOnClickListener(v -> {
+            if (checking || PrivKitShell.isStarting() || AdbPairingService.isPairingActive()) return;
+            if (isSelectedRunning()) stopSelectedService();
+            else startSelectedService();
+        });
+        LinearLayout.LayoutParams toggleSize = new LinearLayout.LayoutParams(dp(52), dp(52));
+        toggleSize.leftMargin = dp(12);
+        stateRow.addView(stateToggle, toggleSize);
+
+        failurePanel = new LinearLayout(this);
+        failurePanel.setOrientation(LinearLayout.VERTICAL);
+        failurePanel.setVisibility(View.GONE);
+        card.addView(failurePanel);
+        errorSummary = text("", 13, false, danger);
+        errorSummary.setPadding(0, dp(10), 0, dp(4));
+        errorSummary.setMaxLines(2);
+        errorSummary.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        failurePanel.addView(errorSummary);
+        LinearLayout logPanel = disclosure(failurePanel, "查看完整日志", false);
+        errorLog = text("", 12, false, muted);
+        errorLog.setTextIsSelectable(true);
+        logPanel.addView(errorLog);
+        button(logPanel, "复制日志", () -> {
+            android.content.ClipboardManager clipboard =
+                    getSystemService(android.content.ClipboardManager.class);
+            if (clipboard != null) {
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText(
+                        "BerryFCM 授权日志", errorLog.getText()));
+                error("日志已复制");
+            }
+        }, false);
+
+        LinearLayout chooser = card(null, null);
+        LinearLayout choices = disclosure(chooser, "更换授权方式", false);
         tabs = new LinearLayout(this);
         tabs.setOrientation(LinearLayout.VERTICAL);
-        chooser.addView(tabs);
+        choices.addView(tabs);
 
-        LinearLayout steps = card("操作", null);
+        LinearLayout settings = card(null, null);
+        LinearLayout advanced = disclosure(settings, "配对与高级设置", false);
         instructions = new LinearLayout(this);
         instructions.setOrientation(LinearLayout.VERTICAL);
-        steps.addView(instructions);
+        advanced.addView(instructions);
         renderTabs();
         renderInstructions();
         renderStatus();
@@ -329,6 +379,7 @@ public final class AuthActivity extends Ui {
                 if (mode.equals(selected)) return;
                 selected = mode;
                 selectedFailure = "";
+                selectedFailure = "";
                 prefs.authTab(mode);
                 // Browsing connection methods must not interrupt the active monitor.
                 renderTabs();
@@ -340,22 +391,8 @@ public final class AuthActivity extends Ui {
 
     private void renderInstructions() {
         instructions.removeAllViews();
-        if (AppPrefs.EXTERNAL.equals(selected)) { usb(); return; }
-        LinearLayout controls = new LinearLayout(this);
-        controls.setOrientation(LinearLayout.HORIZONTAL);
-        instructions.addView(controls);
-        String[] names = {"启动", "停止", "重启"};
-        Runnable[] actions = {this::startSelectedService, this::stopSelectedService, this::restartSelectedService};
-        for (int i = 0; i < names.length; i++) {
-            android.widget.Button b = button(controls, names[i], actions[i], i == 0);
-            b.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-            b.setTextSize(16);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(48), 1);
-            lp.setMargins(dp(3), dp(3), dp(3), dp(3));
-            b.setLayoutParams(lp);
-            b.setEnabled(!checking && !PrivKitShell.isStarting() && !AdbPairingService.isPairingActive());
-        }
-        if (AppPrefs.WIRELESS.equals(selected)) wireless();
+        if (AppPrefs.EXTERNAL.equals(selected)) usb();
+        else if (AppPrefs.WIRELESS.equals(selected)) wireless();
         else if (AppPrefs.ROOT.equals(selected)) root();
         else if (AppPrefs.SHIZUKU.equals(selected)) shizuku();
         else tcp();
@@ -363,9 +400,19 @@ public final class AuthActivity extends Ui {
 
     private void startSelectedService() {
         if (checking) return;
-        if (AppPrefs.WIRELESS.equals(selected)) startWireless();
-        else if (AppPrefs.SHIZUKU.equals(selected)) authorizeShizuku();
-        else checkShell();
+        if (AppPrefs.WIRELESS.equals(selected)) {
+            if (!prefs.adbPaired() && !PrivKitShell.hasStoredIdentity(this))
+                beginPair(0);
+            else startWireless();
+        } else if (AppPrefs.SHIZUKU.equals(selected)) authorizeShizuku();
+        else if (!AppPrefs.EXTERNAL.equals(selected)) checkShell();
+    }
+
+    private boolean isSelectedRunning() {
+        if (!selected.equals(prefs.mode()) || prefs.servicePaused(selected)) return false;
+        if (AppPrefs.WIRELESS.equals(selected)) return PrivKitShell.isConnected();
+        if (AppPrefs.SHIZUKU.equals(selected)) return ShizukuShell.isRunning();
+        return PrivilegeAccess.readyForUserAction(this);
     }
 
     private void step(String label, String description) {
@@ -377,7 +424,7 @@ public final class AuthActivity extends Ui {
 
     private void wireless() {
         if (AdbPairingService.isPairingActive()) {
-            step("正在配对", "在无线调试页面打开配对码，通知栏输入六位数字。");
+            step("正在配对", "在无线调试页面打开配对码，再在通知栏输入六位数字。");
             button(instructions, "打开无线调试", this::openWirelessDebugging, false);
             button(instructions, "取消配对", () -> AdbPairingService.stop(this), false);
             return;
@@ -387,24 +434,8 @@ public final class AuthActivity extends Ui {
         if (!paired) button(instructions, "首次配对", () -> beginPair(0), false);
         LinearLayout help = disclosure(instructions, paired ? "重新配对" : "配对说明", false);
         wirelessSteps(help);
-        LinearLayout advanced = disclosure(instructions, "高级选项", false);
+        LinearLayout advanced = disclosure(instructions, "手动连接端口", false);
         connectPortFallback(advanced);
-        String failure = PrivKitShell.lastStartupError(this);
-        String pairing = prefs.pairingStatus();
-        if (!failure.isEmpty() || pairing.startsWith("配对失败") || pairing.startsWith("服务启动失败")) {
-            LinearLayout diag = disclosure(instructions, "错误详情", false);
-            TextView log = text(failure.isEmpty() ? pairing : failure, 12, false, muted);
-            log.setTextIsSelectable(true);
-            diag.addView(log);
-            button(diag, "复制诊断", () -> {
-                android.content.ClipboardManager clipboard = getSystemService(android.content.ClipboardManager.class);
-                if (clipboard != null) {
-                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("授权诊断",
-                            prefs.pairingStatus() + "\n" + PrivKitShell.diagnostic(this)));
-                    error("已复制诊断");
-                }
-            }, false);
-        }
     }
 
     private void startWireless() {
@@ -419,7 +450,7 @@ public final class AuthActivity extends Ui {
         final String mode = selected;
         if (AppPrefs.EXTERNAL.equals(mode)) return;
         checking = true;
-        status.setText(methodName(mode) + " · 正在停止");
+        renderStatus();
         worker.execute(() -> {
             try {
                 prefs.servicePaused(mode, true);
@@ -447,7 +478,7 @@ public final class AuthActivity extends Ui {
         final String mode = selected;
         if (AppPrefs.EXTERNAL.equals(mode)) return;
         checking = true;
-        status.setText(methodName(mode) + " · 正在重启");
+        renderStatus();
         worker.execute(() -> {
             try {
                 prefs.servicePaused(mode, true);
@@ -629,13 +660,12 @@ public final class AuthActivity extends Ui {
         }
         try {
             AdbPairingService.begin(this, manualPort);
-            status.setText("等待输入配对码");
-            detail.setText("打开系统的配对码页面，再在通知栏输入六位数字。");
+            renderStatus();
             pendingPairPort = -1;
             openWirelessDebugging();
         } catch (RuntimeException e) {
-            status.setText("无法开始配对");
-            detail.setText(String.valueOf(e.getMessage()));
+            selectedFailure = String.valueOf(e.getMessage());
+            renderStatus();
         }
     }
 
@@ -651,9 +681,9 @@ public final class AuthActivity extends Ui {
                 if (requested == 1) beginPair(pairPort);
                 else if (requested == 2) checkShell();
             } else {
-                status.setText("本地网络权限未授予");
-                status.setTextColor(danger);
-                detail.setText("Android 17 禁止当前应用发现无线 ADB。请到应用权限中允许本地网络访问。");
+                selectedFailure = "Android 17 本地网络权限未授予";
+                renderStatus();
+                error("请在应用权限中允许本地网络访问");
             }
             return;
         }
@@ -719,9 +749,7 @@ public final class AuthActivity extends Ui {
             automaticCheckDone = true;
         }
         checking = true;
-        status.setText("正在连接并授权…");
-        detail.setText(AppPrefs.WIRELESS.equals(candidate) ? "正在尝试启动服务，请保持无线调试开启。" : "正在检查授权，请按系统提示操作。");
-        if (AppPrefs.WIRELESS.equals(candidate)) renderInstructions();
+        renderStatus();
         worker.execute(() -> {
             try {
                 String identity = PrivilegeAccess.probe(this, candidate, host, port);
@@ -730,8 +758,9 @@ public final class AuthActivity extends Ui {
                 prefs.enableMonitorOnFirstAuthorization();
                 runOnUiThread(() -> {
                     checking = false;
-                    FcmMonitorService.resumeIfNeeded(this);
                     if (isDestroyed() || isFinishing()) return;
+                    selectedFailure = "";
+                    FcmMonitorService.resumeIfNeeded(this);
                     renderStatus();
                     renderInstructions();
                 });
@@ -741,10 +770,7 @@ public final class AuthActivity extends Ui {
                     checking = false;
                     if (isDestroyed() || isFinishing()) return;
                     selectedFailure = message;
-                    boolean wireless = AppPrefs.WIRELESS.equals(candidate);
-                    status.setText(wireless && prefs.pairingRejected() ? "授权已失效，请重新配对" : "连接失败");
-                    status.setTextColor(danger);
-                    detail.setText(wireless ? "请确认无线调试已开启，再试一次。\n具体原因：" + message : message);
+                    renderStatus();
                     renderInstructions();
                 });
             }
@@ -760,39 +786,42 @@ public final class AuthActivity extends Ui {
     }
 
     private void renderStatus() {
-        if (status == null || checking) return;
+        if (status == null) return;
+        detail.setText("来源：" + methodName(selected));
         if (AppPrefs.EXTERNAL.equals(selected)) {
-            status.setText("电脑 USB · 设置指引");
+            status.setText("不可直接启动");
             status.setTextColor(muted);
-            detail.setText("");
+            stateToggle.setImageResource(android.R.drawable.ic_media_play);
+            stateToggle.setEnabled(false);
+            failurePanel.setVisibility(View.GONE);
             return;
         }
-        String state = "未启动";
-        if (prefs.servicePaused(selected)) state = "已停止";
-        else if (selected.equals(prefs.mode())) {
-            if (AppPrefs.WIRELESS.equals(selected)) {
-                if (PrivKitShell.isConnected()) state = "已启动";
-                else if (PrivKitShell.isStarting()) state = "启动中";
-                else if (AdbPairingService.isPairingActive()) state = "配对中";
-                else if (!PrivKitShell.lastStartupError(this).isEmpty()) state = "启动失败";
-            } else if (AppPrefs.SHIZUKU.equals(selected)) {
-                if (ShizukuShell.isRunning()) state = "已启动";
-                else if (ShizukuShell.authorizedUid() < 0) state = "未授权";
-                else if (!prefs.shellError().isEmpty() && selected.equals(prefs.shellMode()))
-                    state = "启动失败";
-            } else {
-                if (!prefs.shellError().isEmpty() && selected.equals(prefs.shellMode())) state = "启动失败";
-                else if (PrivilegeAccess.readyForUserAction(this)) state = "已启动";
-            }
+        boolean busy = checking || PrivKitShell.isStarting()
+                || AdbPairingService.isPairingActive();
+        boolean running = isSelectedRunning();
+        String failure = selectedFailure;
+        if (failure.isEmpty() && selected.equals(prefs.mode()) && !prefs.servicePaused(selected)) {
+            if (AppPrefs.WIRELESS.equals(selected)) failure = PrivKitShell.lastStartupError(this);
+            else if (selected.equals(prefs.shellMode())) failure = prefs.shellError();
         }
-        if (!selectedFailure.isEmpty()) state = "启动失败";
-        status.setText(methodName(selected) + " · " + state);
-        status.setTextColor("已启动".equals(state) ? success :
-                "启动失败".equals(state) ? danger : "未启动".equals(state) || "已停止".equals(state) ? muted : warning);
-        detail.setText(!selectedFailure.isEmpty() ? "启动失败，请查看错误详情"
-                : "已停止".equals(state) ? "点击启动可恢复"
-                : "未启动".equals(state) && !selected.equals(prefs.mode()) ? "点击启动切换到此方式"
-                : "");
+        String state = busy ? "处理中" : running ? "已启动"
+                : !failure.isEmpty() ? "启动失败" : "已停止";
+        status.setText(state);
+        status.setTextColor(running ? success : "启动失败".equals(state) ? danger
+                : busy ? warning : muted);
+        stateToggle.setImageResource(running
+                ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play);
+        stateToggle.setColorFilter(running ? success : accent);
+        stateToggle.setEnabled(!busy);
+        stateToggle.setContentDescription((running ? "停止" : "启动") + methodName(selected));
+        boolean failed = "启动失败".equals(state);
+        failurePanel.setVisibility(failed ? View.VISIBLE : View.GONE);
+        if (failed) {
+            String singleLine = failure.replace('\n', ' ').replace('\r', ' ').trim();
+            errorSummary.setText(singleLine);
+            errorLog.setText(failure + (AppPrefs.WIRELESS.equals(selected)
+                    ? "\n\n" + PrivKitShell.diagnostic(this) : ""));
+        }
     }
 
     @Override protected void onResume() {
