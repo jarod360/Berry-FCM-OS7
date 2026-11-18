@@ -3,7 +3,6 @@ package top.zesun.berryfcm;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -11,14 +10,13 @@ import org.json.JSONObject;
 
 /** Overview: FCM first. Permission guidance appears only when action is needed. */
 public final class MainActivity extends Ui {
-    private TextView state, summary, actionTitle, actionDetail;
-    private Button monitorButton, actionButton;
-    private LinearLayout issue;
+    private TextView state, summary;
+    private Button monitorButton;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final Runnable refresh = new Runnable() {
         @Override public void run() {
             render();
-            ui.postDelayed(this, 10000);
+            ui.postDelayed(this, 1000);
         }
     };
 
@@ -26,23 +24,14 @@ public final class MainActivity extends Ui {
         super.onCreate(saved);
         title("BerryFCM", "FCM 连接与后台守护");
 
-        LinearLayout monitor = card("FCM 监控", "读取 Google Play 服务原生 FCM 状态；TCP 仅作辅助。");
+        LinearLayout monitor = card("FCM 监控", "检查 Google 推送连接是否正常");
         state = text("正在读取状态", 23, true, ink);
         monitor.addView(state);
         summary = text("", 13, false, muted);
         summary.setPadding(0, dp(8), 0, dp(6));
         monitor.addView(summary);
         monitorButton = button(monitor, "启动 FCM 监控", this::monitorAction, true);
-        line(monitor, "监控详情", "断联记录与采样证据", () -> go(MonitorActivity.class));
-
-        issue = card("需要处理", null);
-        actionTitle = text("", 16, true, ink);
-        issue.addView(actionTitle);
-        actionDetail = text("", 13, false, muted);
-        actionDetail.setMaxLines(4);
-        actionDetail.setPadding(0, dp(5), 0, dp(5));
-        issue.addView(actionDetail);
-        actionButton = button(issue, "打开连接设置", () -> go(AuthActivity.class), false);
+        line(monitor, "监控详情", "连接状态与断开记录", () -> go(MonitorActivity.class));
 
         LinearLayout quick = card("常用功能", null);
         line(quick, "应用守护", "所选应用检查与恢复", () -> go(GuardActivity.class));
@@ -51,12 +40,19 @@ public final class MainActivity extends Ui {
         render();
     }
 
+    private boolean authorizationReady() {
+        if (AppPrefs.WIRELESS.equals(prefs.mode())) return PrivKitShell.isConnected();
+        if (AppPrefs.SHIZUKU.equals(prefs.mode())) return ShizukuShell.authorizedUid() >= 0;
+        return prefs.mode().equals(prefs.shellMode()) && prefs.shellError().isEmpty()
+                && !prefs.shellIdentity().isEmpty();
+    }
+
     private void monitorAction() {
-        if (!prefs.monitorEnabled()) {
-            if (AppPrefs.WIRELESS.equals(prefs.mode()) && !prefs.adbPaired()) {
-                go(AuthActivity.class);
-                return;
-            }
+        if (!authorizationReady()) {
+            go(AuthActivity.class);
+            return;
+        }
+        if (!prefs.monitorEnabled() || !FcmMonitorService.isRunning()) {
             prefs.monitorEnabled(true);
             FcmMonitorService.start(this);
         } else {
@@ -67,74 +63,75 @@ public final class MainActivity extends Ui {
 
     private void render() {
         if (state == null) return;
+        boolean wireless = AppPrefs.WIRELESS.equals(prefs.mode());
         boolean enabled = prefs.monitorEnabled();
-        monitorButton.setText(enabled ? "立即采样" : "启动 FCM 监控");
+        monitorButton.setEnabled(true);
+        if (!authorizationReady()) {
+            if (wireless && AdbPairingService.isPairingActive()) {
+                state.setText("正在进行 ADB 授权");
+                summary.setText("请按照无线调试页面和通知栏的提示完成配对。");
+                monitorButton.setText("查看授权步骤");
+            } else if (wireless && PrivKitShell.isStarting()) {
+                state.setText("正在启动服务…");
+                summary.setText("正在连接无线调试，请保持无线网络连接。");
+                monitorButton.setText("正在启动");
+                monitorButton.setEnabled(false);
+            } else if (wireless && prefs.adbPaired() && !prefs.pairingRejected()) {
+                boolean failed = "服务启动失败".equals(PrivKitShell.status());
+                state.setText(failed ? "服务启动失败" : "服务未启动");
+                summary.setText("请到 ADB 授权页面启动服务。已有配对可直接使用，无需重复配对。");
+                monitorButton.setText(failed ? "重新启动" : "启动服务");
+            } else {
+                state.setText(wireless ? "需要 ADB 授权" : "需要授权");
+                summary.setText(wireless
+                        ? "授权后才能检查 FCM 连接。已有配对会自动检测。"
+                        : "请完成当前连接方式的授权后再开启监控。");
+                monitorButton.setText("去授权");
+            }
+            return; // No monitoring controls, retry timers or stale FCM states before authorization.
+        }
+        if (!enabled) {
+            state.setText("监控未开启");
+            summary.setText("开启后将在后台检查 Google 推送连接。");
+            monitorButton.setText("开启监控");
+            return;
+        }
+        if (!FcmMonitorService.isRunning()) {
+            state.setText("监控未运行");
+            summary.setText("请重新开启后台监控。");
+            monitorButton.setText("启动监控");
+            return;
+        }
+        monitorButton.setText("立即检查");
         JSONObject snapshot = FcmMonitorService.lastSnapshot(this);
         long stamp = snapshot.optLong("fcm_sample_time", 0);
         long age = FcmMonitorService.sampleAgeSeconds(this);
         String lastError = FcmMonitorService.lastError(this);
         String observed = snapshot.optString("fcm_state", "never_seen");
         boolean nativeState = "gms".equals(snapshot.optString("fcm_source"));
-        String nativeReason = FcmMonitorService.describeNativeReason(snapshot.optString("fcm_native_reason", "unrecognized"));
-        long attempt = FcmMonitorService.lastAttemptAt(this);
-        String brief = lastError.replace('\n', ' ').replace('\r', ' ');
-        if (brief.length() > 110) brief = brief.substring(0, 110) + "…";
-
-        boolean wireless = AppPrefs.WIRELESS.equals(prefs.mode());
-        boolean independentReady = !wireless || PrivKitShell.isConnected();
-        if (!enabled) state.setText("监控未开启");
-        else if (!independentReady) state.setText("等待独立服务");
-        else if (!FcmMonitorService.isRunning()) state.setText("后台监控未运行");
-        else if (!lastError.isEmpty()) state.setText("采样异常 · 等待自动恢复");
-        else if (stamp <= 0) state.setText(attempt > 0 ? "等待首次有效采样" : "监控启动中");
-        else if (age < 0) state.setText("等待本次有效采样");
-        else if (age > 90) state.setText("采样过期 · 当前未知");
-        else if (!nativeState) state.setText("FCM 原生状态无法确认");
+        if (!lastError.isEmpty()) state.setText("连接检查失败");
+        else if (stamp <= 0 || age < 0 || age > 90) state.setText("正在检查 FCM 连接…");
+        else if (!nativeState) state.setText("暂时无法确认 FCM 状态");
         else if ("connected".equals(observed)) state.setText("FCM 已连接");
         else if ("connecting".equals(observed)) state.setText("FCM 正在重连");
-        else if ("disconnected".equals(observed)) state.setText("FCM 已断联");
-        else state.setText("FCM 状态尚不确定");
+        else if ("disconnected".equals(observed)) state.setText("FCM 连接已断开");
+        else state.setText("FCM 状态未知");
 
-        summary.setText("监控 " + (enabled ? "已开启" : "未开启")
-                + " · 应用守护 " + (prefs.guardEnabled() ? "已开启" : "未开启")
-                + "\n最近检测：" + (stamp <= 0 ? "暂无" :
-                        age < 0 ? "上次运行的记录" : age + " 秒前")
-                + (enabled && age >= 0 && age <= 90 && !nativeState && lastError.isEmpty()
-                    ? "\n原因：" + nativeReason : "")
-                + "\n保留的连接关闭事件：" + snapshot.optInt("fcm_native_close_events", 0) + " 条（非独立断联次数）"
-                + (enabled && nativeState && age >= 0 && age <= 90 && lastError.isEmpty()
-                    && snapshot.optLong("fcm_native_duration", -1) >= 0
-                    ? "\n" + ("connected".equals(observed) ? "本次已连接：" : "本次未连接：")
-                        + snapshot.optLong("fcm_native_duration") + " 秒" : "")
-                + (attempt > 0 && stamp <= 0 ? "\n最近尝试："
-                        + Math.max(0, (System.currentTimeMillis() - attempt) / 1000) + " 秒前" : "")
-                + "\n" + FcmMonitorService.serviceStatus(this)
-                + (FcmMonitorService.nextAttemptIn(this) > 0 ? " · " + FcmMonitorService.nextAttemptIn(this) + " 秒后重试" : "")
-                + (brief.isEmpty() ? "" : "\n错误：" + brief));
-
-        boolean initial = AppPrefs.WIRELESS.equals(prefs.mode()) && !prefs.adbPaired();
-        boolean failed = (enabled || prefs.guardEnabled())
-                && (!independentReady || (!lastError.isEmpty() && !prefs.shellError().isEmpty()));
-        issue.setVisibility(initial || failed ? View.VISIBLE : View.GONE);
-        if (initial) {
-            actionTitle.setText("尚未完成无线 ADB 配对");
-            actionDetail.setText("仅首次需要配对。配对后自动启动独立服务，再开始 FCM 采样。");
-            actionButton.setText("前往无线配对");
-        } else if (failed) {
-            actionTitle.setText(!independentReady ? PrivKitShell.status() : "监控正在自动重试");
-            actionDetail.setText(AppPrefs.SHIZUKU.equals(prefs.mode())
-                    ? "确认 Shizuku 服务已启动并授权；恢复后会自动检查。"
-                    : AppPrefs.WIRELESS.equals(prefs.mode())
-                    ? "配对身份仍保留。独立服务未运行时，在连接设置中启动即可，不必重新配对。"
-                    : "请确认所选 Shell 权限及连接方式。");
-            actionButton.setText(!independentReady ? "打开服务设置" : "检查连接与授权");
+        String description = "后台监控已开启 · 应用守护" + (prefs.guardEnabled() ? "已开启" : "未开启")
+                + "\n最近检查：" + (age >= 0 ? age + " 秒前" : "尚无本次检查结果");
+        if (age >= 0 && age <= 90 && nativeState && lastError.isEmpty()
+                && snapshot.optLong("fcm_native_duration", -1) >= 0) {
+            description += "\n" + ("connected".equals(observed) ? "已连接：" : "当前状态持续：")
+                    + snapshot.optLong("fcm_native_duration") + " 秒";
         }
+        if (!lastError.isEmpty()) description += "\n后台将自动重试，详情见监控详情。";
+        summary.setText(description);
     }
 
     @Override protected void onResume() {
         super.onResume();
         RecentTasks.apply(this, prefs.hideRecents());
-        FcmMonitorService.resumeIfNeeded(this);
+        if (authorizationReady()) FcmMonitorService.resumeIfNeeded(this);
         ui.removeCallbacks(refresh);
         ui.post(refresh);
     }
