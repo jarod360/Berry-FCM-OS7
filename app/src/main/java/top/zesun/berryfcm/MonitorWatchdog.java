@@ -6,6 +6,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.os.SystemClock;
+import android.os.PowerManager;
 
 /**
  * Backup wake-up path when a foreground monitor process stops or stalls.
@@ -15,6 +16,29 @@ import android.os.SystemClock;
 public final class MonitorWatchdog extends BroadcastReceiver {
     private static final String ACTION = "top.zesun.berryfcm.MONITOR_WATCHDOG";
     private static final long DELAY_MS = 60_000L;
+    private static PowerManager.WakeLock handoff;
+
+    /** Holds the CPU only until the service worker acquires its bounded lease. */
+    private static synchronized void holdForService(Context context) {
+        releaseHandoff();
+        try {
+            PowerManager power = context.getSystemService(PowerManager.class);
+            if (power == null) return;
+            handoff = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "BerryFCM:watchdog-handoff");
+            handoff.setReferenceCounted(false);
+            handoff.acquire(90000L);
+        } catch (RuntimeException error) {
+            handoff = null;
+            FcmMonitorService.logRuntime(context, "watchdog_wakelock_failed",
+                    error.getClass().getSimpleName());
+        }
+    }
+    static synchronized void releaseHandoff() {
+        if (handoff == null) return;
+        try { if (handoff.isHeld()) handoff.release(); }
+        catch (RuntimeException ignored) { }
+        finally { handoff = null; }
+    }
 
     private static PendingIntent operation(Context context) {
         Intent intent = new Intent(context, MonitorWatchdog.class).setAction(ACTION);
@@ -70,7 +94,10 @@ public final class MonitorWatchdog extends BroadcastReceiver {
             FcmMonitorService.logRuntime(context, "watchdog_skipped", "authorization_unavailable");
             return;
         }
-        if (!FcmMonitorService.startFromWatchdog(context))
+        holdForService(context);
+        if (!FcmMonitorService.startFromWatchdog(context)) {
+            releaseHandoff();
             FcmMonitorService.logRuntime(context, "watchdog_failed", "foreground_service_start_rejected");
+        }
     }
 }

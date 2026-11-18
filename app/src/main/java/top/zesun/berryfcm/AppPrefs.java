@@ -13,10 +13,19 @@ final class AppPrefs {
     static final String STATIC = "static";
     static final String SHIZUKU = "shizuku";
     static final String EXTERNAL = "external";
+    static final String WAKE_SMART = "smart";
+    static final String WAKE_CONTINUOUS = "continuous";
     private final SharedPreferences p;
 
     AppPrefs(Context context) {
         p = context.getSharedPreferences("berry_fcm_guardian", Context.MODE_PRIVATE);
+        // An upgraded alpha.89 installation retains its previous CPU policy.
+        // New installations use smart power saving; decide before any task toggle.
+        if (!p.contains("wake_mode")) {
+            String initial = p.contains("monitor_enabled") || p.contains("guard_enabled")
+                    ? WAKE_CONTINUOUS : WAKE_SMART;
+            p.edit().putString("wake_mode", initial).commit();
+        }
     }
     String mode() { return p.getString("mode", WIRELESS); }
     String authTab() {
@@ -55,6 +64,15 @@ final class AppPrefs {
     int staticPort() { return p.getInt("static_port", 5555); }
     void staticPort(int value) { p.edit().putInt("static_port", value).apply(); }
 
+    String wakeMode() {
+        return WAKE_CONTINUOUS.equals(p.getString("wake_mode", WAKE_SMART))
+                ? WAKE_CONTINUOUS : WAKE_SMART;
+    }
+    void wakeMode(String mode) {
+        if (!WAKE_SMART.equals(mode) && !WAKE_CONTINUOUS.equals(mode))
+            throw new IllegalArgumentException("Invalid CPU wake mode");
+        p.edit().putString("wake_mode", mode).apply();
+    }
     boolean monitorEnabled() { return p.getBoolean("monitor_enabled", false); }
     void monitorEnabled(boolean value) { p.edit().putBoolean("monitor_enabled", value).apply(); }
     void enableMonitorOnFirstAuthorization() {
