@@ -303,7 +303,7 @@ need 'syncChecked(monitorSwitch, prefs.monitorEnabled())' "$src/BackgroundActivi
 need 'finally { syncingSwitches = previous; }' "$src/Ui.java"
 need 'watchFuture.cancel(true)' "$src/GuardActivity.java"
 need 'runSafe(manual)' "$src/FcmMonitorService.java"
-need 'guardKey.equals(p.connectionKey())' "$src/FcmMonitorService.java"
+need 'key.equals(p.connectionKey())' "$src/FcmMonitorService.java"
 need 'tileRequestPending' "$src/AuthActivity.java"
 # Old private/OEM or duplicate settings assertion removed.
 status_classes="$(mktemp -d)"
