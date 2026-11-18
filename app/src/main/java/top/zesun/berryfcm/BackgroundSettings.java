@@ -38,19 +38,20 @@ final class BackgroundSettings {
                 "berry_fcm_policy_ownership", android.content.Context.MODE_PRIVATE);
         StringBuilder report = new StringBuilder();
         if (dozePresent(shell, SELF)) {
-            report.append("BerryFCM Doze：已在白名单，不修改\n");
+            report.append("BerryFCM 休眠限制：系统已允许，无需修改\n");
         } else {
             if (!own.edit().putBoolean("self_doze_owned", true).commit())
                 throw new IllegalStateException("无法保存 Doze 回滚记录");
             shell.execute("cmd deviceidle whitelist +" + SELF + " 2>&1");
             if (!dozePresent(shell, SELF))
                 throw new IllegalStateException("BerryFCM Doze 放行未通过回读");
-            report.append("BerryFCM Doze：已加入（可撤销）\n");
+            report.append("BerryFCM 休眠限制：已放行（可撤销）\n");
         }
         for (String op : new String[]{"RUN_ANY_IN_BACKGROUND", "RUN_IN_BACKGROUND"}) {
             String mode = readAppOp(shell, op);
             if (mode == null) {
-                report.append(op).append("：无法读取现有状态，未修改\n");
+                report.append("RUN_ANY_IN_BACKGROUND".equals(op) ? "后台活动限制" : "后台运行限制")
+                        .append("：无法核实当前状态，未修改\n");
                 continue;
             }
             if (!"allow".equals(mode)) {
@@ -61,8 +62,9 @@ final class BackgroundSettings {
                 if (!"allow".equals(readAppOp(shell, op)))
                     throw new IllegalStateException(op + " 放行未通过回读");
             }
-            report.append(op).append("：已回读 allow")
-                    .append(own.contains("self_op_previous_" + op) ? "（可撤销）" : "（未修改原状态）")
+            report.append("RUN_ANY_IN_BACKGROUND".equals(op) ? "后台活动限制" : "后台运行限制")
+                    .append("：已允许")
+                    .append(own.contains("self_op_previous_" + op) ? "（可撤销）" : "（保持原状态）")
                     .append("\n");
         }
         return report.toString().trim();
@@ -79,7 +81,7 @@ final class BackgroundSettings {
                     throw new IllegalStateException("撤销 BerryFCM Doze 放行失败");
             }
             own.edit().remove("self_doze_owned").apply();
-            report.append("BerryFCM Doze：已恢复\n");
+            report.append("BerryFCM 休眠限制：已撤销本应用放行\n");
         }
         for (String op : new String[]{"RUN_ANY_IN_BACKGROUND", "RUN_IN_BACKGROUND"}) {
             String key = "self_op_previous_" + op;
@@ -92,10 +94,12 @@ final class BackgroundSettings {
                 if (!previous.equals(readAppOp(shell, op)))
                     throw new IllegalStateException(op + " 恢复未通过回读");
             } else {
-                report.append(op).append("：已被外部修改，未覆盖\n");
+                report.append("RUN_ANY_IN_BACKGROUND".equals(op) ? "后台活动限制" : "后台运行限制")
+                        .append("：已被其他操作修改，没有覆盖\n");
             }
             own.edit().remove(key).apply();
-            report.append(op).append("：回滚记录已处理\n");
+            report.append("RUN_ANY_IN_BACKGROUND".equals(op) ? "后台活动限制" : "后台运行限制")
+                    .append("：原始状态恢复记录已处理\n");
         }
         if (report.length() == 0)
             return "没有本版 BerryFCM 记录的可撤销策略；旧版未记录原状态的修改不能安全推测并恢复";
