@@ -58,6 +58,8 @@ public final class FcmMonitorService extends Service {
     private int newestStartId;
     private AdbConnectionManager adb;
     private long lastGuardAt;
+    private String lastGuardKey = "";
+    private java.util.Set<String> lastGuardTargets = java.util.Collections.emptySet();
     private Network observedNetwork;
     private String lastNotificationText = "";
     private long networkChangedAt;
@@ -264,20 +266,22 @@ public final class FcmMonitorService extends Service {
         String action = intent == null ? null : intent.getAction();
         if (CHECK.equals(action) && !firstStart) queueCheck(true);
         if (RECONNECT.equals(action) && reconnectQueued.compareAndSet(false, true)) {
-            saveManualResult(prefs.connectionKey(), "正在读取 GMS 并检查重连条件…");
+            final String requestedKey = prefs.connectionKey();
+            final String requestedMode = prefs.mode();
+            saveManualResult(requestedKey, "正在读取 GMS 并检查重连条件…");
             try {
                 worker.execute(() -> {
-                    try { manualReconnectInternal(); }
+                    try { manualReconnectInternal(requestedKey, requestedMode); }
                     finally {
                         String pending = manualReconnectResult(this);
                         if (pending.startsWith("正在读取"))
-                            saveManualResult(prefs.connectionKey(), "本次重连已结束，未确认执行结果");
+                            saveManualResult(requestedKey, "本次重连已结束，未确认执行结果");
                         reconnectQueued.set(false);
                     }
                 });
             } catch (RejectedExecutionException error) {
                 reconnectQueued.set(false);
-                saveManualResult(prefs.connectionKey(), "未执行：后台服务正在停止");
+                saveManualResult(requestedKey, "未执行：后台服务正在停止");
             }
         }
         return START_STICKY;
@@ -455,23 +459,33 @@ public final class FcmMonitorService extends Service {
             }
         }
         long now = SystemClock.elapsedRealtime();
-        if (p.guardEnabled() && (lastGuardAt == 0 || now < lastGuardAt
-                || now - lastGuardAt >= TimeUnit.MINUTES.toMillis(5))) {
+        String guardKey = p.connectionKey();
+        java.util.Set<String> guardTargets = p.guardTargets();
+        if (!p.guardEnabled()) {
+            lastGuardAt = 0;
+        } else if (!guardKey.equals(lastGuardKey) || !guardTargets.equals(lastGuardTargets)
+                || lastGuardAt == 0 || now < lastGuardAt
+                || now - lastGuardAt >= TimeUnit.MINUTES.toMillis(5)) {
             lastGuardAt = now;
+            lastGuardKey = guardKey;
+            lastGuardTargets = new java.util.HashSet<>(guardTargets);
             try {
                 StringBuilder reports = new StringBuilder();
                 String mode = p.mode();
-                String guardKey = p.connectionKey();
-                for (String command : GuardOps.commandBatches(p.guardTargets(), true)) {
-                    if (!scheduled || !p.guardEnabled() || !guardKey.equals(p.connectionKey())) return;
+                for (String command : GuardOps.commandBatches(guardTargets, true)) {
+                    if (!scheduled || !p.guardEnabled() || !guardKey.equals(p.connectionKey())
+                            || !guardTargets.equals(p.guardTargets())) return;
                     reports.append(execute(p, mode, command)).append("\n");
                 }
-                if (!scheduled || !p.guardEnabled() || !guardKey.equals(p.connectionKey())) return;
+                if (!scheduled || !p.guardEnabled() || !guardKey.equals(p.connectionKey())
+                        || !guardTargets.equals(p.guardTargets())) return;
                 String report = reports.toString().trim();
                 if (report.contains("|restored")) {
                     report += "\n已修复应用，已请求 GMS 心跳（非连接成功证明）：\n"
                             + execute(p, mode, GuardOps.heartbeatCommand());
                 }
+                if (!scheduled || !p.guardEnabled() || !guardKey.equals(p.connectionKey())
+                        || !guardTargets.equals(p.guardTargets())) return;
                 getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE).edit()
                         .putString("report", report).putLong("last_run", System.currentTimeMillis()).apply();
             } catch (Exception error) {
@@ -484,11 +498,10 @@ public final class FcmMonitorService extends Service {
         }
     }
 
-    private void manualReconnectInternal() {
+    private void manualReconnectInternal(String key, String mode) {
         AppPrefs p = new AppPrefs(this);
-        String mode = p.mode();
-        String key = p.connectionKey();
         if (!scheduled || !session.equals(activeSession) || !p.monitorEnabled()
+                || !key.equals(p.connectionKey()) || !mode.equals(p.mode())
                 || !PrivilegeAccess.canRunInBackground(this)) {
             saveManualResult(key, "未执行：监控已关闭或核心授权暂不可用");
             return;

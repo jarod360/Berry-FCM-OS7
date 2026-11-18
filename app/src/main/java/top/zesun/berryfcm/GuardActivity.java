@@ -347,9 +347,11 @@ public final class GuardActivity extends Ui {
         if (!requireAuthorization() || !beginOperation()) return;
         guardStatus.setText(fix ? "正在检查并尝试恢复…" : "正在检查应用…");
         report.setText(fix ? "正在检查并尝试恢复…" : "正在检查应用是否被强制停止…");
+        final String key = prefs.connectionKey();
+        final Set<String> targets = prefs.guardTargets();
         worker.execute(() -> {
-            try (PrivilegeShell shell = PrivilegeAccess.open(this)) {
-                String result = runGuardBatches(shell, fix);
+            try (PrivilegeShell shell = openGuardShell(key, targets)) {
+                String result = runGuardBatches(shell, fix, key, targets);
                 getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE)
                         .edit().putString("report", result).putLong("last_run", System.currentTimeMillis()).apply();
                 runOnUiThread(() -> { if (!isDestroyed()) { report.setText(result); renderSelected(); renderGuardStatus(); } });
@@ -358,12 +360,29 @@ public final class GuardActivity extends Ui {
             } finally { runOnUiThread(() -> operationRunning = false); }
         });
     }
-    private String runGuardBatches(PrivilegeShell shell, boolean fix) throws Exception {
+    private void verifyGuardSelection(String key, Set<String> targets) throws InterruptedException {
+        if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
+        if (!key.equals(prefs.connectionKey()) || !targets.equals(prefs.guardTargets()))
+            throw new IllegalStateException("授权方式或守护列表已变化，请重新检查");
+    }
+
+    private PrivilegeShell openGuardShell(String key, Set<String> targets) throws Exception {
+        verifyGuardSelection(key, targets);
+        return PrivilegeAccess.open(this);
+    }
+
+    private String runGuardBatches(PrivilegeShell shell, boolean fix, String key, Set<String> targets) throws Exception {
         StringBuilder result = new StringBuilder();
-        for (String command : GuardOps.commandBatches(prefs.guardTargets(), fix)) {
-            if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
+        for (String command : GuardOps.commandBatches(targets, fix)) {
+            verifyGuardSelection(key, targets);
             result.append(shell.execute(command)).append("\n");
         }
+        verifyGuardSelection(key, targets);
+        if (fix && result.toString().contains("|restored")) {
+            result.append("\n已解除停止，已请求 GMS 心跳（非推送送达证明）：\n")
+                    .append(shell.execute(GuardOps.heartbeatCommand()));
+        }
+        verifyGuardSelection(key, targets);
         return result.toString().trim();
     }
     private boolean beginOperation() {
@@ -374,9 +393,13 @@ public final class GuardActivity extends Ui {
     private void requestHeartbeat() {
         if (!requireAuthorization() || !beginOperation()) return;
         report.setText("正在请求 GMS 心跳…");
+        final String key = prefs.connectionKey();
+        final Set<String> targets = prefs.guardTargets();
         worker.execute(() -> {
-            try (PrivilegeShell shell = PrivilegeAccess.open(this)) {
+            try (PrivilegeShell shell = openGuardShell(key, targets)) {
+                verifyGuardSelection(key, targets);
                 String output = shell.execute(GuardOps.heartbeatCommand());
+                verifyGuardSelection(key, targets);
                 runOnUiThread(() -> { if (!isDestroyed()) report.setText("心跳广播结果（不是推送送达证明）\n" + output); });
             } catch (Exception error) {
                 runOnUiThread(() -> { if (!isDestroyed()) report.setText("心跳请求失败：" + error.getMessage()); });
@@ -388,14 +411,12 @@ public final class GuardActivity extends Ui {
         if (!requireAuthorization() || !beginOperation()) return;
         report.setText("正在运行 90 秒巡检；离开页面会中止本次交互测试");
         final long generation = ++operationGeneration;
+        final String key = prefs.connectionKey();
+        final Set<String> targets = prefs.guardTargets();
         watchFuture = worker.submit(() -> {
-            try (PrivilegeShell shell = PrivilegeAccess.open(this)) {
+            try (PrivilegeShell shell = openGuardShell(key, targets)) {
                 for (int i = 0; i < 7; i++) {
-                    String result = runGuardBatches(shell, true);
-                    if (result.contains("|restored")) {
-                        result += "\n已修复应用，尝试请求 GMS 心跳：\n"
-                                + shell.execute(GuardOps.heartbeatCommand());
-                    }
+                    String result = runGuardBatches(shell, true, key, targets);
                     getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE).edit()
                             .putString("report", result).putLong("last_run", System.currentTimeMillis()).apply();
                     final int sample = i + 1;
@@ -431,6 +452,7 @@ public final class GuardActivity extends Ui {
 
     @Override protected void onResume() {
         super.onResume();
+        FcmMonitorService.resumeIfNeeded(this);
         renderedTargets = null; // re-read app installation state after returning
         guardReport.registerOnSharedPreferenceChangeListener(reportListener);
         refreshStoredReport();
