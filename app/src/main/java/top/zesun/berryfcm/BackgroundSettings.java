@@ -168,12 +168,12 @@ final class BackgroundSettings {
         return am.isBackgroundRestricted() ? "已限制" : "未限制（不代表厂商高耗电已开启）";
     }
 
-    static String monitorNotificationStatus(Activity activity, boolean quiet) {
+    static String monitorNotificationStatus(Activity activity) {
         android.app.NotificationManager manager = activity.getSystemService(android.app.NotificationManager.class);
         if (manager == null) return "无法读取";
         if (!manager.areNotificationsEnabled()) return "系统通知已关闭";
         android.app.NotificationChannel channel = manager.getNotificationChannel(
-                quiet ? "berry_fcm_monitor_quiet" : "berry_fcm_monitor_active");
+                "berry_fcm_monitor_quiet");
         if (channel == null) return "尚未创建";
         return channel.getImportance() == android.app.NotificationManager.IMPORTANCE_NONE ? "已关闭" : "已开启";
     }
@@ -182,8 +182,8 @@ final class BackgroundSettings {
                 .putExtra(Settings.EXTRA_APP_PACKAGE, activity.getPackageName())); }
         catch (RuntimeException ex) { details(activity); }
     }
-    static void monitorNotifications(Activity activity, boolean quiet) {
-        String channel = quiet ? "berry_fcm_monitor_quiet" : "berry_fcm_monitor_active";
+    static void monitorNotifications(Activity activity) {
+        String channel = "berry_fcm_monitor_quiet";
         android.app.NotificationManager manager = activity.getSystemService(android.app.NotificationManager.class);
         if (manager == null || manager.getNotificationChannel(channel) == null) { notifications(activity); return; }
         try { activity.startActivity(new Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
