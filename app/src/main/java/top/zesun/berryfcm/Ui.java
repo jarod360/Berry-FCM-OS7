@@ -237,7 +237,7 @@ abstract class Ui extends Activity {
             entry.setBackground(new RippleDrawable(
                     ColorStateList.valueOf(dark ? 0x44ffffff : 0x15000000), null, null));
             entry.setFocusable(true);
-            entry.setMinHeight(dp(48));
+            entry.setMinimumHeight(dp(48));
             entry.setOnClickListener(v -> action.run());
         }
     }
