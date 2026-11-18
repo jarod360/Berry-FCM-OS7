@@ -22,6 +22,16 @@ public final class PairingGateSmoke {
         check(gate.found(b,23456));
         check(!gate.submit(a,23456));
         check(gate.submit(b,23456));
-        System.out.println("PASS: discovery-before-input, port loss, duplicate and stale replies");
+        gate.cancel();
+        int c = gate.begin();
+        check(!gate.submitManual(b, 23456));
+        check(!gate.submitManual(c, 0));
+        check(gate.found(c, 23456));
+        check(!gate.submitManual(c, 34567));
+        gate.lost(c, 23456);
+        check(gate.submitManual(c, 34567));
+        check(!gate.submitManual(c, 34567));
+        check(gate.pairing(c));
+        System.out.println("PASS: discovery-before-input, explicit manual fallback, port loss, duplicate and stale replies");
     }
 }

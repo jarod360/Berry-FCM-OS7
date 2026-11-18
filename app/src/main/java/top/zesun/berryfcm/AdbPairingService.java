@@ -27,6 +27,7 @@ public final class AdbPairingService extends Service {
     private static final String ACTION_REPLY = "berryfcm.pair.reply";
     private static final String ACTION_STOP = "berryfcm.pair.stop";
     private static final int NOTIFICATION = 7310;
+    private static final long MANUAL_FALLBACK_DELAY_MS = 15000L;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
     private final PairingGate gate = new PairingGate();
@@ -69,17 +70,35 @@ public final class AdbPairingService extends Service {
             // Stale notifications, missing service and duplicate submissions
             // cannot initiate pairing. The port comes from discovery, not input.
             if (!active) { stopSelf(); return START_NOT_STICKY; }
-            if (!gate.ready(generation, port)) return START_NOT_STICKY;
-            if (!code.matches("[0-9]{6}")) {
-                publish("配对码必须是六位数字，请重新输入", true, port);
-                return START_NOT_STICKY;
+            boolean fallback = port == 0 && intent.getBooleanExtra("manual_fallback", false);
+            if (fallback) {
+                if (!gate.searching(generation) || gate.hasPort()) return START_NOT_STICKY;
+                String[] parts = code.split(":", -1);
+                int entered = 0;
+                try { if (parts.length == 2) entered = Integer.parseInt(parts[0].trim()); }
+                catch (NumberFormatException ignored) { }
+                if (entered < 1 || entered > 65535 || parts.length != 2 || !parts[1].trim().matches("[0-9]{6}")) {
+                    publish("请输入系统配对端口:六位配对码", true, 0);
+                    return START_NOT_STICKY;
+                }
+                if (!gate.submitManual(generation, entered)) return START_NOT_STICKY;
+                port = entered;
+                code = parts[1].trim();
+            } else {
+                if (!gate.ready(generation, port)) return START_NOT_STICKY;
+                if (!code.matches("[0-9]{6}")) {
+                    publish("配对码必须是六位数字，请重新输入", true, port);
+                    return START_NOT_STICKY;
+                }
+                if (!gate.submit(generation, port)) return START_NOT_STICKY;
             }
-            if (!gate.submit(generation, port)) return START_NOT_STICKY;
             publish("正在配对…", false, 0);
-            final boolean manual = manualPairPort > 0;
+            final boolean manual = fallback || manualPairPort > 0;
+            final int submittedPort = port;
+            final String submittedCode = code;
             // Cancel any rediscovery in progress before starting the handshake.
             if (task != null) task.cancel(true);
-            task = worker.submit(() -> pair(generation, port, code, manual));
+            task = worker.submit(() -> pair(generation, submittedPort, submittedCode, manual));
             return START_NOT_STICKY;
         }
         if (!ACTION_BEGIN.equals(intent.getAction())) return START_NOT_STICKY;
@@ -98,6 +117,7 @@ public final class AdbPairingService extends Service {
         // Let Priv Kit validate the actual local endpoint (LAN or loopback).
         // A second loopback bind test rejects valid Android 17 LAN listeners.
         int previous = 0;
+        long searchStart = android.os.SystemClock.elapsedRealtime();
         while (gate.searching(generation) && !Thread.currentThread().isInterrupted()) {
             try {
                 int found = manual > 0 ? manual : PrivKitShell.discoverPairingPort();
@@ -119,9 +139,11 @@ public final class AdbPairingService extends Service {
                 if (!gate.searching(generation)) return;
                 if (previous > 0) gate.lost(generation, previous);
                 previous = 0;
+                boolean fallback = android.os.SystemClock.elapsedRealtime() - searchStart >= MANUAL_FALLBACK_DELAY_MS;
                 main.post(() -> {
                     if (gate.searching(generation) && !gate.hasPort())
-                        publish("请打开系统无线调试中的“使用配对码配对设备”", false, 0);
+                        publish(fallback ? "未自动发现端口，可在通知栏输入配对端口:六位配对码"
+                                : "请打开系统无线调试中的“使用配对码配对设备”", fallback, 0);
                 });
                 try { Thread.sleep(500L); }
                 catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); return; }
@@ -211,14 +233,15 @@ public final class AdbPairingService extends Service {
             Intent reply = new Intent(this, AdbPairingService.class).setAction(ACTION_REPLY)
                     .putExtra("port", selectedPort)
                     .putExtra("generation", gate.generation())
+                    .putExtra("manual_fallback", selectedPort == 0)
                     .setData(android.net.Uri.parse("berryfcm://pair/" + gate.generation() + "/" + selectedPort));
             PendingIntent pending = PendingIntent.getForegroundService(this, 10, reply,
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
             Notification.Action input = new Notification.Action.Builder(
                     android.R.drawable.ic_menu_edit,
-                    "输入六位配对码", pending)
+                    selectedPort == 0 ? "输入端口和配对码" : "输入六位配对码", pending)
                     .addRemoteInput(new RemoteInput.Builder(KEY_CODE)
-                            .setLabel("六位配对码").build())
+                            .setLabel(selectedPort == 0 ? "端口:六位配对码" : "六位配对码").build())
                     .build();
             b.addAction(input);
         }

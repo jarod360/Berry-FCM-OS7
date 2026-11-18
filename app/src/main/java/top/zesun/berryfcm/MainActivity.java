@@ -12,9 +12,13 @@ import org.json.JSONObject;
 public final class MainActivity extends Ui {
     private TextView state, summary;
     private Button monitorButton;
+    private boolean wasAuthorized;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final Runnable refresh = new Runnable() {
         @Override public void run() {
+            boolean ready = authorizationReady();
+            if (ready && !wasAuthorized) FcmMonitorService.resumeIfNeeded(MainActivity.this);
+            wasAuthorized = ready;
             render();
             ui.postDelayed(this, 1000);
         }
@@ -74,7 +78,7 @@ public final class MainActivity extends Ui {
                 monitorButton.setText("正在启动");
                 monitorButton.setEnabled(false);
             } else if (wireless && prefs.adbPaired() && !prefs.pairingRejected()) {
-                boolean failed = "服务启动失败".equals(PrivKitShell.status());
+                boolean failed = !PrivKitShell.lastStartupError(this).isEmpty() || "服务启动失败".equals(PrivKitShell.status());
                 state.setText(failed ? "服务启动失败" : "服务未启动");
                 summary.setText("请到 ADB 授权页面启动服务。已有配对可直接使用，无需重复配对。");
                 monitorButton.setText(failed ? "重新启动" : "启动服务");
@@ -128,6 +132,7 @@ public final class MainActivity extends Ui {
     @Override protected void onResume() {
         super.onResume();
         RecentTasks.apply(this, prefs.hideRecents());
+        wasAuthorized = authorizationReady();
         if (authorizationReady()) FcmMonitorService.resumeIfNeeded(this);
         ui.removeCallbacks(refresh);
         ui.post(refresh);

@@ -240,7 +240,7 @@ public final class AuthActivity extends Ui {
     }
 
     private void stepFallback(LinearLayout fallback) {
-        TextView tip = text("手动指定仅作为故障诊断备用，正常配对无需端口。",
+        TextView tip = text("正常配对无需端口。自动发现失败时可直接在通知栏输入配对端口:六位配对码，不必退出系统配对页面。",
                 12, false, muted);
         tip.setPadding(0, dp(5), 0, dp(8));
         fallback.addView(tip);
@@ -332,7 +332,7 @@ public final class AuthActivity extends Ui {
     }
 
     private void beginPair(int manualPort) {
-        if (checking) return;
+        if (checking || AdbPairingService.isPairingActive() || PrivKitShell.isStarting()) return;
         pendingPairPort = manualPort;
         if (Build.VERSION.SDK_INT < 30) {
             error("系统不支持 Android 11 无线 ADB 配对");
@@ -355,6 +355,14 @@ public final class AuthActivity extends Ui {
             error("请先开启 BerryFCM 通知权限，才能从通知栏输入配对码");
             startActivity(new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
                     .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName()));
+            return;
+        }
+        android.app.NotificationChannel channel = manager.getNotificationChannel("berryfcm_pairing");
+        if (channel != null && channel.getImportance() == android.app.NotificationManager.IMPORTANCE_NONE) {
+            error("无线 ADB 配对通知已关闭，请开启这个通知类别");
+            startActivity(new Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName())
+                    .putExtra(Settings.EXTRA_CHANNEL_ID, "berryfcm_pairing"));
             return;
         }
         try {
