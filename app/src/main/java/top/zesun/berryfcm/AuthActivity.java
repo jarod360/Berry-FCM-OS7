@@ -59,6 +59,8 @@ public final class AuthActivity extends Ui {
     private boolean startAfterSettings;
     private boolean leftForSettings;
     private int pendingPairPort = -1;
+    private boolean pendingWirelessStart;
+    private static final int LOCAL_NETWORK_PERMISSION = 121;
     private static final int SHIZUKU_PERMISSION = 130;
     private final Shizuku.OnRequestPermissionResultListener shizukuPermission = (code, grant) -> {
         if (code != SHIZUKU_PERMISSION) return;
@@ -70,7 +72,7 @@ public final class AuthActivity extends Ui {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        selected = prefs.mode();
+        selected = prefs.authTab();
         Shizuku.addRequestPermissionResultListener(shizukuPermission);
         title("授权管理", "无线 ADB 配对与后台权限");
 
@@ -319,6 +321,7 @@ public final class AuthActivity extends Ui {
                 }
                 if (mode.equals(selected)) return;
                 selected = mode;
+                prefs.authTab(mode);
                 // Browsing connection methods must not interrupt the active monitor.
                 renderTabs();
                 renderInstructions();
@@ -409,7 +412,9 @@ public final class AuthActivity extends Ui {
 
     private void startWireless() {
         if (checking || AdbPairingService.isPairingActive() || PrivKitShell.isStarting()) return;
+        prefs.authTab(AppPrefs.WIRELESS);
         prefs.wirelessConnectPort(0);
+        if (!ensureLocalNetworkPermission(true)) return;
         if (PrivKitShell.wirelessDebuggingState(this) == 0) openWirelessForStart();
         else checkShell();
     }
@@ -521,6 +526,7 @@ public final class AuthActivity extends Ui {
         step("返回 BerryFCM", "切换到 ADB TCP，填写本机 127.0.0.1 和实际开放的端口后验证。重启后可能失效。");
         button(instructions, "切换到 ADB TCP", () -> {
             selected = AppPrefs.STATIC;
+            prefs.authTab(selected);
             renderTabs();
             renderInstructions();
             renderStatus();
@@ -549,11 +555,13 @@ public final class AuthActivity extends Ui {
 
     private void beginPair(int manualPort) {
         if (checking || AdbPairingService.isPairingActive() || PrivKitShell.isStarting()) return;
+        prefs.authTab(AppPrefs.WIRELESS);
         pendingPairPort = manualPort;
         if (Build.VERSION.SDK_INT < 30) {
             error("系统不支持 Android 11 无线 ADB 配对");
             return;
         }
+        if (!ensureLocalNetworkPermission(false)) return;
         if (Build.VERSION.SDK_INT >= 33
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
                         != PackageManager.PERMISSION_GRANTED) {
@@ -587,9 +595,30 @@ public final class AuthActivity extends Ui {
         }
     }
 
+    // Mirror Priv Kit's Android 17 permission gate; normal path still uses mDNS.
+    private boolean ensureLocalNetworkPermission(boolean forStart) {
+        if (PrivKitShell.localNetworkAllowed(this)) return true;
+        pendingWirelessStart = forStart;
+        requestPermissions(new String[]{Manifest.permission.ACCESS_LOCAL_NETWORK}, LOCAL_NETWORK_PERMISSION);
+        return false;
+    }
+
     @Override public void onRequestPermissionsResult(
             int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == LOCAL_NETWORK_PERMISSION) {
+            boolean forStart = pendingWirelessStart;
+            int pairPort = pendingPairPort;
+            pendingWirelessStart = false;
+            pendingPairPort = -1;
+            if (grantResults.length == 0 || grantResults[0] != PackageManager.PERMISSION_GRANTED) {
+                error("系统未授予局域网权限，无法自动发现无线 ADB 端口");
+                return;
+            }
+            if (forStart) checkShell();
+            else if (pairPort >= 0) beginPair(pairPort);
+            return;
+        }
         if (requestCode != 120) return;
         if (grantResults.length == 0 || grantResults[0] != PackageManager.PERMISSION_GRANTED) {
             pendingPairPort = -1;
@@ -644,6 +673,7 @@ public final class AuthActivity extends Ui {
         if (checking || AdbPairingService.isPairingActive() || PrivKitShell.isStarting()
                 || AppPrefs.EXTERNAL.equals(selected)) return;
         final String candidate = selected;
+        if (AppPrefs.WIRELESS.equals(candidate) && !ensureLocalNetworkPermission(true)) return;
         if (AppPrefs.WIRELESS.equals(candidate)) {
             if (AdbPairingService.isPairingActive() || PrivKitShell.isStarting()) return;
             automaticCheckDone = true;
@@ -695,7 +725,7 @@ public final class AuthActivity extends Ui {
             return;
         }
         String mode = prefs.mode();
-        if (!selected.equals(mode)) {
+        if (!selected.equals(mode) && !AppPrefs.WIRELESS.equals(selected)) {
             boolean ready = PrivilegeAccess.readyForUserAction(this);
             status.setText("当前使用：" + (AppPrefs.ROOT.equals(mode) ? "Root" : AppPrefs.SHIZUKU.equals(mode) ? "Shizuku" : AppPrefs.STATIC.equals(mode) ? "ADB TCP" : "无线 ADB"));
             status.setTextColor(ready ? success : warning);
@@ -726,7 +756,7 @@ public final class AuthActivity extends Ui {
             } else if (prefs.adbPaired() || PrivKitShell.hasStoredIdentity(this)) {
                 boolean failed = !PrivKitShell.lastStartupError(this).isEmpty();
                 status.setText(failed ? "服务启动失败" : "服务未启动");
-                detail.setText(failed ? "请重试启动服务，具体原因见下方“查看失败原因”。" : "已有配对记录，请先启动服务。");
+                detail.setText(failed ? "本机无线 ADB 启动失败；查看下方错误，不会自动切换到 Shizuku。" : "已有配对记录，请启动服务。");
             } else {
                 boolean failed = prefs.pairingStatus().startsWith("配对失败");
                 status.setText(failed ? "配对失败" : "需要 ADB 授权");
