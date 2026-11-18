@@ -252,7 +252,7 @@ need 'createAuxiliaryPermissions()' "$src/AuthActivity.java"
 need 'refreshAuxiliaryPermissions()' "$src/AuthActivity.java"
 need 'BackgroundSettings.associatedStart(this)' "$src/AuthActivity.java"
 need 'BackgroundSettings.powerSettings(this)' "$src/AuthActivity.java"
-need 'FcmMonitorService.refreshDisplay(this)' "$src/AuthActivity.java"
+need 'BackgroundSettings.monitorNotifications(this)' "$src/AuthActivity.java"
 if grep -nE 'BackgroundSettings\.(batteryExempt|originAutoStartStatus|backgroundRestriction|monitorNotificationStatus)|FcmTileService\.(offered|displayStatus)|areNotificationsEnabled' "$src/PrivilegeAccess.java" "$src/FcmMonitorService.java" "$src/BootReceiver.java"; then
   echo 'Optional system permissions must not block background task execution' >&2; exit 1
 fi
