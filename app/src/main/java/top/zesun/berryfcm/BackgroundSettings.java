@@ -11,20 +11,39 @@ final class BackgroundSettings {
     private static final String SELF = "top.zesun.berryfcm";
     private BackgroundSettings() {}
 
+    // PrivilegeShell returns combined text. Absence in an error message is not
+    // evidence that a policy is absent. Only a successful read can authorize a write.
+    private static String checkedRead(PrivilegeShell shell, String command) throws Exception {
+        String raw = shell.execute(command + " 2>&1 && echo BERRY_POLICY_READ_OK");
+        if (!raw.trim().endsWith("BERRY_POLICY_READ_OK")
+                || java.util.regex.Pattern.compile("(?i)permission denial|permission denied|securityexception|unknown command|not allowed|can't find service").matcher(raw).find())
+            throw new IllegalStateException("系统策略无法读取，未继续修改");
+        return raw.substring(0, raw.lastIndexOf("BERRY_POLICY_READ_OK")).trim();
+    }
+
+    private static boolean dozePresent(PrivilegeShell shell, String pkg) throws Exception {
+        String rows = checkedRead(shell, "cmd deviceidle whitelist");
+        // AOSP prints category,package,appId; match the complete package, not a prefix.
+        for (String line : rows.split("\\r?\\n")) {
+            String[] cols = line.trim().split(",");
+            if (cols.length >= 2 && pkg.equals(cols[1].trim())) return true;
+        }
+        return false;
+    }
+
     // Only modify a setting after recording its previous state. Never guess an
     // AppOps default or overwrite a setting whose current mode is unreadable.
     static String optimize(android.content.Context context, PrivilegeShell shell) throws Exception {
         android.content.SharedPreferences own = context.getSharedPreferences(
                 "berry_fcm_policy_ownership", android.content.Context.MODE_PRIVATE);
         StringBuilder report = new StringBuilder();
-        String whitelist = shell.execute("cmd deviceidle whitelist 2>&1");
-        if (whitelist.contains("," + SELF)) {
+        if (dozePresent(shell, SELF)) {
             report.append("BerryFCM Doze：已在白名单，不修改\n");
         } else {
             if (!own.edit().putBoolean("self_doze_owned", true).commit())
                 throw new IllegalStateException("无法保存 Doze 回滚记录");
             shell.execute("cmd deviceidle whitelist +" + SELF + " 2>&1");
-            if (!shell.execute("cmd deviceidle whitelist 2>&1").contains("," + SELF))
+            if (!dozePresent(shell, SELF))
                 throw new IllegalStateException("BerryFCM Doze 放行未通过回读");
             report.append("BerryFCM Doze：已加入（可撤销）\n");
         }
@@ -54,10 +73,9 @@ final class BackgroundSettings {
                 "berry_fcm_policy_ownership", android.content.Context.MODE_PRIVATE);
         StringBuilder report = new StringBuilder();
         if (own.getBoolean("self_doze_owned", false)) {
-            String now = shell.execute("cmd deviceidle whitelist 2>&1");
-            if (now.contains("," + SELF)) {
+            if (dozePresent(shell, SELF)) {
                 shell.execute("cmd deviceidle whitelist -" + SELF + " 2>&1");
-                if (shell.execute("cmd deviceidle whitelist 2>&1").contains("," + SELF))
+                if (dozePresent(shell, SELF))
                     throw new IllegalStateException("撤销 BerryFCM Doze 放行失败");
             }
             own.edit().remove("self_doze_owned").apply();
@@ -85,7 +103,7 @@ final class BackgroundSettings {
     }
 
     private static String readAppOp(PrivilegeShell shell, String op) throws Exception {
-        String output = shell.execute("cmd appops get " + SELF + " " + op + " 2>&1");
+        String output = checkedRead(shell, "cmd appops get " + SELF + " " + op);
         java.util.regex.Matcher found = java.util.regex.Pattern.compile(
                 "(?i)\\b" + op + "\\s*:\\s*(allow|ignore|deny|default|foreground)\\b").matcher(output);
         if (found.find()) return found.group(1).toLowerCase(java.util.Locale.ROOT);
@@ -95,15 +113,15 @@ final class BackgroundSettings {
     static String gmsDoze(android.content.Context context, PrivilegeShell shell, boolean allow) throws Exception {
         android.content.SharedPreferences ownership = context.getSharedPreferences(
                 "berry_fcm_policy_ownership", android.content.Context.MODE_PRIVATE);
-        String before = shell.execute("cmd deviceidle whitelist 2>&1");
-        boolean present = before.contains(",com.google.android.gms");
+        boolean present = dozePresent(shell, GuardOps.GMS);
         if (allow && present) return "GMS 已经位于 Doze 白名单，本次没有修改，不记录为 BerryFCM 添加";
         if (!allow && !ownership.getBoolean("gms_doze_owned", false))
             return "拒绝撤销：该白名单不是 BerryFCM 添加的";
+        if (allow && !ownership.edit().putBoolean("gms_doze_owned", true).commit())
+            throw new IllegalStateException("无法保存 GMS Doze 撤销记录");
         shell.execute("cmd deviceidle whitelist "
                 + (allow ? "+" : "-") + "com.google.android.gms 2>&1");
-        String after = shell.execute("cmd deviceidle whitelist 2>&1");
-        boolean nowPresent = after.contains(",com.google.android.gms");
+        boolean nowPresent = dozePresent(shell, GuardOps.GMS);
         if (nowPresent != allow) throw new IllegalStateException("Doze 白名单未通过回读验证");
         ownership.edit().putBoolean("gms_doze_owned", allow).apply();
         return allow ? "GMS 已加入 Doze 白名单（由 BerryFCM 添加，可撤销）"
@@ -111,14 +129,14 @@ final class BackgroundSettings {
     }
     static String gmsBackgroundNetwork(android.content.Context context,
                                         PrivilegeShell shell, boolean allow) throws Exception {
-        String uidOutput = shell.execute("cmd package list packages -U com.google.android.gms 2>&1");
+        String uidOutput = checkedRead(shell, "cmd package list packages -U com.google.android.gms");
         java.util.regex.Matcher uidMatch = java.util.regex.Pattern.compile(
                 "uid:([0-9]+)").matcher(uidOutput);
         if (!uidMatch.find()) throw new IllegalStateException("无法通过 PackageManager 取得 GMS UID");
         String uid = uidMatch.group(1);
         android.content.SharedPreferences own = context.getSharedPreferences(
                 "berry_fcm_policy_ownership", android.content.Context.MODE_PRIVATE);
-        String before = shell.execute("cmd netpolicy list restrict-background-whitelist 2>&1");
+        String before = checkedRead(shell, "cmd netpolicy list restrict-background-whitelist");
         boolean exists = containsUid(before, uid);
         if (allow && exists) return "GMS 已经放行后台计量数据，未修改现有策略";
         if (!allow && (!own.getBoolean("net_owned", false)
@@ -126,8 +144,10 @@ final class BackgroundSettings {
             return "拒绝撤销：该 UID 的后台数据白名单并非由 BerryFCM 添加";
         String operation = "cmd netpolicy " + (allow ? "add" : "remove")
                 + " restrict-background-whitelist " + uid;
+        if (allow && !own.edit().putBoolean("net_owned", true).putString("net_uid", uid).commit())
+            throw new IllegalStateException("无法保存 GMS 网络策略撤销记录");
         shell.execute(operation);
-        String after = shell.execute("cmd netpolicy list restrict-background-whitelist 2>&1");
+        String after = checkedRead(shell, "cmd netpolicy list restrict-background-whitelist");
         if (containsUid(after, uid) != allow)
             throw new IllegalStateException("GMS 后台数据白名单复检未通过");
         own.edit().putBoolean("net_owned", allow)

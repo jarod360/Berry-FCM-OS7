@@ -106,8 +106,13 @@ if grep -q 'if (!prefs.shellRecentlyVerified()) state =' "$src/MonitorActivity.j
 fi
 
 need 'authorizationReady()' "$src/MonitorActivity.java"
-need 'adbPaired' "$src/GuardActivity.java"
-need 'adbPaired' "$src/BackgroundActivity.java"
+need 'PrivilegeAccess.readyForUserAction(this)' "$src/GuardActivity.java"
+need 'PrivilegeAccess.readyForUserAction(this)' "$src/BackgroundActivity.java"
+need 'PrivilegeAccess.readyForUserAction(this)' "$src/FcmTileService.java"
+need 'checkedRead' "$src/BackgroundSettings.java"
+need 'BERRY_POLICY_READ_OK' "$src/BackgroundSettings.java"
+need 'dozePresent' "$src/BackgroundSettings.java"
+need 'putLong("last_run", System.currentTimeMillis())' "$src/GuardActivity.java"
 need 'shellVerified' "$src/PrivilegeAccess.java"
 need 'shell_verified_elapsed' "$src/AppPrefs.java"
 need 'Math.abs(wallAge - elapsedAge)' "$src/AppPrefs.java"

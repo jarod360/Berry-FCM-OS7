@@ -71,26 +71,26 @@ public final class BackgroundActivity extends Ui {
         check.setOnCheckedChangeListener((b, value) -> {
             boolean privileged = label.contains("FCM 持续监控")
                     || label.contains("守护所选应用");
-            if (privileged && value && AppPrefs.WIRELESS.equals(prefs.mode())
-                    && !prefs.adbPaired()) {
+            if (privileged && value && !PrivilegeAccess.readyForUserAction(this)) {
                 check.setChecked(false);
-                error("首次使用需要先完成无线 ADB 配对");
+                error("请先完成授权并启动服务");
                 go(AuthActivity.class);
                 return;
             }
             change.apply(value);
+            renderPolicy();
         });
     }
     private void syncService() {
-        if (prefs.monitorEnabled() || prefs.guardEnabled()) FcmMonitorService.start(this);
-        else FcmMonitorService.stop(this);
+        if (!prefs.monitorEnabled() && !prefs.guardEnabled()) FcmMonitorService.stop(this);
+        else if (PrivilegeAccess.readyForUserAction(this)) FcmMonitorService.start(this);
     }
     private void renderPolicy() {
         if (policy == null) return;
         android.app.NotificationManager notifications =
                 getSystemService(android.app.NotificationManager.class);
         boolean notificationEnabled = notifications != null && notifications.areNotificationsEnabled();
-        policy.setText("后台运行：" + FcmMonitorService.serviceStatus(this)
+        policy.setText("后台运行：" + (!PrivilegeAccess.readyForUserAction(this) ? "需要授权" : FcmMonitorService.serviceStatus(this))
                 + "\n忽略系统电池优化："
                 + (BackgroundSettings.batteryExempt(this) ? "已确认" : "未开启／未确认")
                 + "\n通知权限：" + (notificationEnabled ? "已开启" : "未开启／未确认")
@@ -102,6 +102,7 @@ public final class BackgroundActivity extends Ui {
                 + "\nOriginOS 自启动、关联启动与后台高耗电：需在系统页面手动确认");
     }
     private void optimize() {
+        if (!PrivilegeAccess.readyForUserAction(this)) { go(AuthActivity.class); return; }
         policy.setText("正在通过 Shell 设置并回读…");
         worker.execute(() -> {
             try (PrivilegeShell shell = PrivilegeAccess.open(this)) {
@@ -113,6 +114,7 @@ public final class BackgroundActivity extends Ui {
         });
     }
     private void restoreOwn() {
+        if (!PrivilegeAccess.readyForUserAction(this)) { go(AuthActivity.class); return; }
         policy.setText("正在恢复 BerryFCM 自己记录的后台策略…");
         worker.execute(() -> {
             try (PrivilegeShell shell = PrivilegeAccess.open(this)) {
@@ -125,6 +127,7 @@ public final class BackgroundActivity extends Ui {
     }
 
     private void gmsPolicy(boolean allow) {
+        if (!PrivilegeAccess.readyForUserAction(this)) { go(AuthActivity.class); return; }
         policy.setText("正在修改 GMS 策略…");
         worker.execute(() -> {
             try (PrivilegeShell shell = PrivilegeAccess.open(this)) {
@@ -136,6 +139,7 @@ public final class BackgroundActivity extends Ui {
         });
     }
     private void gmsNetwork(boolean allow) {
+        if (!PrivilegeAccess.readyForUserAction(this)) { go(AuthActivity.class); return; }
         policy.setText("正在检查 GMS UID 和后台计量网络规则…");
         worker.execute(() -> {
             try (PrivilegeShell shell = PrivilegeAccess.open(this)) {
@@ -149,7 +153,7 @@ public final class BackgroundActivity extends Ui {
 
     @Override protected void onResume() {
         super.onResume();
-        FcmMonitorService.resumeIfNeeded(this);
+        if (PrivilegeAccess.readyForUserAction(this)) FcmMonitorService.resumeIfNeeded(this);
         renderPolicy();
     }
     @Override protected void onDestroy() { worker.shutdownNow(); super.onDestroy(); }
