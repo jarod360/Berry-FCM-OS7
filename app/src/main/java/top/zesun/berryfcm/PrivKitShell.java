@@ -32,7 +32,9 @@ final class PrivKitShell {
     private static boolean autoAttempted;
     private static final long RECOVERY_COOLDOWN_MS = 300000L;
     private static final String START_PREFS = "berry_privkit_start";
-    private static volatile String status = "独立服务尚未启动";
+    private static volatile String status = "服务未启动";
+    private static volatile boolean starting;
+    static boolean isStarting() { return starting; }
 
     private PrivKitShell() { }
 
@@ -102,7 +104,7 @@ final class PrivKitShell {
                 });
     }
 
-    static synchronized void pair(Context context, int port, String code) throws Exception {
+    static synchronized void pair(Context context, Integer port, String code) throws Exception {
         PrivilegeAdbManager adb = manager();
         startupTrace = "";
         PrivilegeAdbPairingResult result = BuildersKt.<PrivilegeAdbPairingResult>runBlocking(
@@ -110,7 +112,7 @@ final class PrivKitShell {
                     try { return adb.pair(code, port, 15000L, continuation); }
                     catch (PrivilegeStartupException ex) { throw new IllegalStateException(ex); }
                 });
-        if (result == null || result.getPort() != port)
+        if (result == null || result.getPort() <= 0 || (port != null && result.getPort() != port))
             throw new IOException("配对未返回有效结果");
         new AppPrefs(context).markPairingExchange();
         allowStart(context);
@@ -179,7 +181,8 @@ final class PrivKitShell {
         if (!explicit && (AdbPairingService.isPairingActive() || !new AppPrefs(context).adbPaired()))
             throw new IOException("等待真实配对认证");
         autoAttempted = true;
-        status = "正在启动独立服务";
+        starting = true;
+        status = "正在启动服务";
         boolean launched = false;
         try {
             long grace = SystemClock.elapsedRealtime() + 5000L;
@@ -208,16 +211,29 @@ final class PrivKitShell {
                 rememberLaunch(context);
                 launched = true;
                 startupTrace = "";
-                status = "正在真实验证 ADB 认证";
-                verifyPairing(context, port);
-                status = "认证通过，正在启动独立服务";
-                PrivilegeServerInfo result = launch(port);
+                // Start using the resolved endpoint directly. A separate check opens a second ADB session.
+                // Only check the identity on launch failure to classify rejection versus discovery failure.
+                status = "正在连接 ADB 并启动服务";
+                PrivilegeServerInfo result;
+                try {
+                    result = launch(port);
+                } catch (InterruptedException interrupted) {
+                    throw interrupted;
+                } catch (Exception failure) {
+                    try { verifyPairing(context, port); }
+                    catch (InterruptedException interrupted) { throw interrupted; }
+                    catch (Exception checkFailure) { startupTrace += "\n认证检查：" + errorChain(checkFailure); }
+                    throw failure;
+                }
                 if (result == null || result.getUid() != 2000)
                     throw new IOException("独立服务未返回 UID 2000");
             }
             if (!isConnected() || !KIT.pingServer())
                 throw new IOException("独立服务未回传有效的 UID 2000 Binder");
-            if (launched) startPrefs(context).edit().putString("last_result", "binder_ready").apply();
+            if (launched) {
+                new AppPrefs(context).markAdbPaired();
+                startPrefs(context).edit().putString("last_result", "binder_ready").apply();
+            }
             autoAttempted = false;
             status = "独立服务运行中";
         } catch (InterruptedException ex) {
@@ -228,9 +244,22 @@ final class PrivKitShell {
         } catch (Exception ex) {
             if (launched) startPrefs(context).edit().putString("last_result", "failed").apply();
             status = new AppPrefs(context).pairingRejected()
-                    ? "系统拒绝当前密钥，需要配对" : "独立服务启动失败，请查看认证和启动日志";
+                    ? "ADB 授权已失效，请重新配对" : "服务启动失败";
+            startupTrace += "\n启动失败："+ errorChain(ex) + "\n";
             throw ex;
+        } finally {
+            starting = false;
         }
+    }
+
+    static String errorChain(Throwable error) {
+        StringBuilder out = new StringBuilder();
+        for (Throwable t = error; t != null && out.length() < 1200; t = t.getCause()) {
+            if (out.length() > 0) out.append(" / ");
+            out.append(t.getClass().getSimpleName()).append(": ").append(t.getMessage());
+            if (t.getCause() == t) break;
+        }
+        return out.toString();
     }
 
     static synchronized String execute(Context context, String command) throws Exception {
