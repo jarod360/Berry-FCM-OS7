@@ -86,6 +86,7 @@ public final class DiagnosticsActivity extends Ui {
 
     private void shareEvents() {
         String report = "BerryFCM 状态诊断\n"
+                + "== 独立服务 / 启动证据 ==\n" + PrivKitShell.diagnostic(this) + "\n"
                 + "监控错误：" + FcmMonitorService.lastError(this) + "\n"
                 + FcmMonitorService.lastSnapshot(this).toString() + "\n"
                 + "\n== GMS 原生连接事件 ==\n" + FcmMonitorService.lastEvents(this)

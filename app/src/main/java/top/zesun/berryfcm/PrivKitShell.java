@@ -53,7 +53,10 @@ final class PrivKitShell {
 
     private static void rememberLaunch(Context context) throws IOException {
         // Persist before opening ADB. A process crash must not erase throttling.
-        if (!startPrefs(context).edit()
+        SharedPreferences p = startPrefs(context);
+        if (!p.edit()
+                .putLong("attempt_count", p.getLong("attempt_count", 0) + 1)
+                .putString("last_result", "requested")
                 .putLong("elapsed", SystemClock.elapsedRealtime())
                 .putLong("wall", System.currentTimeMillis())
                 .putInt("boot", bootCount(context)).commit())
@@ -72,7 +75,7 @@ final class PrivKitShell {
 
     static synchronized void allowStart(Context context) {
         autoAttempted = false;
-        startPrefs(context).edit().clear().apply();
+        startPrefs(context).edit().remove("elapsed").remove("wall").remove("boot").apply();
     }
 
     static synchronized void start(Context context) throws Exception {
@@ -89,6 +92,7 @@ final class PrivKitShell {
         }
         autoAttempted = true;
         status = "正在启动独立服务";
+        boolean launched = false;
         try {
             long grace = SystemClock.elapsedRealtime() + 5000L;
             while (!isConnected() && SystemClock.elapsedRealtime() < grace)
@@ -107,6 +111,7 @@ final class PrivKitShell {
                 }
                 String launch = KIT.getNativeStarterCommand();
                 rememberLaunch(context);
+                launched = true;
                 AdbConnectionManager.get(context).executeOnce(context,
                         AppPrefs.WIRELESS, "127.0.0.1", 0, launch);
                 long deadline = SystemClock.elapsedRealtime() + 15000L;
@@ -115,13 +120,16 @@ final class PrivKitShell {
             }
             if (!isConnected() || !KIT.pingServer())
                 throw new IOException("独立服务未回传有效的 UID 2000 Binder");
+            if (launched) startPrefs(context).edit().putString("last_result", "binder_ready").apply();
             autoAttempted = false;
             status = "独立服务运行中";
         } catch (InterruptedException ex) {
+            if (launched) startPrefs(context).edit().putString("last_result", "interrupted").apply();
             Thread.currentThread().interrupt();
             status = "独立服务启动已中断";
             throw ex;
         } catch (Exception ex) {
+            if (launched) startPrefs(context).edit().putString("last_result", "failed").apply();
             status = "独立服务启动失败，请在授权设置中重新启动，无需重新配对";
             throw ex;
         }
@@ -155,6 +163,23 @@ final class PrivKitShell {
         } finally {
             process.close();
         }
+    }
+
+    // Read-only: sharing diagnostics must neither open ADB nor start a server.
+    static String diagnostic(Context context) {
+        SharedPreferences p = startPrefs(context);
+        PrivilegeServerInfo info = KIT.getServerState().getValue();
+        boolean live = info != null && info.getLifecycleBinder().isBinderAlive();
+        long stamp = p.getLong("wall", 0);
+        return "权限模式：" + new AppPrefs(context).mode()
+                + "\n配对身份已保存：" + new AppPrefs(context).adbPaired()
+                + "\nBinder：" + (live ? "存活 · UID=" + info.getUid() + " · PID=" + info.getPid() : "未连接")
+                + "\n本 APP 进程 PID：" + android.os.Process.myPid()
+                + "\n累计 ADB 启动尝试：" + p.getLong("attempt_count", 0)
+                + "\n最近启动结果：" + p.getString("last_result", "none")
+                + "\n最近启动请求时间（epoch ms）：" + stamp
+                + "\n自动启动冷却剩余（秒）：" + ((cooldownRemaining(context) + 999) / 1000)
+                + "\n说明：启动尝试计数不是成功连接次数；日常 Binder 命令不增加此计数。";
     }
 
     static synchronized void stop() {
