@@ -266,7 +266,8 @@ settime 15040
 printf '%s\n' 'DeviceID: [fixture]' 'connecting=mtalk.google.com:5228' 'disconnectTime=00:05/00:00' > "$MCS_FIXTURE"
 run monitor; requests 2
 settime 15100
-run monitor; requests 2
+run monitor; requests 3
+# A full minute of unchanged Connecting state is enough for the first request.
 settime 15160
 run monitor; requests 3
 j="$(run snapshot)"; assert_json "$j" fcm_recovery_decision=requested

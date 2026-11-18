@@ -25,6 +25,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantLock;
 import org.json.JSONObject;
 
 /** Foreground monitoring runs independently of activities; all shell writes are serialized. */
@@ -36,7 +37,9 @@ public final class FcmMonitorService extends Service {
     private static final String CHECK = "berryfcm.monitor.check";
     private static final String RECONNECT = "berryfcm.monitor.reconnect";
     private static final String REFRESH_DISPLAY = "berryfcm.monitor.display";
-    private final ScheduledExecutorService worker = Executors.newSingleThreadScheduledExecutor();
+    private final ScheduledExecutorService monitorWorker = Executors.newSingleThreadScheduledExecutor();
+    private final ScheduledExecutorService guardWorker = Executors.newSingleThreadScheduledExecutor();
+    private final ReentrantLock commandLock = new ReentrantLock(true);
     private volatile boolean scheduled;
     private boolean installed;
     private static volatile String activeSession = "";
@@ -48,6 +51,8 @@ public final class FcmMonitorService extends Service {
     private volatile long networkSignal;
     private long consumedNetworkSignal;
     private long lastCheckElapsed;
+    private long lastCheckUptime;
+    private long lastLoggedCheckElapsed;
     private long nextAttemptElapsed;
     private int failureStreak;
     private final AtomicBoolean checkQueued = new AtomicBoolean();
@@ -55,6 +60,10 @@ public final class FcmMonitorService extends Service {
     private String installedMode;
     private String lastAttemptKey = "";
     private java.util.concurrent.ScheduledFuture<?> periodic;
+    private java.util.concurrent.ScheduledFuture<?> guardPeriodic;
+    // Held across checks while monitoring/guard is enabled, not just inside a sample.
+    private PowerManager.WakeLock persistentWakeLock;
+    private static volatile boolean wakeLockHeld;
     private final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
     private int newestStartId;
     private AdbConnectionManager adb;
@@ -65,6 +74,7 @@ public final class FcmMonitorService extends Service {
 
     static boolean start(Context context) { return start(context, null); }
     static boolean isRunning() { return !activeSession.isEmpty(); }
+    static boolean isCpuWakeLockHeld() { return wakeLockHeld; }
 
     // Called only from a visible activity. Restore existing enabled tasks,
     // without changing the user's settings or bypassing a force-stop.
@@ -101,6 +111,7 @@ public final class FcmMonitorService extends Service {
         return "后台服务运行中";
     }
     static void checkNow(Context context) { start(context, CHECK); }
+    static boolean startFromWatchdog(Context context) { return start(context, CHECK); }
     static void refreshDisplay(Context context) {
         if (!isRunning()) return;
         try { context.startService(new Intent(context, FcmMonitorService.class).setAction(REFRESH_DISPLAY)); }
@@ -147,6 +158,7 @@ public final class FcmMonitorService extends Service {
         }
     }
     static void stop(Context context) {
+        MonitorWatchdog.cancel(context);
         context.stopService(new Intent(context, FcmMonitorService.class));
     }
     static JSONObject lastSnapshot(Context context) {
@@ -163,6 +175,21 @@ public final class FcmMonitorService extends Service {
     }
     static String lastRecoveryEvents(Context context) {
         return context.getSharedPreferences(SNAPSHOT, MODE_PRIVATE).getString("recovery_events", "");
+    }
+    static String lastRuntimeEvents(Context context) {
+        return context.getSharedPreferences(SNAPSHOT, MODE_PRIVATE).getString("runtime_events", "");
+    }
+    static synchronized void logRuntime(Context context, String event, String details) {
+        SharedPreferences stored = context.getSharedPreferences(SNAPSHOT, MODE_PRIVATE);
+        String safe = details.replace('\r', ' ').replace('\n', ' ').replace('|', '/');
+        if (safe.length() > 220) safe = safe.substring(0, 220);
+        String[] lines = stored.getString("runtime_events", "").split("\\n");
+        StringBuilder history = new StringBuilder();
+        for (int i = Math.max(0, lines.length - 179); i < lines.length; i++)
+            if (!lines[i].isEmpty()) history.append(lines[i]).append('\n');
+        history.append(System.currentTimeMillis() / 1000L).append('|').append(event)
+                .append('|').append(safe);
+        stored.edit().putString("runtime_events", history.toString()).apply();
     }
     static String lastError(Context context) {
         return context.getSharedPreferences(SNAPSHOT, MODE_PRIVATE).getString("error", "");
@@ -198,6 +225,7 @@ public final class FcmMonitorService extends Service {
         manager.createNotificationChannel(channel);
         startForeground(NOTIFICATION_ID, notification());
         registerResumeTriggers();
+        logRuntime(this, "service_created", "pid=" + android.os.Process.myPid());
     }
     private Notification notification() {
         PendingIntent open = PendingIntent.getActivity(this, 0,
@@ -257,19 +285,69 @@ public final class FcmMonitorService extends Service {
                     .putLong("attempt_time", 0)
                     .putString("attempt_state", "pending").apply();
             scheduled = true;
-            if (periodic == null || periodic.isCancelled() || periodic.isDone())
-                periodic = worker.scheduleWithFixedDelay(() -> runSafe(false), 0, 15, TimeUnit.SECONDS);
+            logRuntime(this, "service_started", "pid=" + android.os.Process.myPid()
+                    + "; mode=" + prefs.mode());
         }
+        updatePersistentWakeLock(prefs.monitorEnabled() || prefs.guardEnabled());
+        updatePeriodicSchedules(prefs);
+        MonitorWatchdog.schedule(this);
         String action = intent == null ? null : intent.getAction();
         if (CHECK.equals(action) && !firstStart) queueCheck(true);
         if (RECONNECT.equals(action) && reconnectQueued.compareAndSet(false, true)) {
             saveManualResult(prefs.connectionKey(), "正在读取 GMS 并检查重连条件…");
-            worker.execute(() -> {
+            monitorWorker.execute(() -> {
                 try { manualReconnectInternal(); }
                 finally { reconnectQueued.set(false); }
             });
         }
         return START_STICKY;
+    }
+
+    private void updatePeriodicSchedules(AppPrefs prefs) {
+        if (prefs.monitorEnabled()) {
+            if (periodic == null || periodic.isCancelled() || periodic.isDone())
+                periodic = monitorWorker.scheduleWithFixedDelay(() -> runSafe(false), 0, 15, TimeUnit.SECONDS);
+        } else if (periodic != null) {
+            periodic.cancel(false);
+            periodic = null;
+        }
+        if (prefs.guardEnabled()) {
+            if (guardPeriodic == null || guardPeriodic.isCancelled() || guardPeriodic.isDone())
+                guardPeriodic = guardWorker.scheduleWithFixedDelay(this::runGuardSafe, 0, 5, TimeUnit.MINUTES);
+        } else if (guardPeriodic != null) {
+            guardPeriodic.cancel(false);
+            guardPeriodic = null;
+        }
+    }
+
+    private void updatePersistentWakeLock(boolean enabled) {
+        if (!enabled) { releasePersistentWakeLock(); return; }
+        try {
+            PowerManager power = getSystemService(PowerManager.class);
+            if (power == null) throw new IllegalStateException("PowerManager unavailable");
+            if (persistentWakeLock == null) {
+                persistentWakeLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "BerryFCM:monitor");
+                persistentWakeLock.setReferenceCounted(false);
+            }
+            boolean newlyHeld = !persistentWakeLock.isHeld();
+            if (newlyHeld) persistentWakeLock.acquire();
+            wakeLockHeld = persistentWakeLock.isHeld();
+            if (newlyHeld && wakeLockHeld)
+                logRuntime(this, "wake_lock_acquired", "screen=" + (power.isInteractive() ? "on" : "off"));
+            if (!wakeLockHeld) logRuntime(this, "wake_lock_failed", "not held");
+        } catch (RuntimeException error) {
+            wakeLockHeld = false;
+            getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit().putString(
+                    "wake_lock_error", safeError(error)).apply();
+            logRuntime(this, "wake_lock_failed", safeError(error));
+        }
+    }
+
+    private void releasePersistentWakeLock() {
+        try {
+            if (persistentWakeLock != null && persistentWakeLock.isHeld()) persistentWakeLock.release();
+        } catch (RuntimeException ignored) { }
+        wakeLockHeld = false;
     }
 
     // Lifecycle changes are serialized on Android's main thread. A delayed
@@ -283,6 +361,8 @@ public final class FcmMonitorService extends Service {
         scheduled = false;
         if (session.equals(activeSession)) activeSession = "";
         if (periodic != null) periodic.cancel(false);
+        if (guardPeriodic != null) guardPeriodic.cancel(false);
+        releasePersistentWakeLock();
         stopForeground(STOP_FOREGROUND_REMOVE);
     }
 
@@ -307,13 +387,14 @@ public final class FcmMonitorService extends Service {
             resumeReceiver = new BroadcastReceiver() {
                 @Override public void onReceive(Context context, Intent intent) {
                     PowerManager power = getSystemService(PowerManager.class);
-                    if (PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED.equals(intent.getAction())
-                            && power != null && power.isDeviceIdleMode()) return;
+                    // The monitor keeps its CPU wake lock across sleep. Check both
+                    // entering and leaving Doze; never depend on SCREEN_ON alone.
                     queueCheck(false);
                 }
             };
             IntentFilter filter = new IntentFilter(Intent.ACTION_USER_PRESENT);
             filter.addAction(Intent.ACTION_SCREEN_ON);
+            filter.addAction(Intent.ACTION_SCREEN_OFF);
             filter.addAction(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED);
             if (Build.VERSION.SDK_INT >= 33)
                 registerReceiver(resumeReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
@@ -327,9 +408,9 @@ public final class FcmMonitorService extends Service {
     }
 
     private void queueCheck(boolean manual) {
-        if (!scheduled || !checkQueued.compareAndSet(false, true)) return;
+        if (!scheduled || !new AppPrefs(this).monitorEnabled() || !checkQueued.compareAndSet(false, true)) return;
         try {
-            worker.execute(() -> {
+            monitorWorker.execute(() -> {
                 try {
                     if (manual || SystemClock.elapsedRealtime() - lastCheckElapsed >= 5000)
                         runSafe(manual);
@@ -340,29 +421,39 @@ public final class FcmMonitorService extends Service {
 
     private void runSafe(boolean requested) {
         if (Thread.currentThread().isInterrupted() || !scheduled || !session.equals(activeSession)) return;
-        lastCheckElapsed = SystemClock.elapsedRealtime();
-        PowerManager.WakeLock lock = null;
-        try {
+        long now = SystemClock.elapsedRealtime();
+        long uptimeNow = SystemClock.uptimeMillis();
+        long gap = lastCheckElapsed > 0 ? now - lastCheckElapsed : -1;
+        long uptimeGap = lastCheckUptime > 0 ? uptimeNow - lastCheckUptime : -1;
+        lastCheckElapsed = now;
+        lastCheckUptime = uptimeNow;
+        boolean trace = lastLoggedCheckElapsed == 0 || now - lastLoggedCheckElapsed >= 60000
+                || gap > 30000;
+        if (trace) {
+            lastLoggedCheckElapsed = now;
             PowerManager power = getSystemService(PowerManager.class);
-            if (power != null) {
-                lock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "BerryFCM:sample");
-                lock.setReferenceCounted(false);
-                lock.acquire(90000L);
-            }
-        } catch (RuntimeException ignored) { lock = null; }
+            logRuntime(this, "check_started", "gap_ms=" + gap
+                    + "; suspend_ms=" + (gap < 0 || uptimeGap < 0 ? -1 : Math.max(0, gap - uptimeGap))
+                    + "; screen=" + (power != null && power.isInteractive() ? "on" : "off")
+                    + "; idle=" + (power != null && power.isDeviceIdleMode())
+                    + "; wake_lock=" + wakeLockHeld + "; requested=" + requested);
+        }
         try { runOnce(requested); }
         catch (RuntimeException error) {
             if (scheduled && session.equals(activeSession)) recordFailure(error);
-        }
-        finally {
-            if (lock != null && lock.isHeld()) lock.release();
+        } finally {
+            long duration = SystemClock.elapsedRealtime() - now;
+            if (trace || duration > 15000)
+                logRuntime(this, "check_finished", "duration_ms=" + duration
+                        + "; result=" + lastAttemptState(this)
+                        + "; error=" + (currentError(this).isEmpty() ? "none" : "present"));
             if (PrivilegeAccess.canRunInBackground(this)) refreshNotification();
         }
     }
 
     private void recordFailure(Exception error) {
         failureStreak = Math.min(failureStreak + 1, 4);
-        long backoff = 15000L << (failureStreak - 1);
+        long backoff = Math.min(30000L, 15000L << (failureStreak - 1));
         nextAttemptElapsed = SystemClock.elapsedRealtime() + backoff;
         getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
                 .putString("error", safeError(error))
@@ -370,6 +461,7 @@ public final class FcmMonitorService extends Service {
                 .putString("error_mode", new AppPrefs(this).connectionKey())
                 .putString("attempt_state", "failed")
                 .putLong("next_attempt_elapsed", nextAttemptElapsed).apply();
+        logRuntime(this, "sample_failed", "retry_ms=" + backoff + "; " + safeError(error));
     }
 
     static String describeNativeReason(String value) {
@@ -443,33 +535,38 @@ public final class FcmMonitorService extends Service {
                 installed = false;
             }
         }
+    }
+
+    private void runGuardSafe() {
+        if (!scheduled || !session.equals(activeSession) || Thread.currentThread().isInterrupted()) return;
+        AppPrefs p = new AppPrefs(this);
+        if (!p.guardEnabled() || !PrivilegeAccess.canRunInBackground(this)) return;
         long now = SystemClock.elapsedRealtime();
-        if (p.guardEnabled() && (lastGuardAt == 0 || now < lastGuardAt
-                || now - lastGuardAt >= TimeUnit.MINUTES.toMillis(5))) {
-            lastGuardAt = now;
-            try {
-                StringBuilder reports = new StringBuilder();
-                String mode = p.mode();
-                String guardKey = p.connectionKey();
-                for (String command : GuardOps.commandBatches(p.guardTargets(), true)) {
-                    if (!scheduled || !p.guardEnabled() || !guardKey.equals(p.connectionKey())) return;
-                    reports.append(execute(p, mode, command)).append("\n");
-                }
-                if (!scheduled || !p.guardEnabled() || !guardKey.equals(p.connectionKey())) return;
-                String report = reports.toString().trim();
-                if (report.contains("|restored")) {
-                    report += "\n已修复应用，已请求 GMS 心跳（非连接成功证明）：\n"
-                            + execute(p, mode, GuardOps.heartbeatCommand());
-                }
-                getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE).edit()
-                        .putString("report", report).putLong("last_run", System.currentTimeMillis()).apply();
-            } catch (Exception error) {
-                if (scheduled && session.equals(activeSession) && p.guardEnabled()
-                        && attemptKey.equals(p.connectionKey()) && !Thread.currentThread().isInterrupted())
-                    getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE).edit()
-                            .putString("report", "守护检查失败：" + safeError(error))
-                            .putLong("last_run", System.currentTimeMillis()).apply();
+        if (lastGuardAt != 0 && now >= lastGuardAt
+                && now - lastGuardAt < TimeUnit.MINUTES.toMillis(5)) return;
+        lastGuardAt = now;
+        String key = p.connectionKey();
+        String mode = p.mode();
+        try {
+            StringBuilder reports = new StringBuilder();
+            // A single target per transaction bounds how long FCM may wait for Shell.
+            for (String command : GuardOps.commandBatches(p.guardTargets(), true, 1)) {
+                if (Thread.currentThread().isInterrupted() || !scheduled || !p.guardEnabled()
+                        || !key.equals(p.connectionKey())) return;
+                reports.append(execute(p, mode, command)).append("\n");
             }
+            if (!scheduled || !p.guardEnabled() || !key.equals(p.connectionKey())) return;
+            String report = reports.toString().trim();
+            // Unstopping an app is not evidence that GMS is disconnected;
+            // only the FCM monitor may request a recovery heartbeat.
+            getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE).edit()
+                    .putString("report", report).putLong("last_run", System.currentTimeMillis()).apply();
+        } catch (Exception error) {
+            if (scheduled && session.equals(activeSession) && p.guardEnabled()
+                    && key.equals(p.connectionKey()) && !Thread.currentThread().isInterrupted())
+                getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE).edit()
+                        .putString("report", "守护检查失败：" + safeError(error))
+                        .putLong("last_run", System.currentTimeMillis()).apply();
         }
     }
 
@@ -657,6 +754,12 @@ public final class FcmMonitorService extends Service {
     }
 
     private String execute(AppPrefs prefs, String mode, String command) throws Exception {
+        long lockStart = SystemClock.elapsedRealtime();
+        commandLock.lockInterruptibly();
+        long lockDelay = SystemClock.elapsedRealtime() - lockStart;
+        if (lockDelay > 2000)
+            logRuntime(this, "shell_queue_delay", "wait_ms=" + lockDelay + "; mode=" + mode);
+        try {
         if (AppPrefs.ROOT.equals(mode)) {
             try (PrivilegeShell shell = new RootShell(this)) {
                 String result = shell.execute(command);
@@ -695,8 +798,12 @@ public final class FcmMonitorService extends Service {
             if (mode.equals(prefs.mode())) prefs.shellFailed(error.getMessage());
             throw error;
         }
+        } finally {
+            commandLock.unlock();
+        }
     }
     @Override public void onDestroy() {
+        logRuntime(this, "service_destroyed", "pid=" + android.os.Process.myPid());
         scheduled = false;
         if (session.equals(activeSession)) activeSession = "";
         if (networkManager != null && networkCallback != null) {
@@ -709,7 +816,10 @@ public final class FcmMonitorService extends Service {
         }
         main.removeCallbacksAndMessages(null);
         if (periodic != null) periodic.cancel(true);
-        worker.shutdownNow();
+        if (guardPeriodic != null) guardPeriodic.cancel(true);
+        releasePersistentWakeLock();
+        monitorWorker.shutdownNow();
+        guardWorker.shutdownNow();
         stopForeground(STOP_FOREGROUND_REMOVE);
         super.onDestroy();
     }

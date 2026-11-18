@@ -12,7 +12,9 @@ public final class BootReceiver extends BroadcastReceiver {
         if (!Intent.ACTION_BOOT_COMPLETED.equals(action)
                 && !Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)) return;
         AppPrefs prefs = new AppPrefs(context);
-        if (prefs.startOnBoot() && (prefs.monitorEnabled() || prefs.guardEnabled()))
+        if (prefs.startOnBoot() && (prefs.monitorEnabled() || prefs.guardEnabled())) {
+            MonitorWatchdog.schedule(context);
             FcmMonitorService.start(context);
+        }
     }
 }

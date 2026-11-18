@@ -45,6 +45,16 @@ need 'dev.rikka.shizuku:api:13.1.5' "$root/app/build.gradle"
 test -s "$root/app/src/main/aidl/top/zesun/berryfcm/IBerryShell.aidl"
 need 'shellInvalidate' "$src/AppPrefs.java"
 need 'R.drawable.ic_bf_auth' "$src/AdbPairingService.java"
+need 'android:name=".MonitorWatchdog"' "$manifest"
+need 'MonitorWatchdog.schedule(this)' "$src/FcmMonitorService.java"
+need 'AlarmManager.ELAPSED_REALTIME_WAKEUP' "$src/MonitorWatchdog.java"
+need 'getBroadcast(context, 7313, intent' "$src/MonitorWatchdog.java"
+need 'ACTION_SCREEN_OFF' "$src/FcmMonitorService.java"
+need 'monitorWorker.scheduleWithFixedDelay' "$src/FcmMonitorService.java"
+need 'guardWorker.scheduleWithFixedDelay' "$src/FcmMonitorService.java"
+need 'wake_lock_acquired' "$src/FcmMonitorService.java"
+need 'lastRuntimeEvents(this)' "$src/MonitorActivity.java"
+need 'RECOVERY_COOLDOWN_MS = 30000L' "$src/PrivKitShell.java"
 need '@drawable/berry_launcher_selected' "$root/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml"
 need 'For OriginOS7' "$src/MainActivity.java"
 need 'OriginOS 7（已测试）' "$src/SettingsActivity.java"
@@ -165,7 +175,7 @@ need 'sample_mode' "$src/FcmMonitorService.java"
 need 'registerDefaultNetworkCallback' "$src/FcmMonitorService.java"
 need 'unregisterNetworkCallback' "$src/FcmMonitorService.java"
 need 'ACTION_DEVICE_IDLE_MODE_CHANGED' "$src/FcmMonitorService.java"
-need 'lock.acquire(90000L)' "$src/FcmMonitorService.java"
+need 'persistentWakeLock.acquire()' "$src/FcmMonitorService.java"
 need 'lock.release()' "$src/FcmMonitorService.java"
 need 'resumeIfNeeded' "$src/MainActivity.java"
 need 'sampleAgeSeconds' "$src/MonitorActivity.java"
@@ -392,3 +402,35 @@ need 'setColor(android.graphics.Color.WHITE)' "$src/AdbPairingService.java"
 if grep -q 'readAutoStartPermission\|厂商权限检测诊断\|监控通知低干扰模式' "$src/AuthActivity.java"; then
   echo 'Misleading OEM status or excessive notification UI remains' >&2; exit 1
 fi
+
+if test -e "$root/app/src/main/res/drawable-nodpi/berry_launcher_selected.jpg"; then
+  echo "Malformed legacy JPEG must not be bundled"; exit 1
+fi
+# Reject launcher images that aapt can package but Android cannot decode at runtime.
+# Verify PNG checksum, compressed pixels, and a visible blue foreground.
+python3 - "$root/app/src/main/res/drawable-nodpi/berry_launcher_selected.png" <<'PY_ICON'
+import struct, sys, zlib
+data = open(sys.argv[1], "rb").read()
+assert data[:8] == b"\x89PNG\r\n\x1a\n", "launcher image must be PNG"
+pos, image_data, dimensions, ended = 8, bytearray(), None, False
+while pos + 12 <= len(data):
+    size = struct.unpack(">I", data[pos:pos + 4])[0]
+    name = data[pos + 4:pos + 8]
+    payload = data[pos + 8:pos + 8 + size]
+    check = struct.unpack(">I", data[pos + 8 + size:pos + 12 + size])[0]
+    assert zlib.crc32(name + payload) & 0xffffffff == check, "invalid PNG chunk CRC"
+    if name == b"IHDR":
+        dimensions = struct.unpack(">II", payload[:8])
+    if name == b"IDAT":
+        image_data.extend(payload)
+    pos += size + 12
+    if name == b"IEND":
+        ended = True
+        break
+assert ended and pos == len(data), "truncated PNG"
+assert dimensions == (192, 192), "unexpected launcher dimensions"
+assert len(zlib.decompress(image_data)) > 192 * 192, "empty launcher image"
+assert len(data) > 2500, "launcher artwork missing"
+assert len(set(zlib.decompress(image_data))) > 12, "launcher image lacks visible detail"
+print("PASS: launcher PNG decoded (192x192, valid chunks and pixels)")
+PY_ICON

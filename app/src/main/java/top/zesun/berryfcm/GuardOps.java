@@ -37,10 +37,14 @@ final class GuardOps {
     // Each target can take two 3s dumpsys calls. Keep a batch well below
     // the 45s shell limit, include GMS only once, never silently drop targets.
     static List<String> commandBatches(Set<String> selected, boolean repair) {
+        return commandBatches(selected, repair, 5);
+    }
+    static List<String> commandBatches(Set<String> selected, boolean repair, int batchSize) {
+        if (batchSize < 1 || batchSize > 5) throw new IllegalArgumentException("Invalid batch size");
         List<String> items = targets(selected);
         List<String> batches = new ArrayList<>();
-        for (int i = 0; i < items.size(); i += 5)
-            batches.add(commandFor(items.subList(i, Math.min(i + 5, items.size())), repair));
+        for (int i = 0; i < items.size(); i += batchSize)
+            batches.add(commandFor(items.subList(i, Math.min(i + batchSize, items.size())), repair));
         return batches;
     }
 
@@ -61,7 +65,7 @@ final class GuardOps {
             } else {
                 cmd.append("*' stopped=true '*) echo \"$p|stopped\";; ");
             }
-            cmd.append("*' stopped=false '*) echo \"$p|running\";; ")
+            cmd.append("*' stopped=false '*) echo \"$p|not_stopped\";; ")
                .append("*) echo \"$p|unknown\";; esac; ");
         }
         return cmd.toString();
