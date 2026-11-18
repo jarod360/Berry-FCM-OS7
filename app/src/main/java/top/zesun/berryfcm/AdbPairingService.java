@@ -147,6 +147,15 @@ public final class AdbPairingService extends Service {
                     PrivKitShell.recordPairingDiscoveryFailure(this, reason);
                     android.util.Log.w("BerryFCM-ADB", "Pairing service discovery failed", failure);
                 }
+                // Android NSD error 7 means permission denied; requesting a
+                // manual port cannot resolve a denied discovery permission.
+                if (reason.matches("(?s).*Failed to discover ADB service.*: 7(?:\\D.*)?$")) {
+                    main.post(() -> {
+                        if (gate.searching(generation))
+                            complete("系统拒绝无线 ADB 端口发现（错误 7），请检查局域网权限");
+                    });
+                    return;
+                }
             }
 
             if (!gate.searching(generation)) return;
