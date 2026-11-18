@@ -331,7 +331,7 @@ public final class AuthActivity extends Ui {
             }
             final String mode = MODES[i];
             boolean active = mode.equals(selected);
-            TextView tab = text(LABELS[i] + (mode.equals(prefs.mode()) ? " · 使用中" : ""),
+            TextView tab = text(LABELS[i] + (mode.equals(prefs.mode()) ? " ✓" : ""),
                     12, active, active ? 0xffffffff : ink);
             tab.setGravity(Gravity.CENTER);
             tab.setPadding(dp(4), dp(8), dp(4), dp(8));
