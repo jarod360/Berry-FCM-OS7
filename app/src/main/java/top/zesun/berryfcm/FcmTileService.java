@@ -12,22 +12,30 @@ public final class FcmTileService extends TileService {
         super.onStartListening();
         refreshTile();
     }
+    private boolean authorized() {
+        AppPrefs prefs = new AppPrefs(this);
+        if (AppPrefs.WIRELESS.equals(prefs.mode())) return PrivKitShell.isConnected();
+        if (AppPrefs.SHIZUKU.equals(prefs.mode())) return ShizukuShell.authorizedUid() >= 0;
+        return prefs.mode().equals(prefs.shellMode()) && prefs.shellError().isEmpty() && !prefs.shellIdentity().isEmpty();
+    }
     private void refreshTile() {
         Tile tile = getQsTile();
         if (tile == null) return;
-        boolean enabled = new AppPrefs(this).monitorEnabled();
+        boolean ready = authorized();
+        boolean enabled = ready && new AppPrefs(this).monitorEnabled() && FcmMonitorService.isRunning();
         tile.setLabel("BerryFCM");
         if (Build.VERSION.SDK_INT >= 29)
-            tile.setSubtitle(enabled ? FcmMonitorService.serviceStatus(this) + " · 点击检查" : "监控未开启");
+            tile.setSubtitle(!ready ? "需要授权" : enabled ? "监控运行中 · 点击检查" : "监控未运行");
         tile.setState(enabled ? Tile.STATE_ACTIVE : Tile.STATE_INACTIVE);
         tile.updateTile();
     }
     @Override public void onClick() {
         super.onClick();
-        if (new AppPrefs(this).monitorEnabled()) {
+        boolean ready = authorized();
+        if (ready && new AppPrefs(this).monitorEnabled() && FcmMonitorService.isRunning()) {
             FcmMonitorService.checkNow(this);
         } else {
-            Intent open = new Intent(this, MonitorActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            Intent open = new Intent(this, ready ? MonitorActivity.class : AuthActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             if (Build.VERSION.SDK_INT >= 34) {
                 PendingIntent pending = PendingIntent.getActivity(this, 0, open,
                         PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
