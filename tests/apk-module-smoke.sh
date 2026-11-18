@@ -340,3 +340,20 @@ need 'eventText(lines, 6, false)' "$src/MonitorActivity.java"
 need 'eventText(lines, 24, true)' "$src/MonitorActivity.java"
 need 'reconnectButton.setVisibility(fresh && disconnected' "$src/MonitorActivity.java"
 need 'install.setVisibility(View.GONE)' "$src/UpdateActivity.java"
+
+# Android 17 NSD error 7 is a permission denial, not an absent ADB service.
+# Do not force a manual port or silently return to a previously active Shizuku tab.
+need 'String authTab()' "$src/AppPrefs.java"
+need 'void authTab(String value)' "$src/AppPrefs.java"
+need 'selected = prefs.authTab()' "$src/AuthActivity.java"
+need 'prefs.authTab(mode)' "$src/AuthActivity.java"
+need 'ensureLocalNetworkPermission(false)' "$src/AuthActivity.java"
+need 'ensureLocalNetworkPermission(true)' "$src/AuthActivity.java"
+need 'LOCAL_NETWORK_PERMISSION = 121' "$src/AuthActivity.java"
+need 'Manifest.permission.ACCESS_LOCAL_NETWORK' "$src/AuthActivity.java"
+need 'localNetworkAllowed(context)' "$src/PrivKitShell.java"
+need 'recordPairingDiscoveryFailure(Context context' "$src/PrivKitShell.java"
+need 'clearPairingDiscoveryFailure(Context context' "$src/PrivKitShell.java"
+need 'Failed to discover ADB service' "$src/AdbPairingService.java"
+need 'complete("系统拒绝无线 ADB 端口发现' "$src/AdbPairingService.java"
+echo 'PASS: Android 17 NSD permission gate and wireless-tab retention checks'
