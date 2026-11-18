@@ -326,3 +326,6 @@ need 'service.adb.tls.port' "$src/PrivKitShell.java"
 need 'stopManually(this)' "$src/AuthActivity.java"
 need 'ShizukuShell.stopBinding()' "$src/AuthActivity.java"
 need 'prefs.authTab(mode)' "$src/AuthActivity.java"
+
+need 'PrivKitShell.pair(this, selectedPort, code)' "$src/AdbPairingService.java"
+need 'return;' "$src/AdbPairingService.java"

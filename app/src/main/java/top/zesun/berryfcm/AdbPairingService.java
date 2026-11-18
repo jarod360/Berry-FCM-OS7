@@ -133,8 +133,10 @@ public final class AdbPairingService extends Service {
                             publish("请输入系统显示的六位配对码", true, found);
                     });
                 }
-                // Manual port is an explicit fallback, not an auto-discovered endpoint.
-                Thread.sleep(manual > 0 ? 1000L : 500L);
+                // The code is valid only while this pairing screen stays open.
+                // No second mDNS discovery cycle: once a port is found, let
+                // the existing notification accept its six-digit code.
+                return;
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
                 return;
@@ -142,6 +144,12 @@ public final class AdbPairingService extends Service {
                 if (!gate.searching(generation)) return;
                 if (previous > 0) gate.lost(generation, previous);
                 previous = 0;
+                String failureText = PrivKitShell.errorChain(failure);
+                if (failureText.contains("ADB service") && failureText.matches("(?s).*:[ ]?7(?:[ ]|$).*")) {
+                    main.post(() -> { if (gate.searching(generation))
+                        complete("Android 17 拒绝了本地网络 NSD 服务发现（错误 7）。请返回应用授权本地网络访问。"); });
+                    return;
+                }
                 boolean fallback = android.os.SystemClock.elapsedRealtime() - searchStart >= MANUAL_FALLBACK_DELAY_MS;
                 main.post(() -> {
                     if (gate.searching(generation) && !gate.hasPort())
@@ -165,9 +173,10 @@ public final class AdbPairingService extends Service {
         AppPrefs prefs = new AppPrefs(this);
         try {
             if (!gate.pairing(generation)) return;
-            // Passing a numeric port forces upstream to use loopback. Null keeps
-            // the LAN address resolved by upstream for the normal automatic flow.
-            PrivKitShell.pair(this, manual ? selectedPort : null, code);
+            // Reuse the exact endpoint just discovered: the old automatic
+            // path did a second mDNS lookup here and could lose the pairing
+            // page or fail NSD even after a valid port had been found.
+            PrivKitShell.pair(this, selectedPort, code);
         } catch (Exception error) {
             String message = PrivKitShell.errorChain(error);
             prefs.shellFailed(message);
