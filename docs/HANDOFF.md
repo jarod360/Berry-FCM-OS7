@@ -363,3 +363,11 @@ alpha.46（#44228259741）已通过 API 37.0 SDK 安装、依赖解析、原生�
 - 服务检查失败被归属当前会话与连接 key，旧授权/上次运行错误不再冒充当前状态。另发现 set/install 失败时模式变更判断会反复绕过退避，改为独立记录尝试 key。周期调度保留单一 Future，生命周期停止在主线程重新验证条件，stopSelfResult 防止过期停止请求，已取消任务不得继续手动重连。守护异常也不在旧模式/取消后发布。
 - 守护报告改用可见期 SharedPreferences 监听，返回页面立即刷新，实际目标组/报告未改变时不重建列表；新报告不能覆盖正在操作的交互输出。监控/守护的核心阈值和广播仍不变。
 - 已在容器实际运行 MonitorStatusSmoke，11 个状态、2 个时长断言 PASS；两个文件 SHA 分别 d065bca3b4097041df7a59715ccbb0faeefd6cfd 和 aeb72d520b45f0b5d80cb21abd4ed655030f580a，与仓库逐一一致。先前 alpha.54 已通过的原生脚本和完整编译不等同于新代码通过。当前仅源码优化，等待集中下一次编译，不修改 alpha.54 Release 或 build 分支。
+
+
+### 2026-11-18 alpha.54 授权实机失败专项
+
+- 实机错误：PrivilegeStartupException / NoSuchMethodError，平台 Conscrypt.exportKeyingMaterial。比对 Priv Kit v0.20.0 官方接入文档和 GKD 的 Application：BerryFCM 漏掉 HiddenApiBypass 6.2 依赖及 attachBaseContext 初始化，并全局注册了外部 Conscrypt，和 Priv Kit 使用平台 TLS 及平台 exporter 的方式不一致。已补齐官方接入，移除全局 provider 覆盖；显式静态 TCP 的 libadb 保留自己的 Conscrypt 依赖。保留原 Priv Kit 加密身份、包名、签名及数据。
+- 首页面与授权页进入时共同尝试恢复已保存的 Priv Kit 身份（即使本地历史标记缺失），真实 Binder UID2000 和 id 验证后保存，拒绝才提示重新配对；无线调试关闭、发现不可用不当作撤销。共享并发门控及持久冷却，正常 Binder 采样不重新打开 ADB；不把文件存在当作认证成功。
+- 自动端口仍采用上游本机 mDNS：正常只输入六位码，手动端口仅备用。未获取 OriginOS 7 真机成功证据，不宣称端口问题已解决。
+- 加入完整接入及身份恢复静态回归。本次修改尚需单次完整构建和固定签名验签，随后只发布通过的测试 prerelease，实机验证后再按项目计划处理。main 与 KSU 不改。
