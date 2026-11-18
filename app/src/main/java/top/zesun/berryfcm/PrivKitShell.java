@@ -279,7 +279,7 @@ final class PrivKitShell {
                 // Pairing and connection are different ports. Prefer adbd's
                 // current TLS connect property, then upstream NSD.
                 int tls = manual > 0 ? 0 : systemConnectPort();
-                Integer port = manual > 0 ? manual : tls > 0 ? tls : null;
+                Integer port = AdbConnectPort.select(manual, tls);
                 if (port == null && wirelessDebuggingState(context) == 0) {
                     prefs.pairingUnavailable();
                     throw new IOException("系统无线调试未开启");

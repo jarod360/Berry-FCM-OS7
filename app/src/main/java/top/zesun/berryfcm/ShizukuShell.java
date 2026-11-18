@@ -34,6 +34,10 @@ final class ShizukuShell implements PrivilegeShell {
         binding = null;
     }
 
+    static synchronized boolean isRunning() {
+        return binding != null && binding.liveRemote() != null;
+    }
+
     static String readiness() {
         try {
             if (!Shizuku.pingBinder()) return "请先安装并启动 Shizuku 服务";

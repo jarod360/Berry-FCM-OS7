@@ -11,8 +11,10 @@ final class PrivilegeAccess {
     static boolean readyForUserAction(Context context) {
         AppPrefs prefs = new AppPrefs(context);
         if (AppPrefs.WIRELESS.equals(prefs.mode())) return !prefs.servicePaused(AppPrefs.WIRELESS) && PrivKitShell.isConnected();
-        if (AppPrefs.SHIZUKU.equals(prefs.mode())) return !prefs.servicePaused(AppPrefs.SHIZUKU) && ShizukuShell.authorizedUid() >= 0;
+        if (AppPrefs.SHIZUKU.equals(prefs.mode())) return !prefs.servicePaused(AppPrefs.SHIZUKU)
+                && ShizukuShell.isRunning() && ShizukuShell.authorizedUid() >= 0;
         return (AppPrefs.ROOT.equals(prefs.mode()) || AppPrefs.STATIC.equals(prefs.mode()))
+                && !prefs.servicePaused(prefs.mode())
                 && prefs.mode().equals(prefs.shellMode()) && prefs.shellError().isEmpty()
                 && !prefs.shellIdentity().isEmpty();
     }
@@ -68,6 +70,7 @@ final class PrivilegeAccess {
     static PrivilegeShell open(Context context) throws Exception {
         AppPrefs prefs = new AppPrefs(context);
         String mode = prefs.mode();
+        if (prefs.servicePaused(mode)) throw new IllegalStateException("当前方式已停止，请点击启动");
         if (AppPrefs.ROOT.equals(mode)) {
             RootShell shell = new RootShell(context);
             try {

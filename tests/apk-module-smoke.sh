@@ -329,3 +329,30 @@ need 'prefs.authTab(mode)' "$src/AuthActivity.java"
 
 need 'PrivKitShell.pair(this, selectedPort, code)' "$src/AdbPairingService.java"
 need 'return;' "$src/AdbPairingService.java"
+
+# ADB startup crash regression: 0/0 => nullable port for NSD (no Integer.intValue NPE)
+need 'AdbConnectPort.select(manual, tls)' "$src/PrivKitShell.java"
+need 'ShizukuShell.isRunning()' "$src/PrivilegeAccess.java"
+tmp_adb_port="$(mktemp -d)"
+javac -d "$tmp_adb_port" "$src/AdbConnectPort.java" "$root/tests/AdbConnectPortSmoke.java"
+java -cp "$tmp_adb_port" top.zesun.berryfcm.AdbConnectPortSmoke
+rm -rf "$tmp_adb_port"
+
+# Compact authorization controls and selected method state.
+need 'detail.setText("来源：" + methodName(selected))' "$src/AuthActivity.java"
+need 'if (isSelectedRunning()) stopSelectedService()' "$src/AuthActivity.java"
+need 'stateToggle.setContentDescription((running ? "停止" : "启动")' "$src/AuthActivity.java"
+need 'errorSummary.setText(singleLine)' "$src/AuthActivity.java"
+need 'errorLog.setText(failure +' "$src/AuthActivity.java"
+need 'ShizukuShell.isRunning()' "$src/AuthActivity.java"
+
+# Do not expose irrelevant full AppOps dump as OEM permission diagnosis.
+if grep -q 'cmd appops get top.zesun.berryfcm 2>&1' "$src/AuthActivity.java"; then
+  echo 'Full Android AppOps is not Vivo permission status' >&2; exit 1
+fi
+need 'permissionText(associatedRow, "关联启动", "需在系统确认")' "$src/AuthActivity.java"
+need 'permissionText(highPowerRow, "允许后台高耗电", "需在系统确认")' "$src/AuthActivity.java"
+
+# Keep optional permissions out of the main authorization view.
+need 'disclosure(permissionCard, "后台运行权限", false)' "$src/AuthActivity.java"
+need 'disclosure(notificationCard, "通知与快捷功能", false)' "$src/AuthActivity.java"
