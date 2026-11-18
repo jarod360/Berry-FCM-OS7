@@ -303,3 +303,16 @@ need 'stopSelfResult(startId)' "$src/FcmMonitorService.java"
 need 'error_session' "$src/FcmMonitorService.java"
 need 'registerOnSharedPreferenceChangeListener(reportListener)' "$src/GuardActivity.java"
 need 'unregisterOnSharedPreferenceChangeListener(reportListener)' "$src/GuardActivity.java"
+
+# Priv Kit requires host API compatibility before initialization and platform TLS.
+need 'hiddenapibypass:6.2' "$root/app/build.gradle"
+need 'attachBaseContext(Context base)' "$src/BerryFcmApp.java"
+need 'HiddenApiBypass.addHiddenApiExemptions("L")' "$src/BerryFcmApp.java"
+if grep -q 'Security.insertProviderAt' "$src/BerryFcmApp.java"; then
+  echo 'Do not replace platform TLS provider used by Priv Kit' >&2; exit 1
+fi
+need 'PrivKitShell.recoverOnForeground(this)' "$src/MainActivity.java"
+need 'PrivKitShell.recoverOnForeground(this)' "$src/AuthActivity.java"
+need 'hasStoredIdentity(context)' "$src/PrivKitShell.java"
+need 'foregroundRecovery.compareAndSet(false, true)' "$src/PrivKitShell.java"
+echo 'PASS: Priv Kit host integration and persisted-identity recovery wiring'
