@@ -33,7 +33,8 @@ public final class AuthActivity extends Ui {
     private TextView autoStartRow, associatedRow, highPowerRow, lockRow, batteryRow, notificationRow, monitorNotificationRow, restrictionRow, tileRow;
     private android.widget.Button removeTileButton;
     private String selected;
-    private boolean checking;
+    private boolean checking, tileRequestPending, auxiliaryReading, auxiliaryAgain;
+    private final ExecutorService permissionWorker = Executors.newSingleThreadExecutor();
     private final Handler ui = new Handler(Looper.getMainLooper());
     private boolean lastPairing, lastReady, lastStarting;
     private final Runnable refresh = new Runnable() {
@@ -98,32 +99,46 @@ public final class AuthActivity extends Ui {
         createAuxiliaryPermissions();
     }
 
-    private TextView permissionRow(LinearLayout parent, Runnable click) {
-        TextView row = text("", 14, false, ink);
-        row.setPadding(dp(4), dp(12), dp(4), dp(12));
-        row.setMinHeight(dp(48));
+    private TextView permissionRow(LinearLayout parent, String name, Runnable click) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(2), dp(8), dp(2), dp(8));
+        row.setMinimumHeight(dp(52));
+        LinearLayout words = new LinearLayout(this);
+        words.setOrientation(LinearLayout.VERTICAL);
+        words.addView(text(name, 14, true, ink));
+        TextView value = text("正在读取", 12, false, muted);
+        value.setPadding(0, dp(2), 0, 0);
+        words.addView(value);
+        row.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView arrow = text("›", 22, false, muted);
+        row.addView(arrow);
+        row.setBackground(new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(0x220888ff), null, null));
         row.setOnClickListener(v -> click.run());
         row.setFocusable(true);
         parent.addView(row);
-        return row;
+        return value;
     }
 
     private void permissionText(TextView row, String name, String state) {
-        row.setText(name + "  ·  " + state + "  ›");
+        row.setText(state);
+        row.setTextColor(state.startsWith("已开启") || state.startsWith("已添加")
+                || state.startsWith("无后台限制") ? success : muted);
     }
 
     private void createAuxiliaryPermissions() {
         LinearLayout auxiliary = card("辅助后台权限", "建议开启，由你在系统中选择。不影响核心授权或当前监控、守护任务的运行。");
-        autoStartRow = permissionRow(auxiliary, () -> BackgroundSettings.autostart(this));
-        associatedRow = permissionRow(auxiliary, () -> BackgroundSettings.associatedStart(this));
-        highPowerRow = permissionRow(auxiliary, () -> BackgroundSettings.powerSettings(this));
-        lockRow = permissionRow(auxiliary, this::openRecentsForLock);
-        batteryRow = permissionRow(auxiliary, () -> {
+        autoStartRow = permissionRow(auxiliary, "自启动", () -> BackgroundSettings.autostart(this));
+        associatedRow = permissionRow(auxiliary, "关联启动", () -> BackgroundSettings.associatedStart(this));
+        highPowerRow = permissionRow(auxiliary, "允许后台高耗电", () -> BackgroundSettings.powerSettings(this));
+        lockRow = permissionRow(auxiliary, "锁定后台", this::openRecentsForLock);
+        batteryRow = permissionRow(auxiliary, "忽略电池优化", () -> {
             if (BackgroundSettings.batteryExempt(this)) BackgroundSettings.batteryList(this);
             else BackgroundSettings.requestBattery(this);
         });
-        restrictionRow = permissionRow(auxiliary, () -> BackgroundSettings.details(this));
-        notificationRow = permissionRow(auxiliary, () -> BackgroundSettings.notifications(this));
+        restrictionRow = permissionRow(auxiliary, "Android 后台限制", () -> BackgroundSettings.details(this));
+        notificationRow = permissionRow(auxiliary, "通知权限", () -> BackgroundSettings.notifications(this));
         button(auxiliary, "刷新权限状态", this::refreshAuxiliaryPermissions, false);
         LinearLayout diagnostic = disclosure(auxiliary, "厂商权限检测诊断", false);
         TextView evidence = text("仅查看 BerryFCM 自身的系统 AppOps，不修改任何权限。", 12, false, muted);
@@ -146,7 +161,7 @@ public final class AuthActivity extends Ui {
         }, false);
 
         LinearLayout display = card("通知与快捷磁贴", "独立显示选项，不控制后台监控和守护。");
-        monitorNotificationRow = permissionRow(display, () -> BackgroundSettings.monitorNotifications(this, prefs.quietMonitor()));
+        monitorNotificationRow = permissionRow(display, "监控通知类别", () -> BackgroundSettings.monitorNotifications(this, prefs.quietMonitor()));
         android.widget.Switch quiet = new android.widget.Switch(this);
         quiet.setText("监控通知低干扰模式");
         quiet.setTextColor(ink);
@@ -154,13 +169,14 @@ public final class AuthActivity extends Ui {
         quiet.setChecked(prefs.quietMonitor());
         display.addView(quiet);
         quiet.setOnCheckedChangeListener((v, enabled) -> {
+            if (bindingSwitches()) return;
             prefs.quietMonitor(enabled);
             // Update an already running foreground notification, never start or
             // stop a task merely because the notification preference changed.
             FcmMonitorService.refreshDisplay(this);
             refreshAuxiliaryPermissions();
         });
-        tileRow = permissionRow(display, this::addTile);
+        tileRow = permissionRow(display, "FCM 快捷磁贴", this::addTile);
         removeTileButton = button(display, "移除 FCM 快捷磁贴", () -> {
             FcmTileService.setOffered(this, false);
             refreshAuxiliaryPermissions();
@@ -172,24 +188,31 @@ public final class AuthActivity extends Ui {
         hide.setChecked(prefs.hideRecents());
         display.addView(hide);
         hide.setOnCheckedChangeListener((v, enabled) -> {
+            if (bindingSwitches()) return;
             if (RecentTasks.apply(this, enabled)) prefs.hideRecents(enabled);
             else {
                 error("系统未确认设置，请在最近任务中确认");
-                hide.post(() -> {
-                    if (hide.isChecked() != prefs.hideRecents()) hide.setChecked(prefs.hideRecents());
-                });
+                syncChecked(hide, prefs.hideRecents());
             }
         });
-        refreshAuxiliaryPermissions();
     }
 
     private void refreshAuxiliaryPermissions() {
-        if (autoStartRow == null) return;
-        permissionText(autoStartRow, "自启动", "正在读取");
-        worker.execute(() -> {
-            String result = BackgroundSettings.originAutoStartStatus(this);
-            runOnUiThread(() -> { if (!isDestroyed()) permissionText(autoStartRow, "自启动", result); });
-        });
+        if (autoStartRow == null || isDestroyed() || isFinishing()) return;
+        if (auxiliaryReading) auxiliaryAgain = true;
+        else {
+            auxiliaryReading = true;
+            permissionText(autoStartRow, "自启动", "正在读取");
+            permissionWorker.execute(() -> {
+                String result = BackgroundSettings.originAutoStartStatus(this);
+                runOnUiThread(() -> {
+                    auxiliaryReading = false;
+                    if (isDestroyed() || isFinishing()) return;
+                    if (auxiliaryAgain) { auxiliaryAgain = false; refreshAuxiliaryPermissions(); }
+                    else permissionText(autoStartRow, "自启动", result);
+                });
+            });
+        }
         permissionText(associatedRow, "关联启动", "需在系统确认");
         permissionText(highPowerRow, "允许后台高耗电", "需在系统确认");
         permissionText(lockRow, "锁定后台", "需在最近任务确认");
@@ -225,9 +248,9 @@ public final class AuthActivity extends Ui {
     }
 
     private void addTile() {
+        if (tileRequestPending) return;
         if (!PrivilegeAccess.readyForUserAction(this)) {
-            error("请先完成授权，再添加磁贴");
-            go(AuthActivity.class);
+            error("请先完成上方核心授权，再添加磁贴");
             return;
         }
         boolean alreadyOffered = FcmTileService.offered(this);
@@ -239,20 +262,23 @@ public final class AuthActivity extends Ui {
         }
         StatusBarManager status = getSystemService(StatusBarManager.class);
         if (status == null) { error("请在系统下拉快捷栏的编辑页面手动添加 BerryFCM"); refreshAuxiliaryPermissions(); return; }
+        tileRequestPending = true;
         try { status.requestAddTileService(
                 new ComponentName(this, FcmTileService.class),
                 "BerryFCM 监控",
                 Icon.createWithResource(this, R.drawable.ic_bf_fcm),
                 getMainExecutor(),
                 result -> {
+                    tileRequestPending = false;
                     boolean added = result == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED
                             || result == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ALREADY_ADDED;
                     if (!added && !alreadyOffered) FcmTileService.setOffered(this, false);
-                    if (added) FcmTileService.noteAdded(this, true);
+                    if (added && FcmTileService.offered(this)) FcmTileService.noteAdded(this, true);
                     error(added ? "磁贴已添加" : "未添加磁贴");
                     refreshAuxiliaryPermissions();
                 });
         } catch (RuntimeException ex) {
+            tileRequestPending = false;
             if (!alreadyOffered) FcmTileService.setOffered(this, false);
             error("无法打开系统磁贴添加窗口");
         }
@@ -276,7 +302,11 @@ public final class AuthActivity extends Ui {
             params.rightMargin = dp(7);
             tabs.addView(tab, params);
             tab.setOnClickListener(v -> {
-                if (checking) return;
+                if (checking || AdbPairingService.isPairingActive() || PrivKitShell.isStarting()) {
+                    error("当前授权正在进行，请先完成或取消");
+                    return;
+                }
+                if (mode.equals(selected)) return;
                 selected = mode;
                 // Browsing connection methods must not interrupt the active monitor.
                 renderTabs();
@@ -590,7 +620,8 @@ public final class AuthActivity extends Ui {
     }
 
     private void checkShell(String host, int port) {
-        if (checking || AppPrefs.EXTERNAL.equals(selected)) return;
+        if (checking || AdbPairingService.isPairingActive() || PrivKitShell.isStarting()
+                || AppPrefs.EXTERNAL.equals(selected)) return;
         final String candidate = selected;
         if (AppPrefs.WIRELESS.equals(candidate)) {
             if (AdbPairingService.isPairingActive() || PrivKitShell.isStarting()) return;
@@ -609,7 +640,7 @@ public final class AuthActivity extends Ui {
                 runOnUiThread(() -> {
                     checking = false;
                     FcmMonitorService.resumeIfNeeded(this);
-                        if (AppPrefs.WIRELESS.equals(candidate) && prefs.monitorEnabled()) FcmMonitorService.checkNow(this);
+                    if (isDestroyed() || isFinishing()) return;
                     renderStatus();
                     renderInstructions();
                 });
@@ -617,6 +648,7 @@ public final class AuthActivity extends Ui {
                 String message = PrivKitShell.errorChain(ex);
                 runOnUiThread(() -> {
                     checking = false;
+                    if (isDestroyed() || isFinishing()) return;
                     boolean wireless = AppPrefs.WIRELESS.equals(candidate);
                     status.setText(wireless && prefs.pairingRejected() ? "授权已失效，请重新配对" : "连接失败");
                     detail.setText(wireless ? "请确认无线调试已开启，再试一次。\n具体原因：" + message : message);
@@ -712,6 +744,7 @@ public final class AuthActivity extends Ui {
         ui.removeCallbacks(refresh);
         Shizuku.removeRequestPermissionResultListener(shizukuPermission);
         worker.shutdownNow();
+        permissionWorker.shutdownNow();
         super.onDestroy();
     }
 }

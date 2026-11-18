@@ -279,3 +279,21 @@ need 'enableMonitorOnFirstAuthorization()' "$src/AppPrefs.java"
 if grep -q 'Manifest.permission.NEARBY_WIFI_DEVICES' "$src/AuthActivity.java"; then
   echo 'Do not require nearby WiFi permission for Priv Kit NSD' >&2; exit 1
 fi
+
+# Shared state and UI lifecycle regression.
+need 'MonitorStatus.resolve' "$src/MainActivity.java"
+need 'MonitorStatus.resolve' "$src/MonitorActivity.java"
+need 'MonitorStatus.resolve' "$src/FcmMonitorService.java"
+need 'syncChecked(enabled, prefs.monitorEnabled())' "$src/MonitorActivity.java"
+need 'syncChecked(running, prefs.guardEnabled())' "$src/GuardActivity.java"
+need 'syncChecked(monitorSwitch, prefs.monitorEnabled())' "$src/BackgroundActivity.java"
+need 'finally { syncingSwitches = previous; }' "$src/Ui.java"
+need 'watchFuture.cancel(true)' "$src/GuardActivity.java"
+need 'runSafe(manual)' "$src/FcmMonitorService.java"
+need 'guardKey.equals(p.connectionKey())' "$src/FcmMonitorService.java"
+need 'tileRequestPending' "$src/AuthActivity.java"
+need 'permissionWorker.shutdownNow()' "$src/AuthActivity.java"
+status_classes="$(mktemp -d)"
+javac -d "$status_classes" "$src/MonitorStatus.java" "$root/tests/MonitorStatusSmoke.java"
+java -cp "$status_classes" top.zesun.berryfcm.MonitorStatusSmoke
+rm -rf "$status_classes"

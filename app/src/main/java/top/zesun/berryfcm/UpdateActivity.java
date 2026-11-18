@@ -130,6 +130,7 @@ public final class UpdateActivity extends Ui {
                 int releaseNumber = best;
                 runOnUiThread(() -> {
                     checking = false;
+                    if (isDestroyed() || isFinishing()) return;
                     if (selected == null) {
                         details.setText("尚无正式签名的 Release APK；当前版本号：" + localVersion());
                         notes.setText("Actions 构建产物不作为自动更新来源。");
@@ -267,6 +268,7 @@ public final class UpdateActivity extends Ui {
                 if (uri == null) throw new IllegalStateException("系统无法提供安装 URI");
                 runOnUiThread(() -> {
                     verifying = false;
+                    if (isDestroyed() || isFinishing()) return;
                     install.setVisibility(View.VISIBLE);
                     if (!resumed) return; // do not open an installer from the background
                     state.edit().remove("auto_install").apply();
@@ -292,6 +294,7 @@ public final class UpdateActivity extends Ui {
             } catch (Exception error) {
                 runOnUiThread(() -> {
                     verifying = false;
+                    if (isDestroyed() || isFinishing()) return;
                     getPreferences(MODE_PRIVATE).edit().remove("auto_install").remove("waiting_install_permission").apply();
                     details.setText("安装校验未通过：" + error.getMessage());
                     install.setVisibility(View.VISIBLE);

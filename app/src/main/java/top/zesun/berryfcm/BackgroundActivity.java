@@ -10,20 +10,21 @@ import java.util.concurrent.Executors;
 public final class BackgroundActivity extends Ui {
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private TextView policy, systemStates;
+    private Switch monitorSwitch, guardSwitch, bootSwitch;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         title("后台保活", "监控和守护任务的运行设置");
         LinearLayout service = card("运行方式", "前台服务和系统设置只能提高可靠性，无法保证永不被停止。");
-        toggle(service, "FCM 持续监控", prefs.monitorEnabled(), value -> {
+        monitorSwitch = toggle(service, "FCM 持续监控", prefs.monitorEnabled(), true, value -> {
             prefs.monitorEnabled(value);
             syncService();
         });
-        toggle(service, "守护所选应用", prefs.guardEnabled(), value -> {
+        guardSwitch = toggle(service, "守护所选应用", prefs.guardEnabled(), true, value -> {
             prefs.guardEnabled(value);
             syncService();
         });
-        toggle(service, "开机 / 更新后恢复已启用任务", prefs.startOnBoot(), prefs::startOnBoot);
+        bootSwitch = toggle(service, "开机 / 更新后恢复已启用任务", prefs.startOnBoot(), false, prefs::startOnBoot);
 
         LinearLayout android = card("后台状态", "辅助权限不作为启动或继续监控的条件。");
         systemStates = text("", 13, false, muted);
@@ -44,7 +45,7 @@ public final class BackgroundActivity extends Ui {
     }
 
     private interface Change { void apply(boolean value); }
-    private void toggle(LinearLayout box, String label, boolean checked, Change change) {
+    private Switch toggle(LinearLayout box, String label, boolean checked, boolean privileged, Change change) {
         Switch check = new Switch(this);
         check.setText(label);
         check.setTextSize(14);
@@ -53,10 +54,9 @@ public final class BackgroundActivity extends Ui {
         check.setChecked(checked);
         box.addView(check);
         check.setOnCheckedChangeListener((b, value) -> {
-            boolean privileged = label.contains("FCM 持续监控")
-                    || label.contains("守护所选应用");
+            if (bindingSwitches()) return;
             if (privileged && value && !PrivilegeAccess.readyForUserAction(this)) {
-                check.setChecked(false);
+                renderPolicy();
                 error("请先完成授权并启动服务");
                 go(AuthActivity.class);
                 return;
@@ -64,6 +64,7 @@ public final class BackgroundActivity extends Ui {
             change.apply(value);
             renderPolicy();
         });
+        return check;
     }
     private void syncService() {
         if (!prefs.monitorEnabled() && !prefs.guardEnabled()) FcmMonitorService.stop(this);
@@ -71,6 +72,9 @@ public final class BackgroundActivity extends Ui {
     }
     private void renderPolicy() {
         if (systemStates == null) return;
+        syncChecked(monitorSwitch, prefs.monitorEnabled());
+        syncChecked(guardSwitch, prefs.guardEnabled());
+        syncChecked(bootSwitch, prefs.startOnBoot());
         systemStates.setText("后台运行：" + (!PrivilegeAccess.readyForUserAction(this) ? "需要授权" : FcmMonitorService.serviceStatus(this))
                 + "\nFCM 监控：" + (prefs.monitorEnabled() ? "已开启" : "未开启")
                 + "\n应用守护：" + (prefs.guardEnabled() ? "已开启" : "未开启"));

@@ -29,8 +29,11 @@ public final class SettingsActivity extends Ui {
         theme.setOnCheckedChangeListener((group, id) -> {
             RadioButton b = group.findViewById(id);
             if (b != null) {
-                prefs.theme(String.valueOf(b.getTag()));
-                recreate();
+                String chosen = String.valueOf(b.getTag());
+                if (!chosen.equals(prefs.theme())) {
+                    prefs.theme(chosen);
+                    recreate();
+                }
             }
         });
         style.addView(theme);

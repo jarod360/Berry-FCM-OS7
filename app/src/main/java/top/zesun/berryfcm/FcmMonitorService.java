@@ -70,7 +70,8 @@ public final class FcmMonitorService extends Service {
         if (!PrivilegeAccess.canRunInBackground(context)) return;
         long now = SystemClock.elapsedRealtime();
         long age = sampleAgeSeconds(context);
-        if (isRunning() && (!prefs.monitorEnabled() || (age >= 0 && age <= 90))) return;
+        if (isRunning() && (!prefs.monitorEnabled() || (age >= 0 && age <= 90)
+                || nextAttemptIn(context) > 0)) return;
         if (lastResumeRequest > 0 && now - lastResumeRequest < 15000) return;
         lastResumeRequest = now;
         checkNow(context);
@@ -107,11 +108,11 @@ public final class FcmMonitorService extends Service {
     }
     private static boolean start(Context context, String action) {
         AppPrefs prefs = new AppPrefs(context);
-        if ((!prefs.monitorEnabled() && !prefs.guardEnabled())
-                || !PrivilegeAccess.canRunInBackground(context)) {
+        if (!prefs.monitorEnabled() && !prefs.guardEnabled()) {
             stop(context);
             return false;
         }
+        if (!PrivilegeAccess.canRunInBackground(context)) return false;
         Intent intent = new Intent(context, FcmMonitorService.class);
         if (action != null) intent.setAction(action);
         try {
@@ -193,15 +194,10 @@ public final class FcmMonitorService extends Service {
         AppPrefs prefs = new AppPrefs(this);
         if (!prefs.monitorEnabled()) return "应用守护已开启";
         long age = sampleAgeSeconds(this);
-        if (age < 0 || age > 90 || !lastError(this).isEmpty()) return "正在检查 FCM 连接";
         JSONObject data = lastSnapshot(this);
-        if (!"gms".equals(data.optString("fcm_source"))) return "暂时无法确认 FCM 状态";
-        switch (data.optString("fcm_state")) {
-            case "connected": return "FCM 已连接";
-            case "connecting": return "FCM 正在重连";
-            case "disconnected": return "FCM 连接已断开";
-            default: return "FCM 状态未知";
-        }
+        return MonitorStatus.resolve(true, prefs.monitorEnabled(), isRunning(), age,
+                !lastError(this).isEmpty(), "gms".equals(data.optString("fcm_source")),
+                data.optString("fcm_state")).label;
     }
 
     private void refreshNotification() {
@@ -225,6 +221,8 @@ public final class FcmMonitorService extends Service {
             return START_NOT_STICKY;
         }
         if ((!prefs.monitorEnabled() && !prefs.guardEnabled()) || !PrivilegeAccess.canRunInBackground(this)) {
+            scheduled = false;
+            if (session.equals(activeSession)) activeSession = "";
             stopForeground(STOP_FOREGROUND_REMOVE);
             stopSelf();
             return START_NOT_STICKY;
@@ -299,14 +297,14 @@ public final class FcmMonitorService extends Service {
             worker.execute(() -> {
                 try {
                     if (manual || SystemClock.elapsedRealtime() - lastCheckElapsed >= 5000)
-                        runSafe(true);
+                        runSafe(manual);
                 } finally { checkQueued.set(false); }
             });
         } catch (RejectedExecutionException ignored) { checkQueued.set(false); }
     }
 
     private void runSafe(boolean requested) {
-        if (Thread.currentThread().isInterrupted()) return;
+        if (Thread.currentThread().isInterrupted() || !scheduled || !session.equals(activeSession)) return;
         lastCheckElapsed = SystemClock.elapsedRealtime();
         PowerManager.WakeLock lock = null;
         try {
@@ -350,11 +348,14 @@ public final class FcmMonitorService extends Service {
     private void runOnce(boolean requested) {
         AppPrefs p = new AppPrefs(this);
         if ((!p.monitorEnabled() && !p.guardEnabled()) || !PrivilegeAccess.canRunInBackground(this)) {
+            scheduled = false;
+            if (session.equals(activeSession)) activeSession = "";
             stopForeground(STOP_FOREGROUND_REMOVE);
             stopSelf();
             return;
         }
-        boolean modeChanged = !p.connectionKey().equals(installedMode);
+        final String attemptKey = p.connectionKey();
+        boolean modeChanged = !attemptKey.equals(installedMode);
         if (p.monitorEnabled() && (requested || modeChanged || SystemClock.elapsedRealtime() >= nextAttemptElapsed)) {
             getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
                     .putLong("attempt_time", System.currentTimeMillis())
@@ -364,10 +365,12 @@ public final class FcmMonitorService extends Service {
                 String mode = p.mode();
                 String key = p.connectionKey();
                 if (!installed || !key.equals(installedMode)) {
-                    installedMode = key;
+                    installed = false;
                     installScript(p, mode);
+                    installedMode = key;
                     installed = true;
                 }
+                if (!p.monitorEnabled() || !key.equals(p.connectionKey())) return;
                 String prefix = monitorPrefix(p, mode);
                 String result = execute(p, mode, prefix + "monitor >/dev/null 2>&1 || exit 9; "
                         + "echo BERRY_JSON_BEGIN; " + prefix + "snapshot; "
@@ -384,6 +387,8 @@ public final class FcmMonitorService extends Service {
                     throw new IllegalStateException("监测脚本版本不匹配");
                 String events = result.substring(eventsStart + "\nBERRY_EVENTS_BEGIN".length(), recoveryStart).trim();
                 String recovery = result.substring(recoveryStart + "\nBERRY_RECOVERY_BEGIN".length()).trim();
+                if (!scheduled || !session.equals(activeSession) || !p.monitorEnabled()
+                        || !key.equals(p.connectionKey())) return;
                 recordEnvironment(parsed);
                 json = parsed.toString();
                 failureStreak = 0;
@@ -396,7 +401,8 @@ public final class FcmMonitorService extends Service {
                         .putString("json", json).putString("events", events).putString("recovery_events", recovery)
                         .remove("error").putString("attempt_state", "success").apply();
             } catch (Exception error) {
-                if (!Thread.currentThread().isInterrupted()) recordFailure(error);
+                if (!Thread.currentThread().isInterrupted() && attemptKey.equals(p.connectionKey())
+                        && scheduled && session.equals(activeSession) && p.monitorEnabled()) recordFailure(error);
                 installed = false;
             }
         }
@@ -407,14 +413,16 @@ public final class FcmMonitorService extends Service {
             try {
                 StringBuilder reports = new StringBuilder();
                 String mode = p.mode();
+                String guardKey = p.connectionKey();
                 for (String command : GuardOps.commandBatches(p.guardTargets(), true)) {
-                    if (!p.guardEnabled() || !mode.equals(p.mode())) break;
+                    if (!scheduled || !p.guardEnabled() || !guardKey.equals(p.connectionKey())) return;
                     reports.append(execute(p, mode, command)).append("\n");
                 }
+                if (!scheduled || !p.guardEnabled() || !guardKey.equals(p.connectionKey())) return;
                 String report = reports.toString().trim();
                 if (report.contains("|restored")) {
                     report += "\n已修复应用，已请求 GMS 心跳（非连接成功证明）：\n"
-                            + execute(p, p.mode(), GuardOps.heartbeatCommand());
+                            + execute(p, mode, GuardOps.heartbeatCommand());
                 }
                 getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE).edit()
                         .putString("report", report).putLong("last_run", System.currentTimeMillis()).apply();

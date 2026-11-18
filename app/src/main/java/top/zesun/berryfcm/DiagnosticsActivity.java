@@ -13,6 +13,7 @@ import java.util.concurrent.Executors;
 public final class DiagnosticsActivity extends Ui {
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private TextView results;
+    private boolean checking;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -43,6 +44,8 @@ public final class DiagnosticsActivity extends Ui {
         }
     }
     private void checkNetwork() {
+        if (checking) { error("已有诊断正在执行"); return; }
+        checking = true;
         results.setText("正在测试 mtalk.google.com；每个端口最多等待 3 秒（DNS 解析另计）…");
         worker.execute(() -> {
             StringBuilder report = new StringBuilder();
@@ -57,10 +60,13 @@ public final class DiagnosticsActivity extends Ui {
             }
             report.append("\n使用 BerryFCM 应用的网络路径；不检测 GMS UID 实际连接，不能证明 FCM 消息送达，也不能判断是否经过代理。");
             String output = report.toString();
-            runOnUiThread(() -> results.setText(output));
+            runOnUiThread(() -> { checking = false; if (!isDestroyed()) results.setText(output); });
         });
     }
     private void checkPolicies() {
+        if (!PrivilegeAccess.readyForUserAction(this)) { go(AuthActivity.class); return; }
+        if (checking) { error("已有诊断正在执行"); return; }
+        checking = true;
         results.setText("正在回读 GMS 系统策略…");
         worker.execute(() -> {
             try (PrivilegeShell shell = PrivilegeAccess.open(this)) {
@@ -77,10 +83,10 @@ public final class DiagnosticsActivity extends Ui {
                         + "echo '== GMS Notifications ==' ; "
                         + "cmd appops get com.google.android.gms POST_NOTIFICATION 2>&1";
                 String output = shell.execute(command);
-                runOnUiThread(() -> results.setText(output));
+                runOnUiThread(() -> { if (!isDestroyed()) results.setText(output); });
             } catch (Exception error) {
-                runOnUiThread(() -> results.setText("诊断失败：" + error.getMessage()));
-            }
+                runOnUiThread(() -> { if (!isDestroyed()) results.setText("诊断失败：" + error.getMessage()); });
+            } finally { runOnUiThread(() -> checking = false); }
         });
     }
 

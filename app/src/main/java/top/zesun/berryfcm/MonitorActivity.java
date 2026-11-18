@@ -18,9 +18,9 @@ import java.util.concurrent.Executors;
 public final class MonitorActivity extends Ui {
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler ui = new Handler(Looper.getMainLooper());
-    private TextView current, technical, events, eventsFull, recoveryEvents, environmentEvents;
+    private TextView headline, current, technical, events, eventsFull, recoveryEvents, environmentEvents;
     private Button checkButton, reconnectButton;
-    private Switch enabled;
+    private Switch enabled, automatic;
     private final Runnable update = new Runnable() {
         @Override public void run() { render(); ui.postDelayed(this, 10000); }
     };
@@ -29,14 +29,22 @@ public final class MonitorActivity extends Ui {
         super.onCreate(state);
         title("FCM 监控", "连接状态、检查记录与断开事件");
         LinearLayout control = card("当前状态", "在后台检查 FCM 连接是否正常。");
+        headline = text("等待检查", 22, true, muted);
+        control.addView(headline);
+        current = text("读取中…", 14, false, muted);
+        current.setTextIsSelectable(true);
+        current.setPadding(0, dp(8), 0, dp(10));
+        control.addView(current);
         enabled = new Switch(this);
         enabled.setText("后台持续监控");
         enabled.setTextColor(ink);
+        enabled.setMinHeight(dp(48));
         enabled.setChecked(prefs.monitorEnabled());
         control.addView(enabled);
         enabled.setOnCheckedChangeListener((b, value) -> {
+            if (bindingSwitches()) return;
             if (value && !authorizationReady()) {
-                enabled.setChecked(false);
+                syncChecked(enabled, prefs.monitorEnabled());
                 error("请先完成授权");
                 go(AuthActivity.class);
                 return;
@@ -46,30 +54,26 @@ public final class MonitorActivity extends Ui {
             else if (!prefs.guardEnabled()) FcmMonitorService.stop(this);
             render();
         });
-        Switch automatic = new Switch(this);
+        automatic = new Switch(this);
         automatic.setText("断开后自动请求恢复");
         automatic.setTextColor(ink);
+        automatic.setMinHeight(dp(48));
         automatic.setChecked(prefs.autoReconnect());
         control.addView(automatic);
         automatic.setOnCheckedChangeListener((button, enabledAuto) -> {
+            if (bindingSwitches()) return;
             prefs.autoReconnect(enabledAuto);
             if (prefs.monitorEnabled() && authorizationReady() && FcmMonitorService.isRunning()) FcmMonitorService.checkNow(this);
             render();
         });
-        current = text("读取中…", 14, false, ink);
-        current.setTextIsSelectable(true);
-        current.setPadding(0, dp(12), 0, dp(9));
-        control.addView(current);
         checkButton = button(control, "立即检查", () -> {
             if (!authorizationReady()) { go(AuthActivity.class); return; }
             // The worker remains inside the same service; do not run an independent
             // shell concurrently or overwrite the single-writer state file.
-            if (!prefs.monitorEnabled()) {
-                enabled.setChecked(true);
-                return;
-            }
+            if (!prefs.monitorEnabled()) prefs.monitorEnabled(true);
+            syncChecked(enabled, prefs.monitorEnabled());
             FcmMonitorService.checkNow(this);
-            error("正在检查 FCM 连接");
+            render();
         }, true);
         reconnectButton = button(control, "尝试重新连接", this::reconnect, false);
         LinearLayout extra = disclosure(control, "详细连接证据与统计", false);
@@ -103,6 +107,8 @@ public final class MonitorActivity extends Ui {
     private void render() {
         if (current == null) return;
         boolean ready = authorizationReady();
+        syncChecked(enabled, prefs.monitorEnabled());
+        syncChecked(automatic, prefs.autoReconnect());
         checkButton.setText(!ready ? "去授权" : !prefs.monitorEnabled() ? "开启监控" : !FcmMonitorService.isRunning() ? "启动监控" : "立即检查");
         reconnectButton.setVisibility(ready && prefs.monitorEnabled() && FcmMonitorService.isRunning() ? View.VISIBLE : View.GONE);
         JSONObject j = FcmMonitorService.lastSnapshot(this);
@@ -122,12 +128,11 @@ public final class MonitorActivity extends Ui {
         else if (age < 0) state = "waiting";
         else if (age > 90) state = "unknown（检查数据过期）";
         else if (!nativeState) state = "unknown（原生状态不可读）";
-        String readable = state.equals("connected") ? "FCM 已连接"
-                : state.equals("connecting") ? "FCM 正在重连（尚未连接）"
-                : state.equals("disconnected") ? "FCM 已断开"
-                : state.equals("waiting") ? "等待首次检查"
-                : state.equals("stale") ? "检查数据已过期"
-                : state.startsWith("unknown") ? "当前状态无法确认" : "暂无连接证据";
+        MonitorStatus.State verdict = MonitorStatus.resolve(ready, prefs.monitorEnabled(),
+                FcmMonitorService.isRunning(), sample > 0 ? age : -1,
+                !lastError.isEmpty(), nativeState, j.optString("fcm_state"));
+        headline.setText(verdict.label);
+        headline.setTextColor(statusColor(verdict));
         String nativeReason = FcmMonitorService.describeNativeReason(j.optString("fcm_native_reason", "unrecognized"));
         String gate = j.optString("fcm_auto_gate", "unavailable");
         int retryIn = j.optInt("fcm_retry_in", 0);
@@ -136,8 +141,7 @@ public final class MonitorActivity extends Ui {
                 : FcmMonitorService.lastError(this).isEmpty()
                 ? "后台将持续检查；如长时间无数据，请检查通知及系统后台策略。"
                 : "后台正在自动重试，无需手动重复配对。";
-        current.setText("FCM 状态：" + readable
-                + "\n最近检查：" + (sample <= 0 ? "暂无" : time(sample)
+        current.setText("最近检查：" + (sample <= 0 ? "暂无" : time(sample)
                 + (age < 0 ? "（上次运行的记录）" : "（" + age + " 秒前）"))
                 + (prefs.monitorEnabled() && sample > 0 && age >= 0 && age <= 90
                     && !nativeState && lastError.isEmpty() ? "\n原因：" + nativeReason : "")
@@ -145,7 +149,7 @@ public final class MonitorActivity extends Ui {
                 + (nativeState && !state.startsWith("unknown") && !state.equals("waiting")
                     && !state.equals("stale") && j.optLong("fcm_native_duration", -1) >= 0
                     ? "\n" + (state.equals("connected") ? "已连接：" : "未连接：")
-                        + j.optLong("fcm_native_duration") + " 秒" : "")
+                        + MonitorStatus.duration(j.optLong("fcm_native_duration")) : "")
                 + (attempt > 0 ? "\n上次检查尝试：" + time(attempt / 1000) : "")
                 + (nativeState && ("connecting".equals(state) || "disconnected".equals(state))
                     ? "\n恢复策略：" + (!prefs.autoReconnect() ? "仅监测" : "settling".equals(gate)
@@ -156,11 +160,13 @@ public final class MonitorActivity extends Ui {
                 + (FcmMonitorService.nextAttemptIn(this) > 0 ? " · " + FcmMonitorService.nextAttemptIn(this) + " 秒后重试" : "")
                 + "\n" + progress
                 + (lastError.isEmpty() ? "" : "\n检查异常：" + lastError));
-        if (!ready) current.setText("需要授权，完成授权后才能检查 FCM 连接。下方记录仅供查看历史。");
+        if (!ready) current.setText("完成核心授权后才能检查 FCM 连接；下方记录仅供查看历史。");
         else if (!prefs.monitorEnabled()) current.setText("监控未开启，点击下方按钮开启。");
         else if (!FcmMonitorService.isRunning()) current.setText("监控未运行，请点击下方按钮启动。");
         JSONObject env = j.optJSONObject("app_environment");
-        technical.setText("原始状态：" + state
+        technical.setText((age < 0 || age > 90 || !ready || !prefs.monitorEnabled()
+                || !lastError.isEmpty() ? "以下是历史证据，不代表当前连接。\n" : "")
+                + "原始状态：" + state
                 + "\n状态来源：" + (nativeState ? "Google GMS 原生 MCS" : nativeReason)
                 + "\nTCP 辅助证据：" + j.optString("fcm_tcp_hint", "无")
                 + "\n服务器：" + j.optString("fcm_transport", "无")
@@ -205,7 +211,7 @@ public final class MonitorActivity extends Ui {
 
     private String eventText(String[] lines, int maximum) {
         StringBuilder result = new StringBuilder();
-        for (int i = Math.max(0, lines.length - maximum); i < lines.length; i++) {
+        for (int i = lines.length - 1; i >= Math.max(0, lines.length - maximum); i--) {
             String[] parts = lines[i].split("\\|", 3);
             if (parts.length != 3) continue;
             String stamp;

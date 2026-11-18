@@ -20,7 +20,7 @@ public final class MainActivity extends Ui {
             if (ready && !wasAuthorized) FcmMonitorService.resumeIfNeeded(MainActivity.this);
             wasAuthorized = ready;
             render();
-            ui.postDelayed(this, 1000);
+            ui.postDelayed(this, 2000);
         }
     };
 
@@ -40,7 +40,8 @@ public final class MainActivity extends Ui {
         LinearLayout quick = card("常用功能", null);
         line(quick, "应用守护", "所选应用检查与恢复", () -> go(GuardActivity.class));
         line(quick, "网络诊断", "无需授权的 FCM TCP 可达性检测", () -> go(DiagnosticsActivity.class));
-        line(quick, "后台保活", "电池优化与系统启动管理", () -> go(BackgroundActivity.class));
+        line(quick, "授权管理", "连接授权与系统后台权限", () -> go(AuthActivity.class));
+        line(quick, "后台保活", "任务运行与启动策略", () -> go(BackgroundActivity.class));
         render();
     }
 
@@ -67,7 +68,9 @@ public final class MainActivity extends Ui {
         boolean wireless = AppPrefs.WIRELESS.equals(prefs.mode());
         boolean enabled = prefs.monitorEnabled();
         monitorButton.setEnabled(true);
+        state.setTextColor(muted);
         if (!authorizationReady()) {
+            state.setTextColor(warning);
             if (wireless && AdbPairingService.isPairingActive()) {
                 state.setText("正在进行 ADB 授权");
                 summary.setText("请按照无线调试页面和通知栏的提示完成配对。");
@@ -110,20 +113,17 @@ public final class MainActivity extends Ui {
         String lastError = FcmMonitorService.lastError(this);
         String observed = snapshot.optString("fcm_state", "never_seen");
         boolean nativeState = "gms".equals(snapshot.optString("fcm_source"));
-        if (!lastError.isEmpty()) state.setText("连接检查失败");
-        else if (stamp <= 0 || age < 0 || age > 90) state.setText("正在检查 FCM 连接…");
-        else if (!nativeState) state.setText("暂时无法确认 FCM 状态");
-        else if ("connected".equals(observed)) state.setText("FCM 已连接");
-        else if ("connecting".equals(observed)) state.setText("FCM 正在重连");
-        else if ("disconnected".equals(observed)) state.setText("FCM 连接已断开");
-        else state.setText("FCM 状态未知");
+        MonitorStatus.State verdict = MonitorStatus.resolve(true, enabled, true,
+                stamp > 0 ? age : -1, !lastError.isEmpty(), nativeState, observed);
+        state.setText(verdict.label);
+        state.setTextColor(statusColor(verdict));
 
         String description = "后台监控已开启 · 应用守护" + (prefs.guardEnabled() ? "已开启" : "未开启")
                 + "\n最近检查：" + (age >= 0 ? age + " 秒前" : "尚无本次检查结果");
         if (age >= 0 && age <= 90 && nativeState && lastError.isEmpty()
                 && snapshot.optLong("fcm_native_duration", -1) >= 0) {
             description += "\n" + ("connected".equals(observed) ? "已连接：" : "当前状态持续：")
-                    + snapshot.optLong("fcm_native_duration") + " 秒";
+                    + MonitorStatus.duration(snapshot.optLong("fcm_native_duration"));
         }
         if (!lastError.isEmpty()) description += "\n后台将自动重试，详情见监控详情。";
         summary.setText(description);

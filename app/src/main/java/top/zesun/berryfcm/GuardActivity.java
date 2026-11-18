@@ -49,7 +49,10 @@ public final class GuardActivity extends Ui {
     private TextView selectedCount, candidateCount, report, guardStatus;
     private Button choose, more;
     private int shown = PAGE_SIZE;
-    private boolean loading, scanned;
+    private boolean loading, scanned, operationRunning;
+    private Switch running;
+    private java.util.concurrent.Future<?> watchFuture;
+    private long operationGeneration;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -99,15 +102,16 @@ public final class GuardActivity extends Ui {
         button(picker, "刷新候选应用", this::loadCandidates, false);
 
         LinearLayout actions = card("自动守护", "约每五分钟检查已选目标；不等于强制常驻或保证 FCM 消息送达。");
-        Switch running = new Switch(this);
+        running = new Switch(this);
         running.setText("启用后台自动守护");
         running.setTextColor(ink);
         running.setMinHeight(dp(50));
         running.setChecked(prefs.guardEnabled());
         actions.addView(running);
         running.setOnCheckedChangeListener((view, enabled) -> {
+            if (bindingSwitches()) return;
             if (enabled && !PrivilegeAccess.readyForUserAction(this)) {
-                running.setChecked(false);
+                syncChecked(running, prefs.guardEnabled());
                 error("请先完成授权并启动服务");
                 go(AuthActivity.class);
                 return;
@@ -135,6 +139,7 @@ public final class GuardActivity extends Ui {
 
     private void renderGuardStatus() {
         if (guardStatus == null) return;
+        syncChecked(running, prefs.guardEnabled());
         long last = getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE).getLong("last_run", 0);
         String time = last > 0 ? new java.text.SimpleDateFormat("MM-dd HH:mm:ss",
                 Locale.getDefault()).format(new java.util.Date(last)) : "尚未检查";
@@ -325,7 +330,7 @@ public final class GuardActivity extends Ui {
     }
 
     private void runCheck(boolean fix) {
-        if (!requireAuthorization()) return;
+        if (!requireAuthorization() || !beginOperation()) return;
         guardStatus.setText(fix ? "正在检查并尝试恢复…" : "正在检查应用…");
         report.setText(fix ? "正在检查并尝试恢复…" : "正在检查应用是否被强制停止…");
         worker.execute(() -> {
@@ -333,10 +338,10 @@ public final class GuardActivity extends Ui {
                 String result = runGuardBatches(shell, fix);
                 getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE)
                         .edit().putString("report", result).putLong("last_run", System.currentTimeMillis()).apply();
-                runOnUiThread(() -> { report.setText(result); renderSelected(); renderGuardStatus(); });
+                runOnUiThread(() -> { if (!isDestroyed()) { report.setText(result); renderSelected(); renderGuardStatus(); } });
             } catch (Exception e) {
-                runOnUiThread(() -> { report.setText("操作失败：" + e.getMessage()); guardStatus.setText("检查失败，请查看检查日志。"); });
-            }
+                runOnUiThread(() -> { if (!isDestroyed()) { report.setText("操作失败：" + e.getMessage()); guardStatus.setText("检查失败，请查看检查日志。"); } });
+            } finally { runOnUiThread(() -> operationRunning = false); }
         });
     }
     private String runGuardBatches(PrivilegeShell shell, boolean fix) throws Exception {
@@ -347,23 +352,29 @@ public final class GuardActivity extends Ui {
         }
         return result.toString().trim();
     }
+    private boolean beginOperation() {
+        if (operationRunning) { error("已有守护检查正在执行"); return false; }
+        operationRunning = true;
+        return true;
+    }
     private void requestHeartbeat() {
-        if (!requireAuthorization()) return;
+        if (!requireAuthorization() || !beginOperation()) return;
         report.setText("正在请求 GMS 心跳…");
         worker.execute(() -> {
             try (PrivilegeShell shell = PrivilegeAccess.open(this)) {
                 String output = shell.execute(GuardOps.heartbeatCommand());
-                runOnUiThread(() -> report.setText("心跳广播结果（不是推送送达证明）\n" + output));
+                runOnUiThread(() -> { if (!isDestroyed()) report.setText("心跳广播结果（不是推送送达证明）\n" + output); });
             } catch (Exception error) {
-                runOnUiThread(() -> report.setText("心跳请求失败：" + error.getMessage()));
-            }
+                runOnUiThread(() -> { if (!isDestroyed()) report.setText("心跳请求失败：" + error.getMessage()); });
+            } finally { runOnUiThread(() -> operationRunning = false); }
         });
     }
 
     private void watchNinetySeconds() {
-        if (!requireAuthorization()) return;
+        if (!requireAuthorization() || !beginOperation()) return;
         report.setText("正在运行 90 秒巡检；离开页面会中止本次交互测试");
-        worker.execute(() -> {
+        final long generation = ++operationGeneration;
+        watchFuture = worker.submit(() -> {
             try (PrivilegeShell shell = PrivilegeAccess.open(this)) {
                 for (int i = 0; i < 7; i++) {
                     String result = runGuardBatches(shell, true);
@@ -375,13 +386,24 @@ public final class GuardActivity extends Ui {
                             .putString("report", result).putLong("last_run", System.currentTimeMillis()).apply();
                     final int sample = i + 1;
                     final String current = result;
-                    runOnUiThread(() -> { report.setText("巡检 " + sample + "/7\n" + current); renderSelected(); renderGuardStatus(); });
+                    runOnUiThread(() -> {
+                        if (!isDestroyed() && generation == operationGeneration) {
+                            report.setText("巡检 " + sample + "/7\n" + current);
+                            renderSelected(); renderGuardStatus();
+                        }
+                    });
                     if (i < 6) Thread.sleep(15000);
                 }
             } catch (InterruptedException error) {
                 Thread.currentThread().interrupt();
             } catch (Exception error) {
-                runOnUiThread(() -> report.setText("巡检异常：" + error.getMessage()));
+                runOnUiThread(() -> {
+                    if (!isDestroyed() && generation == operationGeneration) report.setText("巡检异常：" + error.getMessage());
+                });
+            } finally {
+                runOnUiThread(() -> {
+                    if (generation == operationGeneration) { operationRunning = false; watchFuture = null; }
+                });
             }
         });
     }
@@ -392,6 +414,16 @@ public final class GuardActivity extends Ui {
         renderGuardStatus();
     }
 
+    @Override protected void onPause() {
+        if (watchFuture != null) {
+            operationGeneration++;
+            watchFuture.cancel(true);
+            watchFuture = null;
+            operationRunning = false;
+            report.setText("本次交互巡检已取消；后台守护开关不变。");
+        }
+        super.onPause();
+    }
     @Override protected void onDestroy() {
         worker.shutdownNow();
         super.onDestroy();
