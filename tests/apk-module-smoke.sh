@@ -490,6 +490,8 @@ must('if (!monitorEnabled || !AppPrefs.WAKE_CONTINUOUS.equals(' in svc
 must(all(x in svc for x in ('new TransactionLock("sample", 120000L)',
      'new TransactionLock("manual", 120000L)', 'new TransactionLock("guard", 60000L)',
      'transactions.remove(lock)', 'try (TransactionLock lease')), "bounded task CPU locks")
+must('if (!prefs.monitorEnabled()) resetConfirmationWindow();' in svc,
+     "turning off FCM while guard remains enabled must release the confirmation lock")
 must('confirmationLock.acquire(90000L)' in svc
      and svc.index('if (confirmationUsed)') < svc.index('confirmationUsed = true;')
      and 'resetConfirmationWindow()' in svc, "finite one-shot outage confirmation")
