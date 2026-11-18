@@ -3,7 +3,6 @@ package top.zesun.berryfcm;
 import android.content.Context;
 import android.os.Binder;
 import android.os.Process;
-import android.os.ServiceSpecificException;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -45,7 +44,7 @@ public final class BerryShellUserService extends IBerryShell.Stub {
             if (output.length() > 200000) throw new IOException("Shell output limit");
             return new String(Files.readAllBytes(output.toPath()), StandardCharsets.UTF_8);
         } catch (Exception error) {
-            throw new ServiceSpecificException(1, "Shizuku Shell: " + error.getMessage());
+            throw new IllegalStateException("Shizuku Shell: " + error.getMessage());
         } finally {
             if (process != null && process.isAlive()) process.destroyForcibly();
             if (output != null) output.delete();
