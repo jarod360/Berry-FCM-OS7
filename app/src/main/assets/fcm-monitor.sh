@@ -303,17 +303,27 @@ request_reconnect() {
     last_try_mono="$nowm"; last_try_epoch="$nowe"; attempts=$((attempts+1))
     retry_streak=$((retry_streak+1)); last_try_reason="$reason"; last_result=failed
     save_state
-    # Same recovery request as Google FCM Diagnostics (see fcmfix-coloros).
-    # A disconnected MCS transport needs a reconnect, not a heartbeat.
-    action=com.google.android.intent.action.GCM_RECONNECT
+    # OriginOS 7 real-device evidence: GCM_RECONNECT is NOT exported.
+    # UID 2000 can deliver MCS_HEARTBEAT and ACTION_HEARTBEAT_NOW to GMS.
+    # Delivery is not proof of reconnection; only observe() can report restored.
     sender_uid="$(id -u 2>/dev/null || echo unknown)"
+    case "$sender_uid" in
+      0) action=com.google.android.intent.action.GCM_RECONNECT;;
+      2000)
+        if [ $((retry_streak % 2)) -eq 1 ]; then
+            action=com.google.android.intent.action.MCS_HEARTBEAT
+        else
+            action=com.google.android.gms.gcm.ACTION_HEARTBEAT_NOW
+        fi;;
+      *) decision=request_failed; record_event reconnect_failed "执行身份 UID=$sender_uid 不是已验证的 Root/ADB Shell"; save_state; return 0;;
+    esac
     reply="$("$AM_BIN" broadcast --user 0 -a "$action" -p "$GMS" 2>&1)"
     rc=$?
     if [ "$rc" -eq 0 ] && printf '%s\n' "$reply" | grep -q 'Broadcast completed:' &&
         ! printf '%s\n' "$reply" | grep -qiE 'Permission Denial|SecurityException|not allowed|Error:|result=-[0-9]'; then
         last_result=requested; decision=requested
         completion="$(printf '%s\n' "$reply" | grep 'Broadcast completed:' | tail -n 1)"
-        record_event reconnect_requested "$reason UID=$sender_uid ${action##*.} exit=$rc $completion；等待原生确认（第 $attempts 次）"
+        record_event reconnect_requested "$reason UID=$sender_uid ${action##*.} exit=$rc $completion；命令返回不代表投递或恢复（第 $attempts 次）"
     else
         last_result=failed; decision=request_failed
         record_event reconnect_failed "$reason UID=$sender_uid ${action##*.} exit=$rc：$reply"
