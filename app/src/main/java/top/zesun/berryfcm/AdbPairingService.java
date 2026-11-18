@@ -160,9 +160,10 @@ public final class AdbPairingService extends Service {
             AppPrefs prefs = new AppPrefs(this);
             prefs.mode(AppPrefs.WIRELESS);
             prefs.markAdbPaired();
-            prefs.pairingStatus("配对成功，监控正在自动连接");
-            // Pairing is a one-time identity exchange. The foreground monitor
-            // owns automatic TLS connection, UID validation and sampling retries.
+            PrivKitShell.allowStart();
+            prefs.pairingStatus("配对成功，正在启动独立服务");
+            // Pairing exchanges identity. Monitoring starts the independent
+            // Priv Kit service once, then executes commands over Binder.
             prefs.monitorEnabled(true);
             FcmMonitorService.start(this);
             complete("配对成功，已启动监控；后台将自动连接并采样");

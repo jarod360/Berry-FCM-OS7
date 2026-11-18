@@ -1,4 +1,7 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- Priv Kit can grant this permission to its owner; BerryFCM does not need it. -->
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" tools:node="remove" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
@@ -23,6 +26,14 @@
         android:label="BerryFCM"
         android:theme="@style/AppTheme"
         android:supportsRtl="true">
+        <!-- Official Shizuku binder provider; ordinary applications cannot invoke it. -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="top.zesun.berryfcm.shizuku"
+            android:enabled="true"
+            android:exported="true"
+            android:multiprocess="false"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
         <activity android:name=".UpdateActivity" android:exported="false" />
         <activity android:name=".SettingsActivity" android:exported="false" />
         <activity android:name=".DiagnosticsActivity" android:exported="false" />

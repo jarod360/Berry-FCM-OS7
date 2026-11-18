@@ -16,21 +16,31 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import rikka.shizuku.Shizuku;
 
 public final class AuthActivity extends Ui {
     private static final String[] MODES =
-            {AppPrefs.WIRELESS, AppPrefs.ROOT, AppPrefs.STATIC, AppPrefs.EXTERNAL};
-    private static final String[] LABELS = {"无线 ADB", "Root", "ADB TCP", "电脑 USB"};
+            {AppPrefs.WIRELESS, AppPrefs.ROOT, AppPrefs.SHIZUKU, AppPrefs.STATIC, AppPrefs.EXTERNAL};
+    private static final String[] LABELS = {"无线 ADB", "Root", "Shizuku", "ADB TCP", "电脑 USB"};
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private LinearLayout tabs, instructions;
     private TextView status, detail;
     private String selected;
     private boolean checking;
     private int pendingPairPort = -1;
+    private static final int SHIZUKU_PERMISSION = 130;
+    private final Shizuku.OnRequestPermissionResultListener shizukuPermission = (code, grant) -> {
+        if (code != SHIZUKU_PERMISSION) return;
+        runOnUiThread(() -> {
+            if (grant == PackageManager.PERMISSION_GRANTED && AppPrefs.SHIZUKU.equals(selected)) checkShell();
+            else if (AppPrefs.SHIZUKU.equals(selected)) error("Shizuku 权限未授予；原连接方式不变");
+        });
+    };
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         selected = prefs.mode();
+        Shizuku.addRequestPermissionResultListener(shizukuPermission);
         title("连接授权", "选择一种连接方式，按照步骤操作");
 
         LinearLayout card = card("当前授权状态", "只有真正运行 Shell 并返回身份后才算验证成功。");
@@ -41,7 +51,7 @@ public final class AuthActivity extends Ui {
         detail.setPadding(0, dp(5), 0, dp(1));
         card.addView(detail);
 
-        LinearLayout chooser = card("选择连接方式", "初次使用推荐无线 ADB；已 Root 的设备可直接授权。");
+        LinearLayout chooser = card("选择连接方式", "已 Root 推荐 Root；已启动 Shizuku 可选独立服务，无需保持无线 ADB 连接。");
         HorizontalScrollView scroll = new HorizontalScrollView(this);
         scroll.setHorizontalScrollBarEnabled(false);
         tabs = new LinearLayout(this);
@@ -90,6 +100,7 @@ public final class AuthActivity extends Ui {
         instructions.removeAllViews();
         if (AppPrefs.WIRELESS.equals(selected)) wireless();
         else if (AppPrefs.ROOT.equals(selected)) root();
+        else if (AppPrefs.SHIZUKU.equals(selected)) shizuku();
         else if (AppPrefs.STATIC.equals(selected)) tcp();
         else usb();
     }
@@ -103,9 +114,9 @@ public final class AuthActivity extends Ui {
 
     private void wireless() {
         if (prefs.adbPaired()) {
-            step("已保存配对身份", "正常不必再次配对，也不需要每两分钟手动验证。后台自动重连并采样。");
-            button(instructions, AppPrefs.WIRELESS.equals(prefs.mode()) ? "启动 / 立即检查 FCM 监控" : "使用已配对的无线连接", () -> {
-                if (!AppPrefs.WIRELESS.equals(prefs.mode())) {
+            step("已保存配对身份", "配对身份保留。独立服务启动后，后台通过 Binder 执行，不再周期性连接无线 ADB。");
+            button(instructions, PrivKitShell.isConnected() && AppPrefs.WIRELESS.equals(prefs.mode()) ? "启动 / 检查 FCM 监控" : "启动独立服务", () -> {
+                if (!AppPrefs.WIRELESS.equals(prefs.mode()) || !PrivKitShell.isConnected()) {
                     checkShell();
                     return;
                 }
@@ -128,7 +139,7 @@ public final class AuthActivity extends Ui {
         stepIn(parent, "2 · 在通知栏输入六位码",
                 "停留在系统配对码页面，下拉通知栏输入六位码。BerryFCM 会自动搜索配对端口。");
         stepIn(parent, "3 · 自动运行",
-                "配对成功后自动连接并开启 FCM 采样，不必返回再点授权或连接。");
+                "配对成功后自动启动独立服务，并开启 FCM 采样，不必再次授权。");
         LinearLayout fallback = disclosure(parent, "端口无法发现？手动输入", false);
         stepFallback(fallback);
         button(fallback, "只打开无线调试设置", this::openWirelessDebugging, false);
@@ -163,6 +174,34 @@ public final class AuthActivity extends Ui {
         step("申请 Root Shell",
                 "系统 Root 管理器可能弹出授权请求。只有 Shell 执行 id 返回 uid=0 才算完成。");
         button(instructions, "申请并验证 Root Shell", this::checkShell, true);
+    }
+
+    private void shizuku() {
+        step("独立 Shell 服务", "适合已安装并启动 Shizuku v13+ 的用户。通过官方 Binder 服务采样，不占用 BerryFCM 的 ADB 连接。");
+        step("当前状态", ShizukuShell.readiness());
+        button(instructions, "授权并使用 Shizuku", this::authorizeShizuku, true);
+        button(instructions, "打开 Shizuku", () -> {
+            Intent launch = getPackageManager().getLaunchIntentForPackage("moe.shizuku.privileged.api");
+            if (launch == null) error("尚未安装 Shizuku；可直接使用 Root 或内置无线 ADB");
+            else startActivity(launch);
+        }, false);
+    }
+
+    private void authorizeShizuku() {
+        if (checking) return;
+        try {
+            if (!Shizuku.pingBinder() || Shizuku.getVersion() < 13) {
+                error(ShizukuShell.readiness());
+                return;
+            }
+            if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
+                checkShell();
+            } else if (Shizuku.shouldShowRequestPermissionRationale()) {
+                error("请在 Shizuku 的应用授权列表中允许 BerryFCM");
+            } else {
+                Shizuku.requestPermission(SHIZUKU_PERMISSION);
+            }
+        } catch (RuntimeException ex) { error(ShizukuShell.readiness()); }
     }
 
     private void tcp() {
@@ -297,11 +336,14 @@ public final class AuthActivity extends Ui {
             try {
                 String identity = PrivilegeAccess.probe(this, candidate, host, port);
                 prefs.activateMode(candidate, host, port, identity);
-                if (AppPrefs.WIRELESS.equals(candidate)) prefs.monitorEnabled(true);
+                if (!AppPrefs.WIRELESS.equals(candidate)) PrivKitShell.stop();
+                if (AppPrefs.WIRELESS.equals(candidate) || AppPrefs.SHIZUKU.equals(candidate)) prefs.monitorEnabled(true);
                 runOnUiThread(() -> {
                     checking = false;
                     FcmMonitorService.resumeIfNeeded(this);
+                    if (AppPrefs.WIRELESS.equals(candidate)) FcmMonitorService.checkNow(this);
                     renderStatus();
+                    renderInstructions();
                 });
             } catch (Exception ex) {
                 String message = ex.getMessage() == null ? "连接失败" : ex.getMessage();
@@ -323,16 +365,23 @@ public final class AuthActivity extends Ui {
         }
         String mode = prefs.mode();
         if (!selected.equals(mode)) {
-            status.setText("当前使用：" + (AppPrefs.ROOT.equals(mode) ? "Root" : AppPrefs.STATIC.equals(mode) ? "ADB TCP" : "无线 ADB"));
+            status.setText("当前使用：" + (AppPrefs.ROOT.equals(mode) ? "Root" : AppPrefs.SHIZUKU.equals(mode) ? "Shizuku" : AppPrefs.STATIC.equals(mode) ? "ADB TCP" : "无线 ADB"));
             detail.setText("这里是候选连接的设置，尚未切换后台连接方式。");
             return;
         }
-        if (AppPrefs.WIRELESS.equals(selected) && prefs.adbPaired()) {
-            status.setText("配对已完成");
+        if (AppPrefs.SHIZUKU.equals(selected)) {
+            status.setText(ShizukuShell.readiness());
+            detail.setText(ShizukuShell.authorizedUid() >= 0
+                    ? "使用独立 Binder 服务；不需要 BerryFCM 持续连接无线调试。实际采样结果以监控页为准。"
+                    : "需先启动 Shizuku 并完成一次应用授权；原配对身份保留。");
+        } else if (AppPrefs.WIRELESS.equals(selected) && prefs.adbPaired()) {
+            status.setText(PrivKitShell.isConnected() ? "独立服务已连接" : "配对已完成 · 服务未连接");
             String monitorError = FcmMonitorService.lastError(this);
-            detail.setText(prefs.monitorEnabled()
+            detail.setText(!PrivKitShell.isConnected()
+                    ? PrivKitShell.status() + "\n点击下方启动独立服务，保留原配对身份。"
+                    : prefs.monitorEnabled()
                     ? monitorError.isEmpty()
-                        ? "后台监控已开启，连接由服务自动维护；具体采样结果请到监控页查看。"
+                        ? PrivKitShell.status() + "\n日常采样通过 Binder 执行；服务停止时可启动服务，无需重新配对。"
                         : "最近采样异常：" + monitorError + "\n可到监控页检查，无需重新配对。"
                     : "配对身份仍保留，监控尚未启用。点击下方按钮启动即可。");
         } else if (prefs.shellRecentlyVerified()) {
@@ -354,11 +403,12 @@ public final class AuthActivity extends Ui {
         super.onResume();
         if (!checking) {
             renderStatus();
-            if (instructions != null && AppPrefs.WIRELESS.equals(selected))
+            if (instructions != null && (AppPrefs.WIRELESS.equals(selected) || AppPrefs.SHIZUKU.equals(selected)))
                 renderInstructions();
         }
     }
     @Override protected void onDestroy() {
+        Shizuku.removeRequestPermissionResultListener(shizukuPermission);
         worker.shutdownNow();
         super.onDestroy();
     }

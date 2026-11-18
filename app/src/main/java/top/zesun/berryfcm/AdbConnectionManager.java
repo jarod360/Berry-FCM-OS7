@@ -79,7 +79,8 @@ final class AdbConnectionManager extends AbsAdbConnectionManager {
 
     synchronized boolean pairLocal(int pairingPort, String code) throws Exception {
         disconnectSession();
-        return pair("127.0.0.1", pairingPort, code);
+        try { return pair("127.0.0.1", pairingPort, code); }
+        finally { disconnectSession(); }
     }
 
     synchronized boolean autoConnectLocal(Context context) throws Exception {
@@ -111,6 +112,25 @@ final class AdbConnectionManager extends AbsAdbConnectionManager {
             staticPort = port;
         }
         return connected;
+    }
+
+    /**
+     * One bounded ADB transaction. Never keep adbd connected between samples.
+     * Pairing credentials are independent of the transport socket.
+     */
+    synchronized String executeOnce(Context context, String mode, String host, int port,
+            String command) throws Exception {
+        try {
+            boolean connected = AppPrefs.WIRELESS.equals(mode)
+                    ? autoConnectLocal(context) : connectStatic(host, port);
+            if (!connected) throw new IOException("ADB 暂未连接");
+            String identity = shell("id").trim();
+            if (!identity.matches("(?s)^uid=2000(?:\\D.*)?$"))
+                throw new IOException("ADB Shell 身份异常");
+            return "id".equals(command) ? identity : shell(command);
+        } finally {
+            disconnectSession();
+        }
     }
 
     synchronized String shell(String command) throws Exception {

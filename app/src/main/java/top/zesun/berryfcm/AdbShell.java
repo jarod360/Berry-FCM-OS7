@@ -13,24 +13,12 @@ final class AdbShell implements PrivilegeShell {
         this.mode = mode;
         this.host = host;
         this.port = port;
-        adb = AdbConnectionManager.get(context);
+        adb = AppPrefs.WIRELESS.equals(mode) ? null : AdbConnectionManager.get(context);
     }
     @Override public String execute(String command) throws Exception {
-        synchronized (adb) {
-            try {
-                boolean connected = AppPrefs.WIRELESS.equals(mode)
-                        ? adb.autoConnectLocal(context) : adb.connectStatic(host, port);
-                if (!connected) throw new IllegalStateException("ADB 暂未连接");
-                String identity = adb.shell("id").trim();
-                if (!identity.matches("(?s)^uid=2000(?:\\D.*)?$"))
-                    throw new IllegalStateException("ADB Shell 身份异常");
-                return "id".equals(command) ? identity : adb.shell(command);
-            } catch (Exception error) {
-                adb.disconnectSession();
-                throw error;
-            }
-        }
+        if (AppPrefs.WIRELESS.equals(mode)) return PrivKitShell.execute(context, command);
+        return adb.executeOnce(context, mode, host, port, command);
     }
-    // The connection manager owns the shared ADB transport.
+    // executeOnce releases the transport even when a command fails.
     @Override public void close() { }
 }

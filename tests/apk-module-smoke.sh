@@ -20,8 +20,35 @@ if grep -q 'adbConnected' "$src/FcmMonitorService.java"; then
   echo 'Cached ADB transport would bypass mode changes' >&2
   exit 1
 fi
-need 'adb.autoConnectLocal(this)' "$src/FcmMonitorService.java"
-need 'adb.connectStatic(prefs.host(), prefs.staticPort())' "$src/FcmMonitorService.java"
+# In wireless mode ADB launches Priv Kit; all ordinary commands use its Binder.
+need 'adb.executeOnce(this, mode, prefs.host(), prefs.staticPort(), command)' "$src/FcmMonitorService.java"
+need 'PrivKitShell.execute(this, command)' "$src/FcmMonitorService.java"
+need 'PrivKitShell.execute(context, command)' "$src/AdbShell.java"
+need 'PrivKitShell.start(context)' "$src/PrivilegeAccess.java"
+need 'KIT.getNativeStarterCommand()' "$src/PrivKitShell.java"
+need 'KIT.startCommand(request, 45000L, continuation)' "$src/PrivKitShell.java"
+need 'io.github.priv-kit:priv-core:0.20.0' "$root/app/build.gradle"
+need 'autoAttempted' "$src/PrivKitShell.java"
+need 'RECOVERY_COOLDOWN_MS' "$src/PrivKitShell.java"
+need 'getLifecycleBinder().isBinderAlive()' "$src/PrivKitShell.java"
+need 'PrivKitShell.allowStart()' "$src/AdbPairingService.java"
+# The only direct ADB call in PrivKitShell must be the native starter.
+test "$(grep -c 'executeOnce(' "$src/PrivKitShell.java")" -eq 1
+need 'AppPrefs.WIRELESS, "127.0.0.1", 0, launch' "$src/PrivKitShell.java"
+need 'synchronized String executeOnce' "$src/AdbConnectionManager.java"
+need 'finally { disconnectSession(); }' "$src/AdbConnectionManager.java"
+# Check the command transaction itself, not only the pairing cleanup.
+transaction="$(sed -n '/synchronized String executeOnce(/,/synchronized String shell(/p' "$src/AdbConnectionManager.java")"
+printf '%s\n' "$transaction" | grep -q 'finally {'
+printf '%s\n' "$transaction" | grep -q 'disconnectSession();'
+need 'return adb.executeOnce' "$src/AdbShell.java"
+need 'return adb.executeOnce' "$src/PrivilegeAccess.java"
+need 'Shizuku.bindUserService' "$src/ShizukuShell.java"
+need 'Binder.getCallingUid() != ownerUid' "$src/BerryShellUserService.java"
+need 'Shizuku.requestPermission' "$src/AuthActivity.java"
+need 'android.permission.INTERACT_ACROSS_USERS_FULL' "$manifest"
+need 'dev.rikka.shizuku:api:13.1.5' "$root/app/build.gradle"
+test -s "$root/app/src/main/aidl/top/zesun/berryfcm/IBerryShell.aidl"
 need 'shellInvalidate' "$src/AppPrefs.java"
 need 'shellInvalidate' "$src/AdbPairingService.java"
 need 'R.drawable.ic_bf_auth' "$src/AdbPairingService.java"
@@ -129,8 +156,31 @@ for old in AccessibilityOps RestoreService RestoreTileService; do
   test ! -e "$src/$old.java" || { echo "Obsolete accessibility component: $old" >&2; exit 1; }
   if grep -q "$old" "$manifest"; then echo "Obsolete manifest component: $old" >&2; exit 1; fi
 done
-if grep -q 'WRITE_SECURE_SETTINGS\|BIND_ACCESSIBILITY_SERVICE' "$manifest"; then
+if grep -q 'BIND_ACCESSIBILITY_SERVICE' "$manifest" || grep 'WRITE_SECURE_SETTINGS' "$manifest" | grep -vq 'tools:node="remove"'; then
   echo 'Unnecessary accessibility settings permission in manifest' >&2; exit 1
+fi
+
+# Service lifecycle and transport consistency: a preference is not proof that
+# the monitor is alive; a previous session is not live connection evidence.
+need 'sampleAgeSeconds' "$src/FcmMonitorService.java"
+need 'sample_session' "$src/FcmMonitorService.java"
+need 'sample_elapsed' "$src/FcmMonitorService.java"
+need 'sample_mode' "$src/FcmMonitorService.java"
+need 'registerDefaultNetworkCallback' "$src/FcmMonitorService.java"
+need 'unregisterNetworkCallback' "$src/FcmMonitorService.java"
+need 'ACTION_DEVICE_IDLE_MODE_CHANGED' "$src/FcmMonitorService.java"
+need 'lock.acquire(90000L)' "$src/FcmMonitorService.java"
+need 'lock.release()' "$src/FcmMonitorService.java"
+need 'resumeIfNeeded' "$src/MainActivity.java"
+need 'sampleAgeSeconds' "$src/MonitorActivity.java"
+need 'android.permission.WAKE_LOCK' "$manifest"
+need 'job.get(45, TimeUnit.SECONDS)' "$src/AdbConnectionManager.java"
+need 'process.waitFor(45, TimeUnit.SECONDS)' "$src/RootShell.java"
+need 'PrivilegeAccess.probe' "$src/AuthActivity.java"
+need 'prefs.activateMode' "$src/AuthActivity.java"
+need 'connectionKey' "$src/AppPrefs.java"
+if grep -q 'prefs.mode(mode);' "$src/AuthActivity.java"; then
+  echo 'Browsing authorization tabs must not switch the active transport' >&2; exit 1
 fi
 
 # Exercise the actual plain-Java shell command builder with >10 selected apps.
