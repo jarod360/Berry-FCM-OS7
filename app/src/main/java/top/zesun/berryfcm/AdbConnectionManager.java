@@ -99,9 +99,15 @@ final class AdbConnectionManager extends AbsAdbConnectionManager {
             try {
                 // Use the modern Android NSD implementation in the same Priv Kit
                 // version as GKD. Discovery does not use or replace our ADB key.
+                priv.kit.core.adb.PrivilegeAdbManager discovery =
+                        Privilege.INSTANCE.createAdbManager("BerryFCM");
                 port = BuildersKt.<Integer>runBlocking(EmptyCoroutineContext.INSTANCE,
-                        (scope, continuation) -> Privilege.INSTANCE.createAdbManager("BerryFCM")
-                                .discoverConnectPort(15000L, continuation));
+                        (scope, continuation) -> {
+                            try { return discovery.discoverConnectPort(15000L, continuation); }
+                            catch (priv.kit.core.PrivilegeStartupException error) {
+                                throw new IllegalStateException(error);
+                            }
+                        });
             } catch (InterruptedException interrupted) {
                 throw interrupted;
             } catch (Exception failure) {
