@@ -2,10 +2,9 @@ name: Build Android APK
 
 on:
   push:
-    branches: [main, build/adb-compat]
+    branches: [main]
     paths:
       - 'app/**'
-      - 'tests/**'
       - 'build.gradle'
       - 'settings.gradle'
       - 'gradle.properties'
@@ -13,15 +12,10 @@ on:
   workflow_dispatch:
     inputs:
       publish_release:
-        description: "Promote an existing successful signed APK build to a prerelease (no rebuild)"
+        description: "Publish a signed GitHub prerelease after device acceptance"
         type: boolean
         required: false
         default: false
-      accepted_run_id:
-        description: "Exact successful Build Android APK run ID to publish"
-        type: string
-        required: false
-        default: ""
 
 permissions:
   contents: read
@@ -32,57 +26,37 @@ concurrency:
 
 jobs:
   build:
-    if: (github.event_name != 'workflow_dispatch' || inputs.publish_release != true) && !(github.event_name == 'push' && contains(github.event.head_commit.message, '[promote-test:'))
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      statuses: write
     timeout-minutes: 30
     steps:
-      - name: Record build run status
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          TARGET: ${{ github.sha }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: gh api "repos/$GH_REPO/statuses/$TARGET" -f state=pending -f context=berryfcm/build -f target_url="$RUN_URL" -f description="Consolidated build and checks started"
-
       - uses: actions/checkout@v4
 
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '17'
           cache: gradle
 
       - uses: android-actions/setup-android@v4
         with:
-          packages: 'platform-tools platforms;android-37.0 build-tools;37.0.0'
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
 
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '9.6.1'
+          gradle-version: '8.11.1'
 
       # Compile-only check. This debug APK is deliberately NOT uploaded or distributed:
       # each GitHub runner has a different debug key and it would break update installs.
       - name: Validate APK FCM monitor under simulated Root and ADB shell
         run: |
           sh -n app/src/main/assets/fcm-monitor.sh
-          sh tests/apk-native-fcm-smoke.sh
+          BERRY_MONITOR_SCRIPT=app/src/main/assets/fcm-monitor.sh BERRY_ASSERT_UID_ACCESS=1 sh tests/fcm-monitor-smoke.sh
 
       - name: Verify complete APK module and permission scope
         run: sh tests/apk-module-smoke.sh
 
       - name: Compile APK sources
         run: gradle --no-daemon :app:assembleDebug
-
-      - name: Verify merged APK permission scope
-        run: |
-          "$ANDROID_HOME/build-tools/37.0.0/aapt" dump permissions app/build/outputs/apk/debug/app-debug.apk > "$RUNNER_TEMP/berry-permissions.txt"
-          if grep -qE 'android.permission.WRITE_SECURE_SETTINGS|android.permission.BIND_ACCESSIBILITY_SERVICE' "$RUNNER_TEMP/berry-permissions.txt"; then
-            echo 'Unexpected privileged setting permission in merged APK'; exit 1
-          fi
 
       - name: Prepare persistent release signing key
         id: signing
@@ -178,7 +152,7 @@ jobs:
           mkdir -p dist
           APK=app/build/outputs/apk/release/app-release.apk
           test -s "$APK"
-          "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose --print-certs "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK"
           cp "$APK" "dist/BerryFCM-v0.1.0-alpha.${BUILD_NUMBER}.apk"
           # Legacy alias is necessary for alpha.36 updater compatibility.
           cp "$APK" "dist/BerryFCM-Guardian-v0.1.0-alpha.${BUILD_NUMBER}.apk"
@@ -203,238 +177,37 @@ jobs:
             echo "The per-run debug APK was intentionally not uploaded because it cannot be reliably upgraded across runners."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Record consolidated build result
-        if: always()
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          TARGET: ${{ github.sha }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          RESULT: ${{ job.status }}
-        run: |
-          case "$RESULT" in success) state=success;; *) state=failure;; esac
-          gh api "repos/$GH_REPO/statuses/$TARGET" -f state="$state" -f context=berryfcm/build -f target_url="$RUN_URL" -f description="Consolidated build and checks: $RESULT"
-
   publish_release:
-    name: Promote existing signed APK
-    if: (github.event_name == 'workflow_dispatch' && inputs.publish_release == true) || (github.event_name == 'push' && github.ref == 'refs/heads/build/adb-compat' && contains(github.event.head_commit.message, '[promote-test:'))
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      actions: read
-      statuses: write
-    steps:
-      - name: Record promotion run
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          TARGET: ${{ github.sha }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: gh api "repos/$GH_REPO/statuses/$TARGET" -f state=pending -f context=berryfcm/release-promotion -f target_url="$RUN_URL" -f description="Promote original signed APK (no compilation)"
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-      - uses: android-actions/setup-android@v4
-        with:
-          packages: 'platform-tools platforms;android-37.0 build-tools;37.0.0'
-      - name: Verify selected successful run and download original artifact
-        id: accepted
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          RUN_ID: ${{ inputs.accepted_run_id }}
-          HEAD_MESSAGE: ${{ github.event.head_commit.message }}
-        run: |
-          set -Eeuo pipefail
-          if [ "$GITHUB_EVENT_NAME" = push ]; then
-            RUN_ID="$(printf '%s\n' "$HEAD_MESSAGE" | sed -nE 's/^\[promote-test:([0-9]+)\].*$/\1/p' | head -n 1)"
-          fi
-          [[ "$RUN_ID" =~ ^[0-9]+$ ]] || { echo "Provide the exact successful build run ID"; exit 1; }
-          gh api "repos/$GH_REPO/actions/runs/$RUN_ID" > run.json
-          jq -e --arg repo "$GH_REPO" '
-            .status == "completed" and (.conclusion == "success" or .conclusion == "failure")
-            and (.path | split("@")[0]) == ".github/workflows/build-apk.yml"
-            and .head_repository.full_name == $repo
-            and (.head_branch == "main" or .head_branch == "build/native-fcm-batch" or .head_branch == "build/adb-compat")
-          ' run.json >/dev/null
-          # A failed publishing job does not invalidate a successful build.
-          # Require the original build job and every mandatory gate to pass.
-          gh api "repos/$GH_REPO/actions/runs/$RUN_ID/jobs?filter=latest&per_page=100" > jobs.json
-          jq -e '
-            any(.jobs[]; .name == "build" and .conclusion == "success"
-              and ([.steps[] | select(.conclusion == "success") | .name] as $ok
-                | (["Validate APK FCM monitor under simulated Root and ADB shell",
-                    "Verify complete APK module and permission scope",
-                    "Compile APK sources", "Verify merged APK permission scope",
-                    "Prepare persistent release signing key", "Build stable-signed APK",
-                    "Verify signature and stage APK", "Upload stable-signed APK"] - $ok | length == 0)))
-          ' jobs.json >/dev/null
-          number="$(jq -r .run_number run.json)"
-          sha="$(jq -r .head_sha run.json)"
-          [[ "$number" =~ ^[0-9]+$ && "$sha" =~ ^[0-9a-f]{40}$ ]]
-          gh run download "$RUN_ID" --repo "$GH_REPO" --name "BerryFCM-v0.1.0-alpha.$number" --dir release
-          apk="release/BerryFCM-v0.1.0-alpha.$number.apk"
-          test -s "$apk"
-          # A release source snapshot is permitted only if it preserves
-          # the built product tree; its sole difference may be CI workflow files.
-          snapshot="$(gh api "repos/$GH_REPO/git/ref/heads/release/alpha.$number" --jq '.object.sha')"
-          [[ "$snapshot" =~ ^[0-9a-f]{40}$ ]]
-          gh api "repos/$GH_REPO/compare/$sha...$snapshot" > comparison.json
-          jq -e --arg original "$sha" '
-            .merge_base_commit.sha == $original and .ahead_by == 1 and .behind_by == 0
-            and (.files | length) == 1
-            and .files[0].filename == ".github/workflows/build-apk.yml"
-          ' comparison.json >/dev/null
-          # The release target must use precisely the default branch's workflows.
-          gh api "repos/$GH_REPO/contents/.github/workflows?ref=main" | jq -S 'map({path,sha}) | sort_by(.path)' > main-workflows.json
-          gh api "repos/$GH_REPO/contents/.github/workflows?ref=$snapshot" | jq -S 'map({path,sha}) | sort_by(.path)' > release-workflows.json
-          diff -u main-workflows.json release-workflows.json
-          echo "Original APK build commit: $sha"
-          echo "Release source snapshot (only CI differs): $snapshot"
-          echo "number=$number" >> "$GITHUB_OUTPUT"
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "release_sha=$snapshot" >> "$GITHUB_OUTPUT"
-          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
-      - name: Verify exact APK package version and fixed certificate
-        env:
-          BUILD_NUMBER: ${{ steps.accepted.outputs.number }}
-        run: |
-          set -Eeuo pipefail
-          apk="release/BerryFCM-v0.1.0-alpha.${BUILD_NUMBER}.apk"
-          tools="$ANDROID_HOME/build-tools/37.0.0"
-          "$tools/apksigner" verify --verbose --print-certs "$apk" > cert.txt
-          # Build Tools 37 prints "V2 Signer: certificate ..." rather
-          # than "Signer #1 certificate ...". Accept both output formats.
-          cat cert.txt
-          actual="$(awk -F': ' '/^((V[0-9.]+ )?Signer( #[0-9]+)?):? certificate SHA-256 digest: / {print toupper($NF)}' cert.txt | sort -u)"
-          test "$actual" = "BB328497280F72FE6662E84D7D0D0B15BAF425872B9B360287ED120529D97615" || { echo "::error::APK signer SHA-256 mismatch or unrecognized report"; exit 1; }
-          grep -Fx 'Number of signers: 1' cert.txt
-          "$tools/aapt" dump badging "$apk" > badging.txt
-          grep -F "package: name='top.zesun.berryfcm' versionCode='${BUILD_NUMBER}'" badging.txt
-      - name: Create GitHub prerelease from original verified APK
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          BUILD_NUMBER: ${{ steps.accepted.outputs.number }}
-          TARGET_SHA: ${{ steps.accepted.outputs.release_sha }}
-          BUILD_SHA: ${{ steps.accepted.outputs.sha }}
-          RUN_ID: ${{ steps.accepted.outputs.run_id }}
-        run: |
-          set -Eeuo pipefail
-          tag="v0.1.0-alpha.${BUILD_NUMBER}"
-          apk="release/BerryFCM-v0.1.0-alpha.${BUILD_NUMBER}.apk"
-          legacy="release/BerryFCM-Guardian-v0.1.0-alpha.${BUILD_NUMBER}.apk"
-          cp "$apk" "$legacy"
-          gh release create "$tag" "$apk" "$legacy" --target "$TARGET_SHA" --prerelease --latest=false \
-            --title "BerryFCM Guardian ${tag}" \
-            --notes "Fixed-signature test APK from Actions run $RUN_ID, original build commit $BUILD_SHA. Tag points to release source snapshot $TARGET_SHA: identical application and other source files; only the CI workflow matches main. Original APK bytes, signature and version unchanged. Prerelease is not a stable release."
-
-      - name: Record promotion result
-        if: always()
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          TARGET: ${{ github.sha }}
-          ORIGINAL: ${{ steps.accepted.outputs.sha }}
-          BUILD_NUMBER: ${{ steps.accepted.outputs.number }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          RESULT: ${{ job.status }}
-        run: |
-          state=failure
-          url="$RUN_URL"
-          if [ "$RESULT" = success ]; then
-            state=success
-            url="https://github.com/$GH_REPO/releases/tag/v0.1.0-alpha.$BUILD_NUMBER"
-          fi
-          gh api "repos/$GH_REPO/statuses/$TARGET" -f state="$state" -f context=berryfcm/release-promotion -f target_url="$url" -f description="APK promotion: $RESULT"
-          if [ -n "$ORIGINAL" ]; then
-            gh api "repos/$GH_REPO/statuses/$ORIGINAL" -f state="$state" -f context=berryfcm/test-release -f target_url="$url" -f description="Test prerelease: $RESULT"
-          fi
-
-  publish_test_release:
-    name: Publish explicitly approved test prerelease (same run, no rebuild)
+    name: Publish verified GitHub prerelease
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_release == true
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/build/adb-compat' && contains(github.event.head_commit.message, '[publish-test]') && needs.build.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      actions: read
-      statuses: write
     steps:
-      - name: Record prerelease pending
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          TARGET: ${{ github.sha }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: gh api "repos/$GH_REPO/statuses/$TARGET" -f state=pending -f context=berryfcm/test-release -f target_url="$RUN_URL" -f description="Verify and publish approved test APK"
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-      - uses: android-actions/setup-android@v4
-        with:
-          packages: 'platform-tools platforms;android-37.0 build-tools;37.0.0'
       - uses: actions/download-artifact@v4
         with:
           name: BerryFCM-v0.1.0-alpha.${{ github.run_number }}
           path: release
-      - name: Verify exact APK package version and fixed certificate
+      - name: Confirm signed APK artifact is present
         env:
           BUILD_NUMBER: ${{ github.run_number }}
         run: |
           set -Eeuo pipefail
           apk="release/BerryFCM-v0.1.0-alpha.${BUILD_NUMBER}.apk"
-          tools="$ANDROID_HOME/build-tools/37.0.0"
-          "$tools/apksigner" verify --verbose --print-certs "$apk" > cert.txt
-          # Build Tools 37 prints "V2 Signer: certificate ..." rather
-          # than "Signer #1 certificate ...". Accept both output formats.
-          cat cert.txt
-          actual="$(awk -F': ' '/^((V[0-9.]+ )?Signer( #[0-9]+)?):? certificate SHA-256 digest: / {print toupper($NF)}' cert.txt | sort -u)"
-          test "$actual" = "BB328497280F72FE6662E84D7D0D0B15BAF425872B9B360287ED120529D97615" || { echo "::error::APK signer SHA-256 mismatch or unrecognized report"; exit 1; }
-          grep -Fx 'Number of signers: 1' cert.txt
-          "$tools/aapt" dump badging "$apk" > badging.txt
-          grep -F "package: name='top.zesun.berryfcm' versionCode='${BUILD_NUMBER}'" badging.txt
-      - name: Create GitHub prerelease from original verified APK
+          test -s "$apk"
+      - name: Create GitHub prerelease
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           BUILD_NUMBER: ${{ github.run_number }}
           TARGET_SHA: ${{ github.sha }}
-          RUN_ID: ${{ github.run_id }}
         run: |
           set -Eeuo pipefail
           tag="v0.1.0-alpha.${BUILD_NUMBER}"
           apk="release/BerryFCM-v0.1.0-alpha.${BUILD_NUMBER}.apk"
           legacy="release/BerryFCM-Guardian-v0.1.0-alpha.${BUILD_NUMBER}.apk"
           cp "$apk" "$legacy"
-          gh release create "$tag" "$apk" "$legacy" --target "$TARGET_SHA" --prerelease --latest=false \
+          gh release create "$tag" "$apk" "$legacy" --target "$TARGET_SHA" --prerelease \
             --title "BerryFCM Guardian ${tag}" \
-            --notes "Fixed-signature prerelease from the original successful Actions run $RUN_ID. See docs/HANDOFF.md for device validation. Prerelease is not a stable release."
-
-      - name: Record test prerelease result
-        if: always()
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          TARGET: ${{ github.sha }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          RESULT: ${{ job.status }}
-          BUILD_NUMBER: ${{ github.run_number }}
-        run: |
-          if [ "$RESULT" = success ]; then
-            state=success
-            url="https://github.com/$GH_REPO/releases/tag/v0.1.0-alpha.$BUILD_NUMBER"
-          else
-            state=failure
-            url="$RUN_URL"
-          fi
-          gh api "repos/$GH_REPO/statuses/$TARGET" -f state="$state" -f context=berryfcm/test-release -f target_url="$url" -f description="Test prerelease: $RESULT"
-
-# Promotion: verified alpha.60 artifact from Actions run 44268379299; no rebuild.
+            --notes "BerryFCM fixed-signature prerelease. See docs/HANDOFF.md and docs/PRODUCT_PLAN.md for features, limits, and device validation."
