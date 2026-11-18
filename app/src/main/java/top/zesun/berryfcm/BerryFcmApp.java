@@ -8,6 +8,7 @@ import java.security.Security;
 public final class BerryFcmApp extends Application {
     @Override public void onCreate() {
         super.onCreate();
+        PrivKitShell.initialize();
         Provider provider = Conscrypt.newProvider();
         if (Security.getProvider(provider.getName()) == null) {
             Security.insertProviderAt(provider, 1);

@@ -53,4 +53,4 @@ APP 桌面名称及新版安装包文件名已缩短为 **BerryFCM**。底部导
 
 ## 独立授权服务开发版
 
-开发分支 `dev/native-fcm-state` 已切换至 GKD 同款 Priv Kit 0.20.0：无线 ADB 只用于启动本项目独立服务，后续日常采样、应用守护走 Binder。保留现有配对密钥，启动失败不回退至逐次 ADB。正在验证 [alpha.47 #44228547705](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44228547705)；需真机确认后才可作为正式版本。主分支、KernelSU 和 Release 未变更。
+开发分支 `dev/native-fcm-state` 已切换至 GKD 同款 Priv Kit 0.20.0：无线 ADB 只用于启动本项目独立服务，后续日常采样、应用守护走 Binder。保留现有配对密钥，启动失败不回退至逐次 ADB。已成功构建 [alpha.47 #44228547705](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44228547705)；需真机确认后才可作为正式版本。主分支、KernelSU 和 Release 未变更。

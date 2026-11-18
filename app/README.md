@@ -74,5 +74,5 @@
 ### 当前独立服务开发验证
 
 - 开源依据：[GKD](https://github.com/gkd-kit/gkd) 的实际 Priv Kit 依赖和 [Priv Kit v0.20.0](https://github.com/priv-kit/priv-kit/tree/v0.20.0) 的官方 nativeStarterCommand / Binder 命令接口。
-- [专项检查 #44227839661](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44227839661) 已通过；[集中构建 alpha.47](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44228547705) 当前待确认。源码未合并 main，也未发布 Release。
+- [专项检查 #44227839661](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44227839661) 已通过；[集中构建 alpha.47](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44228547705) 已成功编译、固定签名和验签。源码未合并 main，也未发布 Release。
 - 实机验收必须分开核对：旧配对覆盖安装、一次启动服务后普通采样不再建立无线 ADB、Wi-Fi/移动网络切换仍可执行 Binder、服务死亡时提示和限频恢复、Root/静态 TCP/可选 Shizuku 回归；不能仅凭 APK 编译成功宣布通知问题已解决。

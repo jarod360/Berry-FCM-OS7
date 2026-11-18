@@ -31,7 +31,7 @@ need 'io.github.priv-kit:priv-core:0.20.0' "$root/app/build.gradle"
 need 'autoAttempted' "$src/PrivKitShell.java"
 need 'RECOVERY_COOLDOWN_MS' "$src/PrivKitShell.java"
 need 'getLifecycleBinder().isBinderAlive()' "$src/PrivKitShell.java"
-need 'PrivKitShell.allowStart()' "$src/AdbPairingService.java"
+need 'PrivKitShell.allowStart(this)' "$src/AdbPairingService.java"
 # The only direct ADB call in PrivKitShell must be the native starter.
 test "$(grep -c 'executeOnce(' "$src/PrivKitShell.java")" -eq 1
 need 'AppPrefs.WIRELESS, "127.0.0.1", 0, launch' "$src/PrivKitShell.java"
@@ -188,6 +188,11 @@ classes="${RUNNER_TEMP:-/tmp}/berryfcm-guard-smoke"
 mkdir -p "$classes"
 javac -d "$classes" "$src/GuardOps.java" "$root/tests/GuardOpsSmoke.java"
 java -cp "$classes" top.zesun.berryfcm.GuardOpsSmoke
+javac -d "$classes" "$src/LaunchCooldown.java" "$root/tests/LaunchCooldownSmoke.java"
+java -cp "$classes" top.zesun.berryfcm.LaunchCooldownSmoke
+need 'PrivilegeConfig.INSTANCE.configure(3600000L, false)' "$src/PrivKitShell.java"
+need 'PrivKitShell.initialize()' "$src/BerryFcmApp.java"
+need 'rememberLaunch(context)' "$src/PrivKitShell.java"
 
 echo 'PASS: APK navigation modules, notification ADB pairing, FCM guard, insets, tile, release workflow, and removed accessibility scope'
 

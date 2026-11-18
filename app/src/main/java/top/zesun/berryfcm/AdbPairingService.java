@@ -160,13 +160,15 @@ public final class AdbPairingService extends Service {
             AppPrefs prefs = new AppPrefs(this);
             prefs.mode(AppPrefs.WIRELESS);
             prefs.markAdbPaired();
-            PrivKitShell.allowStart();
+            PrivKitShell.allowStart(this);
             prefs.pairingStatus("配对成功，正在启动独立服务");
             // Pairing exchanges identity. Monitoring starts the independent
             // Priv Kit service once, then executes commands over Binder.
             prefs.monitorEnabled(true);
-            FcmMonitorService.start(this);
-            complete("配对成功，已启动监控；后台将自动连接并采样");
+            boolean requested = FcmMonitorService.start(this);
+            complete(requested
+                    ? "配对成功，已请求启动监控；独立服务及采样状态请在应用内查看"
+                    : "配对成功，系统未允许启动后台监控；返回应用后启动服务即可，无需重新配对");
         } catch (Exception error) {
             String message = String.valueOf(error.getMessage());
             new AppPrefs(this).shellFailed(message);
