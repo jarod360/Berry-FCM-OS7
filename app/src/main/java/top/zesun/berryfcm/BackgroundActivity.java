@@ -26,20 +26,27 @@ public final class BackgroundActivity extends Ui {
         });
         bootSwitch = toggle(service, "开机 / 更新后恢复已启用任务", prefs.startOnBoot(), false, prefs::startOnBoot);
 
-        LinearLayout android = card("后台状态", "辅助权限不作为启动或继续监控的条件。");
+        LinearLayout android = card("后台任务状态", "这些开关不能保证系统永远不会结束后台任务。");
         systemStates = text("", 13, false, muted);
         android.addView(systemStates);
-        line(android, "授权管理", "自启动、关联启动、高耗电、锁定后台、通知和磁贴", () -> go(AuthActivity.class));
-        LinearLayout androidExtra = disclosure(android, "高级 · Shell 策略与撤销", false);
+        LinearLayout androidExtra = disclosure(android, "高级：系统省电与流量限制（一般无需修改）", false);
+        TextView explanation = text("以下操作需要 Root、ADB 或 Shizuku 授权，修改的是 Android 系统限制，不是 FCM 连接本身。无法解决 Google 服务器不可达的问题。", 12, false, muted);
+        androidExtra.addView(explanation);
+        androidExtra.addView(text("BerryFCM 自身后台限制", 14, true, ink));
+        androidExtra.addView(text("减少系统休眠和后台运行限制，可能提高监控存活率；不会保证永远运行。", 12, false, muted));
+        button(androidExtra, "放宽 BerryFCM 后台限制", this::optimize, false);
+        button(androidExtra, "恢复 BerryFCM 修改过的限制", this::restoreOwn, false);
+        androidExtra.addView(text("Google 推送服务（GMS）", 14, true, ink));
+        androidExtra.addView(text("休眠白名单：允许系统休眠时 Google 推送继续工作。如果上面已显示 GMS 在白名单中，就不必重复添加。", 12, false, muted));
+        button(androidExtra, "添加 Google 推送到休眠白名单", () -> gmsPolicy(true), false);
+        button(androidExtra, "撤销本应用添加的 Google 推送休眠放行", () -> gmsPolicy(false), false);
+        androidExtra.addView(text("后台流量：仅针对 Android 的省流量模式限制；不能替代代理、VPN 或网络连接。", 12, false, muted));
+        button(androidExtra, "允许 Google 推送使用后台计量流量", () -> gmsNetwork(true), false);
+        button(androidExtra, "撤销本应用添加的后台流量放行", () -> gmsNetwork(false), false);
+        androidExtra.addView(text("“恢复”只撤销 BerryFCM 有记录的改动，不会重置整个系统，也不会修改其他应用的权限。", 12, false, muted));
         policy = text("", 12, false, muted);
+        policy.setTextIsSelectable(true);
         androidExtra.addView(policy);
-        button(androidExtra, "放行 BerryFCM 后台策略", this::optimize, false);
-        button(androidExtra, "撤销本版添加的后台策略", this::restoreOwn, false);
-        button(androidExtra, "查看系统电池优化列表", () -> BackgroundSettings.batteryList(this), false);
-        button(androidExtra, "单独放行 GMS 的 Doze", () -> gmsPolicy(true), false);
-        button(androidExtra, "撤销 BerryFCM 添加的 GMS Doze 放行", () -> gmsPolicy(false), false);
-        button(androidExtra, "放行 GMS 后台计量网络", () -> gmsNetwork(true), false);
-        button(androidExtra, "撤销 BerryFCM 添加的后台网络放行", () -> gmsNetwork(false), false);
 
         renderPolicy();
     }

@@ -28,13 +28,17 @@ public final class AdbPairingService extends Service {
     private static final String ACTION_STOP = "berryfcm.pair.stop";
     private static final int NOTIFICATION = 7310;
     private static final long MANUAL_FALLBACK_DELAY_MS = 15000L;
+    private static final long PAIR_INPUT_TIMEOUT_MS = 120000L;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
     private final PairingGate gate = new PairingGate();
     private Future<?> task;
     private int manualPairPort;
     private static volatile boolean active;
+    private static volatile boolean codeSubmitted;
     static boolean isPairingActive() { return active; }
+    static boolean isAwaitingInput() { return active && !codeSubmitted; }
+    static boolean isCodeSubmitted() { return active && codeSubmitted; }
 
     static void begin(Context context, int manualPort) {
         Intent i = new Intent(context, AdbPairingService.class).setAction(ACTION_BEGIN)
@@ -56,6 +60,7 @@ public final class AdbPairingService extends Service {
     }
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent == null || ACTION_STOP.equals(intent.getAction())) {
+            if (active) updateStatus("配对已取消，可以继续使用原有授权方式");
             cancel();
             stopForeground(STOP_FOREGROUND_REMOVE);
             stopSelf();
@@ -92,7 +97,8 @@ public final class AdbPairingService extends Service {
                 }
                 if (!gate.submit(generation, port)) return START_NOT_STICKY;
             }
-            publish("正在配对…", false, 0);
+            codeSubmitted = true;
+            publish("正在验证配对码…", false, 0);
             final boolean manual = fallback || manualPairPort > 0;
             final int submittedPort = port;
             final String submittedCode = code;
@@ -109,6 +115,12 @@ public final class AdbPairingService extends Service {
         cancel();
         int generation = gate.begin();
         active = true;
+        codeSubmitted = false;
+        main.postDelayed(() -> {
+            if (active && gate.searching(generation)) {
+                complete("未收到配对码，已自动结束配对");
+            }
+        }, PAIR_INPUT_TIMEOUT_MS);
         int manual = intent.getIntExtra("manual_port", 0);
         manualPairPort = manual;
         publish("等待系统配对服务：请打开“使用配对码配对设备”", false, 0);
@@ -164,6 +176,7 @@ public final class AdbPairingService extends Service {
 
     private void cancel() {
         active = false;
+        codeSubmitted = false;
         gate.cancel();
         if (task != null) task.cancel(true);
         task = null;
@@ -219,6 +232,7 @@ public final class AdbPairingService extends Service {
 
     private void complete(String message) {
         active = false;
+        codeSubmitted = false;
         gate.cancel();
         updateStatus(message);
         stopForeground(STOP_FOREGROUND_REMOVE);
@@ -242,6 +256,7 @@ public final class AdbPairingService extends Service {
         updateStatus(message);
         Notification.Builder b = new Notification.Builder(this, CHANNEL)
                 .setSmallIcon(R.drawable.ic_bf_auth)
+                .setColor(android.graphics.Color.WHITE)
                 .setContentTitle("BerryFCM · 无线 ADB 配对")
                 .setContentText(message)
                 .setStyle(new Notification.BigTextStyle().bigText(message))

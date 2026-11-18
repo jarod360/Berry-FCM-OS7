@@ -167,14 +167,14 @@ abstract class Ui extends Activity {
     protected LinearLayout card(String heading, String description) {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(16), dp(16), dp(16), dp(16));
+        box.setPadding(dp(14), dp(14), dp(14), dp(14));
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(panel);
-        drawable.setCornerRadius(dp(16));
+        drawable.setCornerRadius(dp(14));
         drawable.setStroke(dp(1), dark ? 0xff28354c : 0xffe4e9f2);
         box.setBackground(drawable);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.bottomMargin = dp(12);
+        lp.bottomMargin = dp(10);
         content.addView(box, lp);
         if (heading != null) {
             box.addView(text(heading, 16, true, ink));
@@ -243,23 +243,28 @@ abstract class Ui extends Activity {
     }
     /** Progressive disclosure for infrequent or technical controls. */
     protected LinearLayout disclosure(LinearLayout parent, String caption, boolean expanded) {
-        TextView trigger = text("", 14, true, accent);
+        LinearLayout trigger = new LinearLayout(this);
         trigger.setGravity(Gravity.CENTER_VERTICAL);
-        trigger.setPadding(dp(4), dp(10), dp(4), dp(10));
-        trigger.setMinHeight(dp(48));
-        trigger.setClickable(true);
+        trigger.setPadding(dp(2), dp(7), dp(2), dp(7));
+        trigger.setMinimumHeight(dp(44));
         trigger.setFocusable(true);
+        trigger.setBackground(new RippleDrawable(ColorStateList.valueOf(
+                dark ? 0x33ffffff : 0x12000000), null, null));
+        TextView heading = text(caption, 16, true, ink);
+        trigger.addView(heading, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView arrow = text(expanded ? "⌃" : "⌄", 22, true, accent);
+        arrow.setGravity(Gravity.CENTER);
+        trigger.addView(arrow, new LinearLayout.LayoutParams(dp(30), dp(34)));
+        trigger.setContentDescription(caption + (expanded ? "，点击收起" : "，点击展开"));
         parent.addView(trigger);
         LinearLayout details = new LinearLayout(this);
         details.setOrientation(LinearLayout.VERTICAL);
         parent.addView(details);
         details.setVisibility(expanded ? View.VISIBLE : View.GONE);
-        trigger.setText(caption + (expanded ? "  ▴" : "  ▾"));
-        trigger.setContentDescription(caption + (expanded ? "，点击收起" : "，点击展开"));
         trigger.setOnClickListener(v -> {
             boolean opening = details.getVisibility() != View.VISIBLE;
             details.setVisibility(opening ? View.VISIBLE : View.GONE);
-            trigger.setText(caption + (opening ? "  ▴" : "  ▾"));
+            arrow.setText(opening ? "⌃" : "⌄");
             trigger.setContentDescription(caption + (opening ? "，点击收起" : "，点击展开"));
         });
         return details;

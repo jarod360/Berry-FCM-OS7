@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [main, build/adb-compat]
+    branches: [main, build/adb-compat, fix/adb-android17-lifecycle]
     paths:
       - 'app/**'
       - 'tests/**'
@@ -258,7 +258,7 @@ jobs:
             .status == "completed" and (.conclusion == "success" or .conclusion == "failure")
             and (.path | split("@")[0]) == ".github/workflows/build-apk.yml"
             and .head_repository.full_name == $repo
-            and (.head_branch == "main" or .head_branch == "build/native-fcm-batch" or .head_branch == "build/adb-compat")
+            and (.head_branch == "main" or .head_branch == "build/native-fcm-batch")
           ' run.json >/dev/null
           # A failed publishing job does not invalidate a successful build.
           # Require the original build job and every mandatory gate to pass.
@@ -436,7 +436,3 @@ jobs:
             url="$RUN_URL"
           fi
           gh api "repos/$GH_REPO/statuses/$TARGET" -f state="$state" -f context=berryfcm/test-release -f target_url="$url" -f description="Test prerelease: $RESULT"
-
-# Promotion: verified alpha.60 artifact from Actions run 44268379299; no rebuild.
-
-# Promotion-only for exact successful alpha.65 signed build artifact; no rebuild.

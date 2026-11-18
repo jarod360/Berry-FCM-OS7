@@ -38,19 +38,20 @@ final class BackgroundSettings {
                 "berry_fcm_policy_ownership", android.content.Context.MODE_PRIVATE);
         StringBuilder report = new StringBuilder();
         if (dozePresent(shell, SELF)) {
-            report.append("BerryFCM Doze：已在白名单，不修改\n");
+            report.append("BerryFCM 休眠限制：系统已允许，无需修改\n");
         } else {
             if (!own.edit().putBoolean("self_doze_owned", true).commit())
                 throw new IllegalStateException("无法保存 Doze 回滚记录");
             shell.execute("cmd deviceidle whitelist +" + SELF + " 2>&1");
             if (!dozePresent(shell, SELF))
                 throw new IllegalStateException("BerryFCM Doze 放行未通过回读");
-            report.append("BerryFCM Doze：已加入（可撤销）\n");
+            report.append("BerryFCM 休眠限制：已放行（可撤销）\n");
         }
         for (String op : new String[]{"RUN_ANY_IN_BACKGROUND", "RUN_IN_BACKGROUND"}) {
             String mode = readAppOp(shell, op);
             if (mode == null) {
-                report.append(op).append("：无法读取现有状态，未修改\n");
+                report.append("RUN_ANY_IN_BACKGROUND".equals(op) ? "后台活动限制" : "后台运行限制")
+                        .append("：无法核实当前状态，未修改\n");
                 continue;
             }
             if (!"allow".equals(mode)) {
@@ -61,8 +62,9 @@ final class BackgroundSettings {
                 if (!"allow".equals(readAppOp(shell, op)))
                     throw new IllegalStateException(op + " 放行未通过回读");
             }
-            report.append(op).append("：已回读 allow")
-                    .append(own.contains("self_op_previous_" + op) ? "（可撤销）" : "（未修改原状态）")
+            report.append("RUN_ANY_IN_BACKGROUND".equals(op) ? "后台活动限制" : "后台运行限制")
+                    .append("：已允许")
+                    .append(own.contains("self_op_previous_" + op) ? "（可撤销）" : "（保持原状态）")
                     .append("\n");
         }
         return report.toString().trim();
@@ -79,7 +81,7 @@ final class BackgroundSettings {
                     throw new IllegalStateException("撤销 BerryFCM Doze 放行失败");
             }
             own.edit().remove("self_doze_owned").apply();
-            report.append("BerryFCM Doze：已恢复\n");
+            report.append("BerryFCM 休眠限制：已撤销本应用放行\n");
         }
         for (String op : new String[]{"RUN_ANY_IN_BACKGROUND", "RUN_IN_BACKGROUND"}) {
             String key = "self_op_previous_" + op;
@@ -92,10 +94,12 @@ final class BackgroundSettings {
                 if (!previous.equals(readAppOp(shell, op)))
                     throw new IllegalStateException(op + " 恢复未通过回读");
             } else {
-                report.append(op).append("：已被外部修改，未覆盖\n");
+                report.append("RUN_ANY_IN_BACKGROUND".equals(op) ? "后台活动限制" : "后台运行限制")
+                        .append("：已被其他操作修改，没有覆盖\n");
             }
             own.edit().remove(key).apply();
-            report.append(op).append("：回滚记录已处理\n");
+            report.append("RUN_ANY_IN_BACKGROUND".equals(op) ? "后台活动限制" : "后台运行限制")
+                    .append("：原始状态恢复记录已处理\n");
         }
         if (report.length() == 0)
             return "没有本版 BerryFCM 记录的可撤销策略；旧版未记录原状态的修改不能安全推测并恢复";
@@ -168,61 +172,12 @@ final class BackgroundSettings {
         return am.isBackgroundRestricted() ? "已限制" : "未限制（不代表厂商高耗电已开启）";
     }
 
-    // Private Vivo AppOps differs by ROM. Only use the candidate code if
-    // the ROM itself exposes a matching operation name. Exceptions/default
-    // modes are unknown, never a false claim that the toggle is disabled.
-    static String originAutoStartStatus(Activity activity) {
-        String maker = (android.os.Build.MANUFACTURER + " " + android.os.Build.BRAND)
-                .toLowerCase(java.util.Locale.ROOT);
-        if (!maker.contains("vivo") && !maker.contains("iqoo")) return "需在系统设置确认";
-        String direct = vivoPermissionResult(activity, "AUTO_START");
-        if (direct != null) return direct;
-        try {
-            android.app.AppOpsManager ops = activity.getSystemService(android.app.AppOpsManager.class);
-            if (ops == null) return "需在系统设置确认";
-            int op = 10002;
-            Object name = android.app.AppOpsManager.class.getMethod("opToName", int.class).invoke(null, op);
-            String normalized = String.valueOf(name).toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z]", "");
-            if (!normalized.contains("autostart")) return "系统未提供可信读取接口";
-            int mode = (Integer) android.app.AppOpsManager.class.getMethod("checkOpNoThrow",
-                    int.class, int.class, String.class).invoke(ops, op, android.os.Process.myUid(), activity.getPackageName());
-            if (mode == android.app.AppOpsManager.MODE_ALLOWED) return "AppOps 已放行（厂商开关待实机核对）";
-            if (mode == android.app.AppOpsManager.MODE_IGNORED || mode == android.app.AppOpsManager.MODE_ERRORED)
-                return "AppOps 已限制（厂商开关待实机核对）";
-        } catch (ReflectiveOperationException | RuntimeException ignored) { }
-        return "无法自动读取，请在系统设置确认";
-    }
-
-    // Vivo framework permission service: query only this app, resolve the
-    // actual ROM enum and constants. Hidden API or permission exceptions are
-    // normal compatibility failures, never treated as denied or granted.
-    private static String vivoPermissionResult(Activity activity, String typeName) {
-        try {
-            String prefix = "com.vivo.services.security.client.";
-            Class<?> type = Class.forName(prefix + "VivoPermissionType");
-            Object permission = type.getField(typeName).get(null);
-            int typeId = (Integer) type.getMethod("getVPTypeId").invoke(permission);
-            Class<?> manager = Class.forName(prefix + "VivoPermissionManager");
-            Object service = manager.getMethod("getInstance").invoke(null);
-            if (service == null) return null;
-            Class<?> iface = Class.forName("vivo.app.security.AbsVivoPermissionManager");
-            Object info = iface.getMethod("getAppPermission", String.class)
-                    .invoke(service, activity.getPackageName());
-            if (info == null) return null;
-            Class<?> result = Class.forName(prefix + "VivoPermissionInfo");
-            int value = (Integer) result.getMethod("getPermissionResult", int.class).invoke(info, typeId);
-            if (value == result.getField("GRANTED").getInt(null)) return "已开启（Vivo 权限服务）";
-            if (value == result.getField("DENIED").getInt(null)) return "未开启（Vivo 权限服务）";
-        } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) { }
-        return null;
-    }
-
-    static String monitorNotificationStatus(Activity activity, boolean quiet) {
+    static String monitorNotificationStatus(Activity activity) {
         android.app.NotificationManager manager = activity.getSystemService(android.app.NotificationManager.class);
         if (manager == null) return "无法读取";
         if (!manager.areNotificationsEnabled()) return "系统通知已关闭";
         android.app.NotificationChannel channel = manager.getNotificationChannel(
-                quiet ? "berry_fcm_monitor_quiet" : "berry_fcm_monitor_active");
+                "berry_fcm_monitor_quiet");
         if (channel == null) return "尚未创建";
         return channel.getImportance() == android.app.NotificationManager.IMPORTANCE_NONE ? "已关闭" : "已开启";
     }
@@ -231,8 +186,8 @@ final class BackgroundSettings {
                 .putExtra(Settings.EXTRA_APP_PACKAGE, activity.getPackageName())); }
         catch (RuntimeException ex) { details(activity); }
     }
-    static void monitorNotifications(Activity activity, boolean quiet) {
-        String channel = quiet ? "berry_fcm_monitor_quiet" : "berry_fcm_monitor_active";
+    static void monitorNotifications(Activity activity) {
+        String channel = "berry_fcm_monitor_quiet";
         android.app.NotificationManager manager = activity.getSystemService(android.app.NotificationManager.class);
         if (manager == null || manager.getNotificationChannel(channel) == null) { notifications(activity); return; }
         try { activity.startActivity(new Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)

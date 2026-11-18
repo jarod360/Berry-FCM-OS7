@@ -26,7 +26,7 @@ public final class MainActivity extends Ui {
 
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved);
-        title("BerryFCM", "FCM 连接与后台守护");
+        title("BerryFCM", "For OriginOS7");
 
         LinearLayout monitor = card("FCM 监控", "检查 Google 推送连接是否正常");
         state = text("正在读取状态", 23, true, ink);
@@ -120,10 +120,14 @@ public final class MainActivity extends Ui {
 
         String description = "后台监控已开启 · 应用守护" + (prefs.guardEnabled() ? "已开启" : "未开启")
                 + "\n最近检查：" + (age >= 0 ? age + " 秒前" : "尚无本次检查结果");
-        if (age >= 0 && age <= 90 && nativeState && lastError.isEmpty()
-                && snapshot.optLong("fcm_native_duration", -1) >= 0) {
-            description += "\n" + ("connected".equals(observed) ? "已连接：" : "当前状态持续：")
-                    + MonitorStatus.duration(snapshot.optLong("fcm_native_duration"));
+        if (age >= 0 && age <= 90 && nativeState && lastError.isEmpty()) {
+            long nativeSeconds = snapshot.optLong("fcm_native_duration", -1);
+            if ("connected".equals(observed)) {
+                description += "\n" + MonitorStatus.connectedDuration(
+                        nativeSeconds, snapshot.optLong("fcm_observed_up_seconds", -1));
+            } else if (nativeSeconds >= 0) {
+                description += "\n当前状态计时：" + MonitorStatus.duration(nativeSeconds);
+            }
         }
         if (!lastError.isEmpty()) description += "\n后台将自动重试，详情见监控详情。";
         summary.setText(description);

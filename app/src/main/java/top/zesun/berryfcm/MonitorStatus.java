@@ -26,6 +26,17 @@ final class MonitorStatus {
         if ("disconnected".equals(raw)) return State.DISCONNECTED;
         return State.UNKNOWN;
     }
+    static String connectedDuration(long nativeSeconds, long observedSeconds) {
+        if (nativeSeconds > 0) return "GMS 计时：" + duration(nativeSeconds);
+        if (observedSeconds > 0) {
+            return "已观察在线：" + duration(observedSeconds)
+                    + (nativeSeconds == 0 ? "（GMS 计时仍为 0，非实际总时长）"
+                                          : "（非实际连接总时长）");
+        }
+        return nativeSeconds == 0 ? "GMS 计时：0 秒（待后续采样确认）"
+                : "连接时长：无法确认";
+    }
+
     static String duration(long seconds) {
         if (seconds < 0) return "未知";
         long days = seconds / 86400, hours = seconds / 3600 % 24;

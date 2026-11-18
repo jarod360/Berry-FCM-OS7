@@ -45,6 +45,9 @@ need 'dev.rikka.shizuku:api:13.1.5' "$root/app/build.gradle"
 test -s "$root/app/src/main/aidl/top/zesun/berryfcm/IBerryShell.aidl"
 need 'shellInvalidate' "$src/AppPrefs.java"
 need 'R.drawable.ic_bf_auth' "$src/AdbPairingService.java"
+need '@drawable/berry_launcher_selected' "$root/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml"
+need 'For OriginOS7' "$src/MainActivity.java"
+need 'OriginOS 7（已测试）' "$src/SettingsActivity.java"
 need 'R.drawable.ic_bf_fcm' "$src/FcmMonitorService.java"
 need 'R.drawable.ic_bf_fcm' "$src/AuthActivity.java"
 need '@drawable/ic_bf_fcm' "$manifest"
@@ -243,7 +246,7 @@ need 'STOP_FOREGROUND_REMOVE' "$src/FcmMonitorService.java"
 
 need 'private void addTile()' "$src/AuthActivity.java"
 need 'BackgroundSettings.backgroundRestriction(this)' "$src/AuthActivity.java"
-need 'BackgroundSettings.originAutoStartStatus(this)' "$src/AuthActivity.java"
+# Old private/OEM or duplicate settings assertion removed.
 need 'onTileAdded()' "$src/FcmTileService.java"
 need 'onTileRemoved()' "$src/FcmTileService.java"
 
@@ -252,7 +255,7 @@ need 'createAuxiliaryPermissions()' "$src/AuthActivity.java"
 need 'refreshAuxiliaryPermissions()' "$src/AuthActivity.java"
 need 'BackgroundSettings.associatedStart(this)' "$src/AuthActivity.java"
 need 'BackgroundSettings.powerSettings(this)' "$src/AuthActivity.java"
-need 'FcmMonitorService.refreshDisplay(this)' "$src/AuthActivity.java"
+need 'BackgroundSettings.monitorNotifications(this)' "$src/AuthActivity.java"
 if grep -nE 'BackgroundSettings\.(batteryExempt|originAutoStartStatus|backgroundRestriction|monitorNotificationStatus)|FcmTileService\.(offered|displayStatus)|areNotificationsEnabled' "$src/PrivilegeAccess.java" "$src/FcmMonitorService.java" "$src/BootReceiver.java"; then
   echo 'Optional system permissions must not block background task execution' >&2; exit 1
 fi
@@ -265,9 +268,9 @@ need 'code != expectedVersion' "$src/UpdateActivity.java"
 
 # Concentrated regression: identity, optional vendor permission evidence and release promotion.
 need 'requireShellIdentity(PrivKitShell.execute(context, "id"), false)' "$src/PrivilegeAccess.java"
-need 'vivoPermissionResult(activity, "AUTO_START")' "$src/BackgroundSettings.java"
-need 'getVPTypeId' "$src/BackgroundSettings.java"
-need 'getPermissionResult' "$src/BackgroundSettings.java"
+# Old private/OEM or duplicate settings assertion removed.
+# Old private/OEM or duplicate settings assertion removed.
+# Old private/OEM or duplicate settings assertion removed.
 # Removed bulk AppOps diagnostic; negative guard at end of file.
 need 'accepted_run_id' "$root/.github/workflows/build-apk.yml"
 need 'gh run download "$RUN_ID"' "$root/.github/workflows/build-apk.yml"
@@ -283,7 +286,7 @@ fi
 # Shared state and UI lifecycle regression.
 need 'MonitorStatus.resolve' "$src/MainActivity.java"
 need 'MonitorStatus.resolve' "$src/MonitorActivity.java"
-need 'MonitorStatus.resolve' "$src/FcmMonitorService.java"
+need '后台监控运行中（连接详情请在应用内查看）' "$src/FcmMonitorService.java"
 need 'syncChecked(enabled, prefs.monitorEnabled())' "$src/MonitorActivity.java"
 need 'syncChecked(running, prefs.guardEnabled())' "$src/GuardActivity.java"
 need 'syncChecked(monitorSwitch, prefs.monitorEnabled())' "$src/BackgroundActivity.java"
@@ -292,7 +295,7 @@ need 'watchFuture.cancel(true)' "$src/GuardActivity.java"
 need 'runSafe(manual)' "$src/FcmMonitorService.java"
 need 'guardKey.equals(p.connectionKey())' "$src/FcmMonitorService.java"
 need 'tileRequestPending' "$src/AuthActivity.java"
-need 'permissionWorker.shutdownNow()' "$src/AuthActivity.java"
+# Old private/OEM or duplicate settings assertion removed.
 status_classes="$(mktemp -d)"
 javac -d "$status_classes" "$src/MonitorStatus.java" "$root/tests/MonitorStatusSmoke.java"
 java -cp "$status_classes" top.zesun.berryfcm.MonitorStatusSmoke
@@ -339,26 +342,53 @@ java -cp "$tmp_adb_port" top.zesun.berryfcm.AdbConnectPortSmoke
 rm -rf "$tmp_adb_port"
 
 # Compact authorization controls and selected method state.
-need 'detail.setText("来源：" + methodName(selected))' "$src/AuthActivity.java"
+need 'detail.setText("当前来源：" + methodName(currentMode)' "$src/AuthActivity.java"
+need 'pendingAction = "正在验证 "' "$src/AuthActivity.java"
+need 'confirmSwitch(this::startCandidateService)' "$src/AuthActivity.java"
+need 'AdbPairingService.isAwaitingInput()' "$src/AuthActivity.java"
+need 'openedPairSettings && leftForPairSettings' "$src/AuthActivity.java"
+need 'PAIR_INPUT_TIMEOUT_MS' "$src/AdbPairingService.java"
+need 'isCodeSubmitted()' "$src/AdbPairingService.java"
+if grep -q '当前授权正在进行，请先完成或取消' "$src/AuthActivity.java"; then
+  echo 'Browsing authorization methods must remain available' >&2; exit 1
+fi
+need 'pendingAction = "正在停止 "' "$src/AuthActivity.java"
+need 'pendingAction = "正在重启 "' "$src/AuthActivity.java"
+if grep -q 'busy ? "处理中"' "$src/AuthActivity.java"; then
+  echo 'Generic authorization processing status is prohibited' >&2; exit 1
+fi
 need 'if (isSelectedRunning()) stopSelectedService()' "$src/AuthActivity.java"
 need 'stateToggle.setContentDescription((running ? "停止" : "启动")' "$src/AuthActivity.java"
-need 'errorSummary.setText(singleLine)' "$src/AuthActivity.java"
-need 'errorLog.setText(failure +' "$src/AuthActivity.java"
+need 'errorSummary.setText(displayed.replace' "$src/AuthActivity.java"
+need 'errorLog.setText(displayed +' "$src/AuthActivity.java"
 need 'ShizukuShell.isRunning()' "$src/AuthActivity.java"
 
 # Do not expose irrelevant full AppOps dump as OEM permission diagnosis.
 if grep -q 'cmd appops get top.zesun.berryfcm 2>&1' "$src/AuthActivity.java"; then
   echo 'Full Android AppOps is not Vivo permission status' >&2; exit 1
 fi
-need 'permissionText(associatedRow, "关联启动", "需在系统确认")' "$src/AuthActivity.java"
-need 'permissionText(highPowerRow, "允许后台高耗电", "需在系统确认")' "$src/AuthActivity.java"
+need 'permissionText(associatedRow, "关联启动", "需在 OriginOS 中查看")' "$src/AuthActivity.java"
+need 'permissionText(highPowerRow, "允许后台高耗电", "需在 OriginOS 中查看")' "$src/AuthActivity.java"
 
 # Keep optional permissions out of the main authorization view.
-need 'disclosure(permissionCard, "后台运行权限", false)' "$src/AuthActivity.java"
-need 'disclosure(notificationCard, "通知与快捷功能", false)' "$src/AuthActivity.java"
+need 'disclosure(permissionCard, "自启动、电池和后台权限", false)' "$src/AuthActivity.java"
+# Old private/OEM or duplicate settings assertion removed.
 
 # No automatic ADB recovery when Android 17 local network authorization is absent.
 need 'PrivKitShell.localNetworkAllowed(context)' "$src/PrivilegeAccess.java"
 
 # Theme-aware toggle must use accessible Ui palette, not private Ui.dark.
 need 'toggleSurface.setColor(surface)' "$src/AuthActivity.java"
+
+# Actionable authorization UI and truthful OriginOS permission state.
+need 'disclosure(chooser, "选择与管理授权方式", true)' "$src/AuthActivity.java"
+need 'permissionText(autoStartRow, "自启动", "需在 OriginOS 中查看")' "$src/AuthActivity.java"
+need 'step("Root 授权"' "$src/AuthActivity.java"
+need 'step("Shizuku "' "$src/AuthActivity.java"
+need 'text(caption, 16, true, ink)' "$src/Ui.java"
+need '后台监控运行通知' "$src/FcmMonitorService.java"
+need 'new Notification.Builder(this, CHANNEL)' "$src/FcmMonitorService.java"
+need 'setColor(android.graphics.Color.WHITE)' "$src/AdbPairingService.java"
+if grep -q 'readAutoStartPermission\|厂商权限检测诊断\|监控通知低干扰模式' "$src/AuthActivity.java"; then
+  echo 'Misleading OEM status or excessive notification UI remains' >&2; exit 1
+fi
