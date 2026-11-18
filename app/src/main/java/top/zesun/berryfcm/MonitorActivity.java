@@ -103,6 +103,8 @@ public final class MonitorActivity extends Ui {
         long serviceStart = FcmMonitorService.lastStartAt(this);
         if (!prefs.monitorEnabled()) state = "unknown（监控未开启）";
         else if (!FcmMonitorService.isRunning()) state = "unknown（后台服务未运行）";
+        else if (AppPrefs.WIRELESS.equals(prefs.mode()) && !PrivKitShell.isConnected())
+            state = "unknown（独立服务未运行）";
         else if (!lastError.isEmpty()) state = "unknown（最近一次采样失败）";
         else if (sample <= 0 && (attempt > 0 || serviceStart > 0)) state = "waiting";
         else if (age < 0) state = "waiting";
@@ -117,7 +119,9 @@ public final class MonitorActivity extends Ui {
         String nativeReason = FcmMonitorService.describeNativeReason(j.optString("fcm_native_reason", "unrecognized"));
         String gate = j.optString("fcm_auto_gate", "unavailable");
         int retryIn = j.optInt("fcm_retry_in", 0);
-        String progress = FcmMonitorService.lastError(this).isEmpty()
+        String progress = AppPrefs.WIRELESS.equals(prefs.mode()) && !PrivKitShell.isConnected()
+                ? PrivKitShell.status() + "；可以在连接设置中启动服务，无需重新配对。"
+                : FcmMonitorService.lastError(this).isEmpty()
                 ? "后台将持续采样；如长时间无数据，请检查通知及系统后台策略。"
                 : "后台正在自动重试，无需手动重复配对。";
         current.setText("FCM 状态：" + readable
