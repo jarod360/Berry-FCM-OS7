@@ -18,7 +18,7 @@ import java.util.concurrent.Executors;
 public final class MonitorActivity extends Ui {
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler ui = new Handler(Looper.getMainLooper());
-    private TextView headline, current, technical, events, eventsFull, recoveryEvents, environmentEvents;
+    private TextView headline, current, technical, events, eventsFull, recoveryEvents, environmentEvents, manualResult;
     private Button checkButton, reconnectButton;
     private Switch enabled, automatic;
     private final Runnable update = new Runnable() {
@@ -76,6 +76,10 @@ public final class MonitorActivity extends Ui {
             render();
         }, true);
         reconnectButton = button(control, "尝试重新连接", this::reconnect, false);
+        manualResult = text("", 13, false, muted);
+        manualResult.setTextIsSelectable(true);
+        control.addView(manualResult);
+        manualResult.setVisibility(View.GONE);
         LinearLayout extra = disclosure(control, "详细连接证据与统计", false);
         technical = text("暂无详细数据", 13, false, ink);
         technical.setTextIsSelectable(true);
@@ -111,6 +115,10 @@ public final class MonitorActivity extends Ui {
         syncChecked(automatic, prefs.autoReconnect());
         checkButton.setText(!ready ? "去授权" : !prefs.monitorEnabled() ? "开启监控" : !FcmMonitorService.isRunning() ? "启动监控" : "立即检查");
         reconnectButton.setVisibility(ready && prefs.monitorEnabled() && FcmMonitorService.isRunning() ? View.VISIBLE : View.GONE);
+        String manual = FcmMonitorService.manualReconnectResult(this);
+        manualResult.setVisibility(manual.isEmpty() ? View.GONE : View.VISIBLE);
+        manualResult.setText("手动重连：" + manual);
+        reconnectButton.setEnabled(!manual.startsWith("正在读取"));
         JSONObject j = FcmMonitorService.lastSnapshot(this);
         long sample = j.optLong("fcm_sample_time", 0);
         long age = FcmMonitorService.sampleAgeSeconds(this);
@@ -155,7 +163,10 @@ public final class MonitorActivity extends Ui {
                     ? "\n恢复策略：" + (!prefs.autoReconnect() ? "仅监测" : "settling".equals(gate)
                         ? "等待网络稳定" : "offline".equals(gate) ? "当前无活动网络"
                         : "unavailable".equals(gate) ? "网络信息不可读取，自动恢复暂停"
-                        : retryIn > 0 ? "请求冷却约 " + retryIn + " 秒" : "等待持续异常确认") : "")
+                        : recoveryDecision(j, retryIn)) : "")
+                + (nativeState && ("connecting".equals(state) || "disconnected".equals(state))
+                    ? "\n恢复请求：" + j.optInt("fcm_attempts", 0) + " 次 · "
+                        + recoveryLabel(j.optString("fcm_last_result", "none")) : "")
                 + "\n" + FcmMonitorService.serviceStatus(this)
                 + (FcmMonitorService.nextAttemptIn(this) > 0 ? " · " + FcmMonitorService.nextAttemptIn(this) + " 秒后重试" : "")
                 + "\n" + progress
@@ -200,9 +211,23 @@ public final class MonitorActivity extends Ui {
             default: return "未知";
         }
     }
+    private String recoveryDecision(JSONObject j, int retryIn) {
+        switch (j.optString("fcm_recovery_decision", "")) {
+            case "gms_stopped_unknown": return "GMS 停止状态未通过检查，未发送请求";
+            case "requested": return "已请求 GMS 重连，等待原生确认";
+            case "request_failed": return "重连请求失败，见恢复记录";
+            case "confirmation_changed": return "第二次检查状态变化，暂不干预";
+            case "cooldown": return "请求冷却约 " + retryIn + " 秒";
+            case "waiting_confirmation": return "等待第二次原生检查";
+            case "waiting_duration":
+                long seconds = j.optLong("fcm_observed_down_seconds", -1);
+                return "尚未达到恢复条件" + (seconds < 0 ? "" : "（本轮已观察 " + seconds + " 秒）");
+            default: return "等待有效恢复决策";
+        }
+    }
     private String recoveryLabel(String value) {
         switch (value) {
-            case "requested": return "请求已提交，等待原生状态确认";
+            case "requested": return "请求已提交，尚未确认恢复";
             case "failed": return "请求未确认";
             case "restored": return "请求后观察到原生恢复（不证明因果）";
             default: return "尚无请求";
@@ -242,7 +267,7 @@ public final class MonitorActivity extends Ui {
         worker.execute(() -> {
             try {
                 String text = FcmMonitorService.manualReconnect(this);
-                runOnUiThread(() -> error(text.isEmpty() ? "重连请求已发送，等待下一次连接观察" : text));
+                runOnUiThread(() -> { if (!isDestroyed()) { error(text); render(); } });
             } catch (Exception ex) {
                 runOnUiThread(() -> error("重连请求失败：" + ex.getMessage()));
             }

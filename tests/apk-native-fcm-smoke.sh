@@ -33,6 +33,16 @@ if [ "${MCS_AM_FAIL:-0}" = 1 ]; then
     exit 1
 fi
 echo 'Broadcast completed: result=0'
+# Model a reconnect that actually leads to a new native connected sample.
+if [ -n "${MCS_AM_CONNECTED_FIXTURE:-}" ]; then
+    cp "$MCS_AM_CONNECTED_FIXTURE" "$MCS_FIXTURE"
+fi
+MOCK
+cat > "$TMP/bin/id" <<'MOCK'
+#!/bin/sh
+if [ "$*" = "-u" ]; then
+    if [ "${BERRY_FCM_ADB_SHELL:-0}" = 1 ]; then echo 2000; else echo 0; fi
+else /usr/bin/id "$@"; fi
 MOCK
 cat > "$TMP/bin/date" <<'MOCK'
 #!/bin/sh
@@ -124,8 +134,8 @@ run monitor; requests 2
 settime 10960
 run monitor; requests 3
 j="$(run snapshot)"; assert_json "$j" fcm_retry_in=900
-test "$(grep -c 'GCM_RECONNECT' "$MCS_AM_LOG")" = 2
-test "$(grep -c 'MCS_HEARTBEAT' "$MCS_AM_LOG")" = 1
+test "$(grep -c 'GCM_RECONNECT' "$MCS_AM_LOG")" = 3
+! grep -q "MCS_HEARTBEAT" "$MCS_AM_LOG"
 run events | grep -q 'gms_network_attempt|Cell connection attempt; fallback'
 run events | grep -q 'gms_heartbeat_delay|'
 run recovery-events | grep -q 'reconnect_requested'
@@ -209,4 +219,105 @@ printf '%s\n' 'connected=mtalk.google.com/142.250.157.188,port=5228' 'connectTim
 run monitor; requests 4
 j="$(run snapshot)"; assert_json "$j" fcm_state=connected
 unset MCS_NEXT_FIXTURE
-echo 'PASS: MCS state, outage duration, deduplication, network gate, opt-out, retry cooldown, same-window confirmation, heartbeat fallback, permission and timeout handling'
+echo 'PASS: MCS state, outage duration, deduplication, network gate, opt-out, retry cooldown, same-window confirmation, targeted reconnect, permission and timeout handling'
+
+# Screenshot regression: authoritative Not connected with no disconnectTime.
+# New state directory: third-party Shell must follow the same recovery rules.
+export BERRY_FCM_ADB_SHELL=1
+rm -f "$BERRY_FCM_DATA"/mcs-monitor.state "$BERRY_FCM_DATA"/mcs-evidence "$BERRY_FCM_DATA"/mcs-monitor-events.log
+: > "$MCS_AM_LOG"
+settime 14000
+printf '%s\n' 'DeviceID: [fixture]' 'Not connected' > "$MCS_FIXTURE"
+run monitor; requests 0
+j="$(run snapshot)"; assert_json "$j" fcm_native_duration=-1
+assert_json "$j" fcm_recovery_decision=waiting_duration
+settime 14015
+run monitor; requests 1
+test "$(cat "$MCS_AM_LOG")" = 'broadcast --user 0 -a com.google.android.intent.action.MCS_HEARTBEAT -p com.google.android.gms'
+j="$(run snapshot)"; assert_json "$j" fcm_last_result=requested
+assert_json "$j" fcm_recovery_decision=requested
+assert_json "$j" fcm_observed_down_seconds=15
+# System sleeps beyond the 90s limit; restoration still must be detected.
+settime 14120
+printf '%s\n' 'DeviceID: [fixture]' 'connected=mtalk.google.com/142.250.157.188,port=5228' 'connectTime=00:02/00:00' > "$MCS_FIXTURE"
+run monitor; requests 1
+j="$(run snapshot)"; assert_json "$j" fcm_state=connected
+assert_json "$j" fcm_last_result=restored
+assert_json "$j" fcm_last_restore=1700014120
+run recovery-events | grep -q 'connection_restored'
+# Two untimed disconnect reads on opposite sides of a suspend gap.
+settime 14320
+printf '%s\n' 'DeviceID: [fixture]' 'Not connected' > "$MCS_FIXTURE"
+run monitor; requests 1
+settime 14440
+run monitor; requests 2
+j="$(run snapshot)"; assert_json "$j" fcm_recovery_decision=requested
+# A newly observed online result during confirmation cancels the heartbeat request.
+settime 14740
+export MCS_NEXT_FIXTURE="$TMP/next-dump"
+printf '%s\n' 'DeviceID: [fixture]' 'connected=mtalk.google.com/142.250.157.188,port=5228' 'connectTime=00:02/00:00' > "$MCS_NEXT_FIXTURE"
+run monitor; requests 2
+j="$(run snapshot)"; assert_json "$j" fcm_state=connected
+assert_json "$j" fcm_recovery_decision=confirmation_changed
+unset MCS_NEXT_FIXTURE
+# Network fallback can repeatedly reset a short native disconnect timer;
+# uninterrupted observations still make recovery eligible.
+settime 15040
+printf '%s\n' 'DeviceID: [fixture]' 'connecting=mtalk.google.com:5228' 'disconnectTime=00:05/00:00' > "$MCS_FIXTURE"
+run monitor; requests 2
+settime 15100
+run monitor; requests 2
+settime 15160
+run monitor; requests 3
+j="$(run snapshot)"; assert_json "$j" fcm_recovery_decision=requested
+# Explicit stopped state must not be overridden, even with down evidence.
+settime 15460
+export MCS_STOPPED=true
+run monitor; requests 3
+j="$(run snapshot)"; assert_json "$j" fcm_recovery_decision=gms_stopped_unknown
+unset MCS_STOPPED
+echo 'PASS: untimed FCM down, third-party shell, suspend restoration, reconnect timer reset, interrupted confirmation and stopped GMS'
+
+
+# Non-root command result alone does not prove delivery or restoration.
+# Second eligible attempt during an ongoing outage uses the alternate exported action.
+settime 15760
+run monitor; requests 4
+test "$(tail -n 1 "$MCS_AM_LOG")" = 'broadcast --user 0 -a com.google.android.gms.gcm.ACTION_HEARTBEAT_NOW -p com.google.android.gms'
+! grep -q GCM_RECONNECT "$MCS_AM_LOG"
+j="$(run snapshot)"
+assert_json "$j" fcm_last_result=requested
+assert_json "$j" fcm_state=connecting
+echo 'PASS: UID2000 only selects exported heartbeat actions, no private GCM_RECONNECT, no false restoration'
+# Root-mode regression: exactly the command proved effective on the device.
+# Do not infer success from am exit/result alone: require the next native read.
+unset BERRY_FCM_ADB_SHELL
+rm -f "$BERRY_FCM_DATA"/mcs-monitor.state "$BERRY_FCM_DATA"/mcs-evidence "$BERRY_FCM_DATA"/mcs-monitor-events.log
+: > "$MCS_AM_LOG"
+printf '%s\n' 'DeviceID: [fixture]' 'Not connected' > "$MCS_FIXTURE"
+export MCS_AM_CONNECTED_FIXTURE="$TMP/root-connected"
+printf '%s\n' 'DeviceID: [fixture]' 'connected=mtalk.google.com/108.177.98.188,port=5228' 'connectTime=00:01/00:00' > "$MCS_AM_CONNECTED_FIXTURE"
+settime 16000
+run monitor; requests 0
+settime 16015
+run monitor; requests 1
+test "$(cat "$MCS_AM_LOG")" = 'broadcast --user 0 -a com.google.android.intent.action.GCM_RECONNECT -p com.google.android.gms'
+j="$(run snapshot)"
+assert_json "$j" fcm_last_result=requested
+run recovery-events | grep -q 'auto UID=.*GCM_RECONNECT exit=0 Broadcast completed: result=0'
+settime 16030
+run monitor; requests 1
+j="$(run snapshot)"
+assert_json "$j" fcm_state=connected
+assert_json "$j" fcm_last_result=restored
+run recovery-events | grep -q 'connection_restored'
+unset MCS_AM_CONNECTED_FIXTURE
+# A manual attempt inside the one-minute rate limit must leave an explicit skip
+# record rather than claim that it sent the command.
+settime 16040
+printf '%s\n' 'DeviceID: [fixture]' 'Not connected' > "$MCS_FIXTURE"
+run reconnect; requests 1
+j="$(run snapshot)"
+assert_json "$j" fcm_recovery_decision=cooldown
+run recovery-events | grep -q '手动恢复未发送'
+echo 'PASS: Root automatic recovery command and native recovery confirmation, explicit manual cooldown'

@@ -273,7 +273,7 @@ import_native_events() {
 }
 
 is_gms_stopped() {
-    line="$("$DUMPSYS_BIN" -t 3 package "$GMS" 2>/dev/null | grep -E '^[[:space:]]*User 0:[[:space:]]+.*installed=' | head -n 1)"
+    line="$("$DUMPSYS_BIN" -t 3 package "$GMS" 2>/dev/null | grep -E '^[[:space:]]*User 0:[[:space:]]+.*stopped=' | head -n 1)"
     case " $line " in *' stopped=false '*) echo 0;; *' stopped=true '*) echo 1;; *) echo -1;; esac
 }
 
@@ -288,30 +288,45 @@ retry_interval() {
 
 request_reconnect() {
     reason="$1"; nowm="$(num "$(monotime)")"; nowe="$(num "$(now_epoch)")"
-    case "$state" in connecting|disconnected) :;; *) return 0;; esac
+    case "$state" in connecting|disconnected) :;; *) decision=not_disconnected; return 0;; esac
     interval="$(retry_interval)"
     [ "$reason" = manual ] && interval=60
-    if [ "$last_try_mono" -gt 0 ] && [ "$nowm" -ge "$last_try_mono" ] && [ $((nowm-last_try_mono)) -lt "$interval" ]; then return 0; fi
+    if [ "$last_try_mono" -gt 0 ] && [ "$nowm" -ge "$last_try_mono" ] && [ $((nowm-last_try_mono)) -lt "$interval" ]; then
+        decision=cooldown
+        if [ "$reason" = manual ]; then
+            record_event reconnect_skipped "手动恢复未发送：距上次请求不足60秒，剩余 $((interval-nowm+last_try_mono)) 秒"
+        fi
+        return 0
+    fi
     stopped="$(is_gms_stopped)"
-    [ "$stopped" = 0 ] || { record_event reconnect_skipped "GMS stopped 状态为 $stopped，未发送广播"; return 0; }
+    [ "$stopped" = 0 ] || { decision=gms_stopped_unknown; record_event reconnect_skipped "GMS stopped 状态为 $stopped，未发送广播"; return 0; }
     last_try_mono="$nowm"; last_try_epoch="$nowe"; attempts=$((attempts+1))
     retry_streak=$((retry_streak+1)); last_try_reason="$reason"; last_result=failed
     save_state
-    # After two unsuccessful recovery requests, try the GMS heartbeat action as a
-    # separate diagnostic experiment, still subject to the same retry cooldown.
-    action=com.google.android.intent.action.GCM_RECONNECT
-    if [ "$reason" = auto ] && [ "$retry_streak" -ge 3 ] && [ $((retry_streak % 2)) -eq 1 ]; then
-        action=com.google.android.intent.action.MCS_HEARTBEAT
-    fi
+    # OriginOS 7 real-device evidence: GCM_RECONNECT is NOT exported.
+    # UID 2000 can deliver MCS_HEARTBEAT and ACTION_HEARTBEAT_NOW to GMS.
+    # Delivery is not proof of reconnection; only observe() can report restored.
+    sender_uid="$(id -u 2>/dev/null || echo unknown)"
+    case "$sender_uid" in
+      0) action=com.google.android.intent.action.GCM_RECONNECT;;
+      2000)
+        if [ $((retry_streak % 2)) -eq 1 ]; then
+            action=com.google.android.intent.action.MCS_HEARTBEAT
+        else
+            action=com.google.android.gms.gcm.ACTION_HEARTBEAT_NOW
+        fi;;
+      *) decision=request_failed; record_event reconnect_failed "执行身份 UID=$sender_uid 不是已验证的 Root/ADB Shell"; save_state; return 0;;
+    esac
     reply="$("$AM_BIN" broadcast --user 0 -a "$action" -p "$GMS" 2>&1)"
     rc=$?
     if [ "$rc" -eq 0 ] && printf '%s\n' "$reply" | grep -q 'Broadcast completed:' &&
         ! printf '%s\n' "$reply" | grep -qiE 'Permission Denial|SecurityException|not allowed|Error:|result=-[0-9]'; then
-        last_result=requested
-        record_event reconnect_requested "$reason 已发送 ${action##*.}；等待 Google 确认连接恢复（第 $attempts 次）"
+        last_result=requested; decision=requested
+        completion="$(printf '%s\n' "$reply" | grep 'Broadcast completed:' | tail -n 1)"
+        record_event reconnect_requested "$reason UID=$sender_uid ${action##*.} exit=$rc $completion；命令返回不代表投递或恢复（第 $attempts 次）"
     else
-        last_result=failed
-        record_event reconnect_failed "$reason ${action##*.} 请求失败（exit=$rc）：$reply"
+        last_result=failed; decision=request_failed
+        record_event reconnect_failed "$reason UID=$sender_uid ${action##*.} exit=$rc：$reply"
     fi
     save_state
 }
@@ -320,6 +335,11 @@ observe() {
     load_state
     nowm="$(num "$(monotime)")"; nowe="$(num "$(now_epoch)")"
     [ "$nowm" -gt 0 ] && [ "$nowe" -gt 0 ] || return 12
+    # Keep the previous observation only as a hint across a suspend gap.
+    # Never represent that gap as proven continuous downtime.
+    previous_down_observed=0; previous_down_state="$state"; previous_missing_epoch="$missing_epoch"
+    case "$state" in connecting|disconnected) previous_down_observed="$down_observed";; esac
+    decision=not_evaluated
     gap_detected=0
     if [ "$sample_epoch" -gt 0 ] && [ "$nowe" -gt "$sample_epoch" ] && [ $((nowe-sample_epoch)) -gt 90 ]; then
         gap_detected=1
@@ -365,10 +385,14 @@ EOF_RESULT
     fi
     case "$observed" in
       connected)
-        if [ "$state" = connecting ] || [ "$state" = disconnected ]; then
+        if [ "$previous_down_state" = connecting ] || [ "$previous_down_state" = disconnected ]; then
             last_restore="$nowe"
-            if [ "$last_result" = requested ] && [ "$last_try_epoch" -ge "$missing_epoch" ] && [ "$last_try_epoch" -gt 0 ]; then last_result=restored; fi
-            record_event connection_restored 'GMS 原生状态确认连接成功（不保证每条消息送达）'
+            if [ "$last_result" = requested ] && [ "$last_try_epoch" -ge "$previous_missing_epoch" ] && [ "$last_try_epoch" -gt 0 ]; then last_result=restored; fi
+            if [ "$gap_detected" = 1 ]; then
+                record_event connection_restored '采样间隔后发现 GMS 已恢复连接；恢复具体时刻未知'
+            else
+                record_event connection_restored 'GMS 原生状态确认连接成功（不保证每条消息送达）'
+            fi
         fi
         state=connected; last_seen="$nowe"; missing_since=0; missing_epoch=0; down_observed=0; retry_streak=0
         conn_since=0; conn_since_mono=0
@@ -395,16 +419,75 @@ EOF_RESULT
         ;;
     esac
     transport="$new_transport"; remote="$new_remote"; sample_epoch="$nowe"
-    printf '%s|%s|%s|%s|%s\n' "$source" "$duration" "$close_code" "$tcp_hint" "$native_reason" > "$EVIDENCE.tmp" && mv -f "$EVIDENCE.tmp" "$EVIDENCE"
+    write_evidence
     save_state
+}
+
+write_evidence() {
+    printf '%s|%s|%s|%s|%s|%s\n' "$source" "$duration" "$close_code" "$tcp_hint" "$native_reason" "$decision" > "$EVIDENCE.tmp" && mv -f "$EVIDENCE.tmp" "$EVIDENCE"
+}
+
+auto_recovery() {
+    decision=not_disconnected
+    case "$state" in connecting|disconnected) :;; *) return 0;; esac
+    if ! auto_enabled; then decision=disabled; return 0; fi
+    case "${BERRY_AUTO_GATE:-ready}" in
+      ready) :;;
+      *) decision=network_gate; return 0;;
+    esac
+    nowm="$(num "$(monotime)")"
+    interval="$(retry_interval)"
+    if [ "$last_try_mono" -gt 0 ] && [ "$nowm" -ge "$last_try_mono" ] && [ $((nowm-last_try_mono)) -lt "$interval" ]; then
+        decision=cooldown; return 0
+    fi
+    decision=waiting_duration
+    # When GMS reports a current, timed outage, honor its duration.
+    # Use repeated observed evidence too, since GMS may reset its timer on
+    # fallback attempts. Never use historical Close timestamps as a duration.
+    # Give Connecting 120s; a confirmed Disconnected state needs 15s.
+    required=120
+    [ "$state" = disconnected ] && required=15
+    observed_age=0
+    if [ "$down_observed" -gt 0 ] && [ "$nowm" -ge "$down_observed" ]; then
+        observed_age=$((nowm-down_observed))
+    fi
+    if [ "$duration" -ge 120 ] || [ "$observed_age" -ge "$required" ]; then
+        decision=waiting_confirmation
+        if [ "$observed_age" -ge 15 ]; then request_reconnect auto; return 0; fi
+    elif [ "$gap_detected" != 1 ] || [ "$previous_down_observed" -le 0 ] ||
+        [ "$nowm" -lt "$previous_down_observed" ] ||
+        [ $((nowm-previous_down_observed)) -lt "$required" ]; then
+        return 0
+    fi
+    # Sleep can reset the local observation clock indefinitely. A timed long
+    # outage or a prior down observation old enough to be eligible can trigger
+    # a second fresh read in the same awake window. No continuous-duration claim.
+    [ "$gap_detected" = 1 ] || return 0
+    if [ "$duration" -lt 120 ] && [ "$state" != "$previous_down_state" ]; then return 0; fi
+    decision=waiting_confirmation
+    first_state="$state"; first_remote="$remote"; first_duration="$duration"
+    [ "${BERRY_FCM_TEST_MODE:-0}" = 1 ] || sleep 2
+    observe || return $?
+    if { [ "$state" = disconnected ] || [ "$state" = connecting ]; } &&
+        [ "$source" = gms ] && [ "$state" = "$first_state" ] &&
+        [ "$remote" = "$first_remote" ] &&
+        { { [ "$first_duration" -ge 120 ] && [ "$duration" -ge "$first_duration" ]; } ||
+          { [ "$first_duration" -lt 120 ] && { [ "$duration" -lt 0 ] || [ "$first_duration" -lt 0 ] || [ "$duration" -ge "$first_duration" ]; }; }; }; then
+        record_event recovery_confirmed '两次读取均确认 GMS 尚未连接，已达到恢复条件'
+        request_reconnect auto
+    else
+        decision=confirmation_changed
+    fi
+    return 0
 }
 
 status_json() {
     load_state
     nowe="$(num "$(now_epoch)")"; age=-1
     [ "$sample_epoch" -gt 0 ] && [ "$nowe" -ge "$sample_epoch" ] && age=$((nowe-sample_epoch))
-    source=unavailable; duration=-1; close_code=; tcp_hint=none; native_reason=unrecognized
-    if [ -f "$EVIDENCE" ]; then IFS='|' read -r source duration close_code tcp_hint native_reason < "$EVIDENCE" || :; fi
+    source=unavailable; duration=-1; close_code=; tcp_hint=none; native_reason=unrecognized; decision=not_evaluated
+    if [ -f "$EVIDENCE" ]; then IFS='|' read -r source duration close_code tcp_hint native_reason decision < "$EVIDENCE" || :; fi
+    case "${decision:-}" in not_evaluated|not_disconnected|disabled|network_gate|cooldown|gms_stopped_unknown|requested|request_failed|waiting_duration|waiting_confirmation|confirmation_changed) :;; *) decision=not_evaluated;; esac
     case "$native_reason" in none|permission_denied|timeout|service_unavailable|dump_failed|empty|unrecognized|gms_stopped) :;; *) native_reason=unrecognized;; esac
     case "$duration" in -1) :;; *) is_uint "$duration" || duration=-1;; esac
     [ "$age" -ge 0 ] && [ "$age" -le 90 ] || state=stale
@@ -423,8 +506,13 @@ status_json() {
     interval="$(retry_interval)"
     nowm="$(num "$(monotime)")"; retry_in=0
     if [ "$last_try_mono" -gt 0 ] && [ "$nowm" -ge "$last_try_mono" ] && [ $((nowm-last_try_mono)) -lt "$interval" ]; then retry_in=$((interval-nowm+last_try_mono)); fi
-    printf '{"fcm_state":"%s","fcm_source":"%s","fcm_transport":"%s","fcm_remote":"%s","fcm_connection_since":%s,"fcm_connected_seconds":%s,"fcm_disconnect_since":%s,"fcm_missing_seconds":%s,"fcm_native_duration":%s,"fcm_native_close_events":%s,"fcm_native_connected_events":%s,"fcm_last_close_code":"%s","fcm_tcp_hint":"%s","fcm_last_seen":%s,"fcm_last_restore":%s,"fcm_last_try":%s,"fcm_last_result":"%s","fcm_attempts":%s,"fcm_sample_time":%s,"fcm_sample_age_seconds":%s,"fcm_native_reason":"%s","fcm_auto":%s,"fcm_auto_gate":"%s","fcm_retry_in":%s,"fcm_retry_streak":%s}\n' \
-      "$state" "$source" "$transport" "$remote" "$conn_since" "$connected" "$last_down" "$missing" "$duration" "$closes" "$successes" "$close_code" "$tcp_hint" "$last_seen" "$last_restore" "$last_try_epoch" "$last_result" "$attempts" "$sample_epoch" "$age" "$native_reason" "$auto" "$gate" "$retry_in" "$retry_streak"
+    observed_seconds=-1
+    if { [ "$state" = connecting ] || [ "$state" = disconnected ]; } && [ "$down_observed" -gt 0 ] && [ "$nowm" -ge "$down_observed" ] && [ "$age" -ge 0 ]; then
+        observed_seconds=$((nowm-down_observed-age))
+        [ "$observed_seconds" -ge 0 ] || observed_seconds=0
+    fi
+    printf '{"fcm_state":"%s","fcm_source":"%s","fcm_transport":"%s","fcm_remote":"%s","fcm_connection_since":%s,"fcm_connected_seconds":%s,"fcm_disconnect_since":%s,"fcm_missing_seconds":%s,"fcm_native_duration":%s,"fcm_native_close_events":%s,"fcm_native_connected_events":%s,"fcm_last_close_code":"%s","fcm_tcp_hint":"%s","fcm_last_seen":%s,"fcm_last_restore":%s,"fcm_last_try":%s,"fcm_last_result":"%s","fcm_attempts":%s,"fcm_sample_time":%s,"fcm_sample_age_seconds":%s,"fcm_native_reason":"%s","fcm_auto":%s,"fcm_auto_gate":"%s","fcm_retry_in":%s,"fcm_retry_streak":%s,"fcm_observed_down_seconds":%s,"fcm_recovery_decision":"%s"}\n' \
+      "$state" "$source" "$transport" "$remote" "$conn_since" "$connected" "$last_down" "$missing" "$duration" "$closes" "$successes" "$close_code" "$tcp_hint" "$last_seen" "$last_restore" "$last_try_epoch" "$last_result" "$attempts" "$sample_epoch" "$age" "$native_reason" "$auto" "$gate" "$retry_in" "$retry_streak" "$observed_seconds" "$decision"
 }
 
 case "${1:-status}" in
@@ -437,42 +525,21 @@ case "${1:-status}" in
         ;;
     monitor)
         observe || exit $?
-        if auto_enabled && [ "${BERRY_AUTO_GATE:-ready}" = ready ] &&
-            { [ "$state" = disconnected ] || [ "$state" = connecting ]; } &&
-            [ "$missing_since" -gt 0 ] && [ "$down_observed" -gt 0 ]; then
-            nowm="$(num "$(monotime)")"
-            if [ "$nowm" -ge "$missing_since" ] && [ $((nowm-missing_since)) -ge 120 ]; then
-                if [ "$nowm" -ge "$down_observed" ] && [ $((nowm-down_observed)) -ge 15 ]; then
-                    request_reconnect auto
-                elif [ "$gap_detected" = 1 ] && [ "$duration" -ge 120 ]; then
-                    # Deep sleep may repeatedly interrupt the 15-second scheduler.
-                    # Confirm a long native outage twice in the same awake window,
-                    # only when a recovery attempt is actually due.
-                    interval="$(retry_interval)"
-                    if [ "$last_try_mono" -eq 0 ] || [ $((nowm-last_try_mono)) -ge "$interval" ]; then
-                        first_remote="$remote"; first_duration="$duration"
-                        [ "${BERRY_FCM_TEST_MODE:-0}" = 1 ] || sleep 2
-                        observe || exit $?
-                        if { [ "$state" = disconnected ] || [ "$state" = connecting ]; } &&
-                            [ "$source" = gms ] && [ "$duration" -ge "$first_duration" ] &&
-                            [ "$remote" = "$first_remote" ]; then
-                            record_event recovery_confirmed "休眠后两次确认 FCM 仍断开，已持续 $duration 秒"
-                            request_reconnect auto
-                        fi
-                    fi
-                fi
-            fi
-        fi
+        auto_recovery || exit $?
+        write_evidence
         ;;
     reconnect)
         observe || exit $?
         if [ "${BERRY_AUTO_GATE:-ready}" = offline ]; then
+            decision=network_gate
             record_event reconnect_skipped '当前应用无活动网络；未发送手动重连'
         elif [ "$state" = connecting ] || [ "$state" = disconnected ]; then
             request_reconnect manual
         else
+            decision=not_disconnected
             record_event reconnect_skipped 'GMS 已连接或状态不可确认；未发送手动重连'
         fi
+        write_evidence
         ;;
     events)
         [ -f "$NATIVE_EVENTS" ] && tail -n 80 "$NATIVE_EVENTS" || :

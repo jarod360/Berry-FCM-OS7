@@ -465,7 +465,7 @@ public final class AuthActivity extends Ui {
 
     private void root() {
         step("申请 Root Shell",
-                "系统 Root 管理器可能弹出授权请求。只有 Shell 执行 id 返回 uid=0 才算完成。");
+                "系统 Root 管理器可能弹出授权请求。只有 id 返回 uid=0 才算完成。Root 可执行已在 OriginOS 7 实测有效的 GMS 重连命令。");
         button(instructions, "申请并验证 Root Shell", this::checkShell, true);
     }
 
@@ -652,7 +652,7 @@ public final class AuthActivity extends Ui {
                 String identity = PrivilegeAccess.probe(this, candidate, host, port);
                 prefs.activateMode(candidate, host, port, identity);
                 if (!AppPrefs.WIRELESS.equals(candidate)) PrivKitShell.stop();
-                if (AppPrefs.WIRELESS.equals(candidate) || AppPrefs.SHIZUKU.equals(candidate)) prefs.enableMonitorOnFirstAuthorization();
+                prefs.enableMonitorOnFirstAuthorization();
                 runOnUiThread(() -> {
                     checking = false;
                     FcmMonitorService.resumeIfNeeded(this);
@@ -712,7 +712,7 @@ public final class AuthActivity extends Ui {
                 status.setText("授权已失效");
                 status.setTextColor(danger);
                 detail.setText("系统已拒绝原有配对，请重新配对。");
-            } else if (prefs.adbPaired()) {
+            } else if (prefs.adbPaired() || PrivKitShell.hasStoredIdentity(this)) {
                 boolean failed = !PrivKitShell.lastStartupError(this).isEmpty();
                 status.setText(failed ? "服务启动失败" : "服务未启动");
                 detail.setText(failed ? "请重试启动服务，具体原因见下方“查看失败原因”。" : "已有配对记录，请先启动服务。");

@@ -80,7 +80,7 @@ public final class MainActivity extends Ui {
                 summary.setText("正在连接无线调试，请保持无线网络连接。");
                 monitorButton.setText("正在启动");
                 monitorButton.setEnabled(false);
-            } else if (wireless && prefs.adbPaired() && !prefs.pairingRejected()) {
+            } else if (wireless && (prefs.adbPaired() || PrivKitShell.hasStoredIdentity(this)) && !prefs.pairingRejected()) {
                 boolean failed = !PrivKitShell.lastStartupError(this).isEmpty() || "服务启动失败".equals(PrivKitShell.status());
                 state.setText(failed ? "服务启动失败" : "服务未启动");
                 summary.setText("请到 ADB 授权页面启动服务。可先尝试原有配对，无需立即重复配对。");
