@@ -40,7 +40,7 @@ public final class AuthActivity extends Ui {
     private boolean lastPairing, lastReady, lastStarting;
     private final Runnable refresh = new Runnable() {
         @Override public void run() {
-            if (!checking && AppPrefs.WIRELESS.equals(selected)) {
+            if (!checking) {
                 boolean pairing = AdbPairingService.isPairingActive();
                 boolean ready = PrivKitShell.isConnected();
                 boolean starting = PrivKitShell.isStarting();
@@ -48,7 +48,7 @@ public final class AuthActivity extends Ui {
                     lastPairing = pairing;
                     lastReady = ready;
                     lastStarting = starting;
-                    renderInstructions();
+                    if (AppPrefs.WIRELESS.equals(selected)) renderInstructions();
                     renderStatus();
                 } else if (pairing) renderStatus();
             }
@@ -470,6 +470,7 @@ public final class AuthActivity extends Ui {
         final String mode = selected;
         if (AppPrefs.EXTERNAL.equals(mode)) return;
         checking = true;
+        pendingMode = mode;
         pendingAction = "正在停止 " + methodName(mode);
         renderStatus();
         worker.execute(() -> {
@@ -481,6 +482,7 @@ public final class AuthActivity extends Ui {
                 runOnUiThread(() -> {
                     checking = false;
                     pendingAction = "";
+                    pendingMode = "";
                     if (isDestroyed() || isFinishing()) return;
                     selectedFailure = "";
                     renderStatus();
@@ -490,6 +492,7 @@ public final class AuthActivity extends Ui {
                 runOnUiThread(() -> {
                     checking = false;
                     pendingAction = "";
+                    pendingMode = "";
                     if (!isDestroyed()) { error("停止失败：" + failure.getMessage()); renderStatus(); }
                 });
             }
@@ -501,6 +504,7 @@ public final class AuthActivity extends Ui {
         final String mode = selected;
         if (AppPrefs.EXTERNAL.equals(mode)) return;
         checking = true;
+        pendingMode = mode;
         pendingAction = "正在重启 " + methodName(mode);
         renderStatus();
         worker.execute(() -> {
@@ -512,6 +516,7 @@ public final class AuthActivity extends Ui {
                 runOnUiThread(() -> {
                     checking = false;
                     pendingAction = "";
+                    pendingMode = "";
                     if (isDestroyed() || isFinishing()) return;
                     prefs.servicePaused(mode, false);
                     startSelectedService();
@@ -520,6 +525,7 @@ public final class AuthActivity extends Ui {
                 runOnUiThread(() -> {
                     checking = false;
                     pendingAction = "";
+                    pendingMode = "";
                     if (!isDestroyed()) { error("重启失败：" + failure.getMessage()); renderStatus(); }
                 });
             }
@@ -784,6 +790,7 @@ public final class AuthActivity extends Ui {
             automaticCheckDone = true;
         }
         checking = true;
+        pendingMode = candidate;
         pendingAction = "正在验证 " + methodName(candidate) + " 授权";
         renderStatus();
         worker.execute(() -> {
@@ -795,17 +802,20 @@ public final class AuthActivity extends Ui {
                 runOnUiThread(() -> {
                     checking = false;
                     pendingAction = "";
+                    pendingMode = "";
                     if (isDestroyed() || isFinishing()) return;
                     selectedFailure = "";
                     FcmMonitorService.resumeIfNeeded(this);
                     renderStatus();
                     renderInstructions();
+                    renderTabs();
                 });
             } catch (Exception ex) {
                 String message = PrivKitShell.errorChain(ex);
                 runOnUiThread(() -> {
                     checking = false;
                     pendingAction = "";
+                    pendingMode = "";
                     if (isDestroyed() || isFinishing()) return;
                     selectedFailure = message;
                     renderStatus();
@@ -832,14 +842,14 @@ public final class AuthActivity extends Ui {
         String operation = checking ? pendingAction
                 : pairing ? "正在无线 ADB 配对"
                 : starting ? "正在启动无线 ADB 服务" : "";
-        boolean affectsCurrent = checking ? selected.equals(currentMode)
-                : AppPrefs.WIRELESS.equals(currentMode);
+        boolean affectsCurrent = checking ? currentMode.equals(pendingMode)
+                : AppPrefs.WIRELESS.equals(currentMode) && !PrivKitShell.isConnected();
         detail.setText("当前来源：" + methodName(currentMode)
-                + (busy && !affectsCurrent ? "\n当前操作：" + operation : ""));
+                + (busy ? "\n当前操作：" + operation : ""));
         if (AppPrefs.EXTERNAL.equals(currentMode)) {
             status.setText("不可直接启动");
             status.setTextColor(muted);
-            stateToggle.setImageResource(android.R.drawable.ic_media_play);
+            stateToggle.setText("不可启动");
             stateToggle.setEnabled(false);
             failurePanel.setVisibility(View.GONE);
             return;
@@ -850,16 +860,23 @@ public final class AuthActivity extends Ui {
             if (AppPrefs.WIRELESS.equals(currentMode)) failure = PrivKitShell.lastStartupError(this);
             else if (currentMode.equals(prefs.shellMode())) failure = prefs.shellError();
         }
-        String state = busy && affectsCurrent ? operation : running ? "已启动"
+        String state = checking && affectsCurrent ? operation
+                : busy && affectsCurrent && !running ? operation : running ? "已连接"
                 : !failure.isEmpty() ? "启动失败" : "已停止";
         status.setText(state);
-        status.setTextColor(busy && affectsCurrent ? warning
+        status.setTextColor(busy && affectsCurrent && !running ? warning
                 : running ? success : "启动失败".equals(state) ? danger : muted);
-        stateToggle.setImageResource(running
-                ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play);
-        stateToggle.setColorFilter(running ? success : accent);
+        stateToggle.setText(running ? "停止服务" : "启动服务");
+        stateToggle.setTextColor(running ? success : accent);
         stateToggle.setEnabled(!busy);
         stateToggle.setContentDescription((running ? "停止" : "启动") + methodName(currentMode));
+        pairingPanel.setVisibility(pairing ? View.VISIBLE : View.GONE);
+        if (pairing) {
+            pairingInfo.setText(AdbPairingService.isCodeSubmitted()
+                    ? "无线 ADB 正在校验配对码，请完成验证。"
+                    : "无线 ADB 正在等待配对码。可以在通知栏输入，或点击取消本次配对。\n"
+                    + prefs.pairingStatus());
+        }
         boolean failed = "启动失败".equals(state);
         boolean switchFailed = !selected.equals(currentMode) && !selectedFailure.isEmpty();
         failurePanel.setVisibility(failed || switchFailed ? View.VISIBLE : View.GONE);
