@@ -26,7 +26,7 @@ public final class DiagnosticsActivity extends Ui {
 
         LinearLayout diagnostics = card("更多诊断", "系统策略检测需要已授权的 Root / ADB Shell。");
         line(diagnostics, "Google FCM Diagnostics", "打开系统原生连接诊断", () -> openGoogle(this));
-        line(diagnostics, "监控记录", "查看 FCM Socket、断联事件", () -> go(MonitorActivity.class));
+        line(diagnostics, "监控记录", "查看 GMS 原生连接状态、断联与恢复记录", () -> go(MonitorActivity.class));
         LinearLayout extra = disclosure(diagnostics, "高级 · 策略检查 / 分享日志", false);
         button(extra, "检查 GMS Doze / 后台网络 / 通知策略", this::checkPolicies, false);
         button(extra, "分享监控事件与错误", this::shareEvents, false);
@@ -64,11 +64,16 @@ public final class DiagnosticsActivity extends Ui {
         results.setText("正在回读 GMS 系统策略…");
         worker.execute(() -> {
             try (PrivilegeShell shell = PrivilegeAccess.open(this)) {
-                String command = "echo '== Doze ==' ; cmd deviceidle whitelist 2>&1 | "
+                String command = "echo '== Doze 当前状态（只读） ==' ; "
+                        + "cmd deviceidle get deep 2>&1; cmd deviceidle get light 2>&1; "
+                        + "echo '== GMS Doze 白名单 ==' ; cmd deviceidle whitelist 2>&1 | "
                         + "grep -F com.google.android.gms || true; "
                         + "echo '== DataSaver ==' ; cmd netpolicy get restrict-background 2>&1; "
                         + "echo '== Background Network ==' ; "
                         + "cmd netpolicy list restrict-background-whitelist 2>&1; "
+                        + "echo '== GMS 后台 AppOps ==' ; "
+                        + "cmd appops get com.google.android.gms RUN_ANY_IN_BACKGROUND 2>&1; "
+                        + "cmd appops get com.google.android.gms RUN_IN_BACKGROUND 2>&1; "
                         + "echo '== GMS Notifications ==' ; "
                         + "cmd appops get com.google.android.gms POST_NOTIFICATION 2>&1";
                 String output = shell.execute(command);
@@ -83,7 +88,8 @@ public final class DiagnosticsActivity extends Ui {
         String report = "BerryFCM 状态诊断\n"
                 + "监控错误：" + FcmMonitorService.lastError(this) + "\n"
                 + FcmMonitorService.lastSnapshot(this).toString() + "\n"
-                + FcmMonitorService.lastEvents(this);
+                + "\n== GMS 原生连接事件 ==\n" + FcmMonitorService.lastEvents(this)
+                + "\n== BerryFCM 恢复与采样事件 ==\n" + FcmMonitorService.lastRecoveryEvents(this);
         Intent share = new Intent(Intent.ACTION_SEND);
         share.setType("text/plain");
         share.putExtra(Intent.EXTRA_TEXT, report);
