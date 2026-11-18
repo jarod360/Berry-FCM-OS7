@@ -190,3 +190,8 @@ javac -d "$classes" "$src/GuardOps.java" "$root/tests/GuardOpsSmoke.java"
 java -cp "$classes" top.zesun.berryfcm.GuardOpsSmoke
 
 echo 'PASS: APK navigation modules, notification ADB pairing, FCM guard, insets, tile, release workflow, and removed accessibility scope'
+
+# Optional Shizuku service uses public Android SDK exceptions.
+if grep -q "android.os.ServiceSpecificException" "$src/BerryShellUserService.java"; then
+  echo "Hidden Android exception import in Shizuku service"; exit 1
+fi
