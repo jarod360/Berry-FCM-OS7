@@ -35,6 +35,7 @@ final class PrivKitShell {
     private static final String START_PREFS = "berry_privkit_start";
     private static volatile String status = "服务未启动";
     private static volatile boolean starting;
+    private static final java.util.concurrent.atomic.AtomicBoolean foregroundRecovery = new java.util.concurrent.atomic.AtomicBoolean();
     static boolean isStarting() { return starting; }
 
     private PrivKitShell() { }
@@ -90,6 +91,49 @@ final class PrivKitShell {
     }
 
     private static PrivilegeAdbManager manager() throws PrivilegeStartupException { return KIT.createAdbManager(ADB_NAME); }
+
+    // Upstream v0.20.0 persists its encrypted key in files/.priv-kit/adbkey.
+    // Existence is ONLY a reason to try authentication, never evidence of pairing.
+    static boolean hasStoredIdentity(Context context) {
+        return new java.io.File(context.getApplicationContext().getFilesDir(), ".priv-kit/adbkey").isFile();
+    }
+
+    static boolean canRecoverExisting(Context context) {
+        AppPrefs prefs = new AppPrefs(context);
+        return AppPrefs.WIRELESS.equals(prefs.mode()) && !prefs.pairingRejected()
+                && (prefs.adbPaired() || hasStoredIdentity(context))
+                && !AdbPairingService.isPairingActive()
+                && wirelessDebuggingState(context) == 1;
+    }
+
+    // A foreground entry may recover a saved identity even if old versions
+    // never persisted the pairing flag. Share one bounded attempt across pages.
+    static void recoverOnForeground(Context context) {
+        Context app = context.getApplicationContext();
+        if (isConnected() || isStarting() || !canRecoverExisting(app)
+                || cooldownRemaining(app) > 0 || !foregroundRecovery.compareAndSet(false, true)) return;
+        new Thread(() -> {
+            try {
+                synchronized (PrivKitShell.class) {
+                    if (isConnected() || !canRecoverExisting(app) || cooldownRemaining(app) > 0) return;
+                    start(app, false);
+                    String identity = execute(app, "id").trim();
+                    if (!identity.matches("(?s)^uid=2000(?:\\\\D.*)?$"))
+                        throw new IOException("独立服务身份不匹配");
+                    AppPrefs prefs = new AppPrefs(app);
+                    if (AppPrefs.WIRELESS.equals(prefs.mode())) {
+                        prefs.activateMode(AppPrefs.WIRELESS, prefs.host(), prefs.staticPort(), identity);
+                        prefs.enableMonitorOnFirstAuthorization();
+                    }
+                }
+                FcmMonitorService.resumeIfNeeded(app);
+            } catch (Exception failure) {
+                new AppPrefs(app).shellFailed(errorChain(failure));
+            } finally {
+                foregroundRecovery.set(false);
+            }
+        }, "berry-adb-recovery").start();
+    }
 
     static int wirelessDebuggingState(Context context) {
         try { return Settings.Global.getInt(context.getContentResolver(), "adb_wifi_enabled", -1); }
@@ -182,7 +226,7 @@ final class PrivKitShell {
             startPrefs(context).edit().remove("last_error").apply();
             return;
         }
-        if (!explicit && (AdbPairingService.isPairingActive() || !new AppPrefs(context).adbPaired()))
+        if (!explicit && !canRecoverExisting(context))
             throw new IOException("等待真实配对认证");
         autoAttempted = true;
         starting = true;
