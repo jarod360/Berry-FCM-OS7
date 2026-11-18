@@ -104,7 +104,12 @@ public final class AuthActivity extends Ui {
         toggleSurface.setCornerRadius(dp(14));
         stateToggle.setBackground(toggleSurface);
         stateToggle.setOnClickListener(v -> {
-            if (checking || PrivKitShell.isStarting() || AdbPairingService.isPairingActive()) return;
+            if (checking || PrivKitShell.isStarting() || AdbPairingService.isPairingActive()) {
+                error(AdbPairingService.isPairingActive()
+                        ? "无线配对尚未完成，可点击下方“取消本次配对”"
+                        : "正在执行授权操作，请稍后");
+                return;
+            }
             // The header controls the active transport, not the browsed tab.
             if (!selected.equals(prefs.mode())) {
                 selected = prefs.mode();
@@ -861,10 +866,12 @@ public final class AuthActivity extends Ui {
             else if (currentMode.equals(prefs.shellMode())) failure = prefs.shellError();
         }
         String state = checking && affectsCurrent ? operation
-                : busy && affectsCurrent && !running ? operation : running ? "已连接"
+                : busy && affectsCurrent && !running ? operation
+                : running ? (AppPrefs.ROOT.equals(currentMode) ? "已授权" : "已连接")
                 : !failure.isEmpty() ? "启动失败" : "已停止";
         status.setText(state);
-        status.setTextColor(busy && affectsCurrent && !running ? warning
+        status.setTextColor(checking && affectsCurrent ? warning
+                : busy && affectsCurrent && !running ? warning
                 : running ? success : "启动失败".equals(state) ? danger : muted);
         stateToggle.setText(running ? "停止服务" : "启动服务");
         stateToggle.setTextColor(running ? success : accent);
@@ -897,15 +904,25 @@ public final class AuthActivity extends Ui {
         if (openedPairSettings && leftForPairSettings) {
             openedPairSettings = false;
             leftForPairSettings = false;
-            if (AdbPairingService.isAwaitingInput()) {
+            if (!AdbPairingService.isCodeSubmitted()) {
                 AdbPairingService.stop(this);
-                error("未输入配对码，已自动取消本次配对；原有授权未改变");
+                // Service startup may still be queued as we return from Settings.
+                ui.postDelayed(() -> {
+                    if (AdbPairingService.isAwaitingInput()) AdbPairingService.stop(this);
+                    renderStatus();
+                }, 600);
+                error("未提交配对码，已自动取消本次配对；原有授权未改变");
             }
         }
         if (startAfterSettings && leftForSettings) {
             startAfterSettings = false;
             leftForSettings = false;
             if (!checking && AppPrefs.WIRELESS.equals(selected) && !PrivKitShell.isConnected()) {
+                if (PrivKitShell.wirelessDebuggingState(this) == 0) {
+                    error("无线调试仍未开启，未执行连接；可再次点击启动");
+                    renderStatus();
+                    return;
+                }
                 prefs.wirelessConnectPort(0);
                 checkShell();
                 return;
