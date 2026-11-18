@@ -8,7 +8,11 @@ mkdir -p "$TMP/bin" "$TMP/data"
 cat > "$TMP/bin/dumpsys" <<'MOCK'
 #!/bin/sh
 case "$*" in
-  *"activity service"*) cat "$MCS_FIXTURE";;
+  *"activity service"*)
+    if [ -n "${MCS_NEXT_FIXTURE:-}" ] && [ -f "$MCS_NEXT_FIXTURE" ]; then
+      cat "$MCS_FIXTURE"
+      mv "$MCS_NEXT_FIXTURE" "$MCS_FIXTURE"
+    else cat "$MCS_FIXTURE"; fi;;
   *"package"*) echo "    User 0: ceDataInode=1 installed=true stopped=${MCS_STOPPED:-false} suspended=false hidden=false";;
 esac
 MOCK
@@ -102,21 +106,26 @@ run monitor; requests 1
 run monitor; requests 1
 j="$(run snapshot)"; assert_json "$j" fcm_last_result=requested
 assert_json "$j" fcm_retry_streak=1; assert_json "$j" fcm_retry_in=300
-# Gaps require another fresh observation; exponential retry intervals remain.
+# Confirm a long native outage twice in the same awake window after a gap.
 settime 10345
-run monitor; requests 1
+run monitor; requests 2
+run recovery-events | grep -q 'recovery_confirmed'
+j="$(run snapshot)"; assert_json "$j" fcm_retry_in=600
 settime 10360
 run monitor; requests 2
-j="$(run snapshot)"; assert_json "$j" fcm_retry_in=600
 settime 10660
 run monitor; requests 2
 settime 10675
 run monitor; requests 2
-settime 10960
+settime 10944
 run monitor; requests 2
-settime 10975
+settime 10945
+run monitor; requests 2
+settime 10960
 run monitor; requests 3
 j="$(run snapshot)"; assert_json "$j" fcm_retry_in=900
+test "$(grep -c 'GCM_RECONNECT' "$MCS_AM_LOG")" = 2
+test "$(grep -c 'MCS_HEARTBEAT' "$MCS_AM_LOG")" = 1
 run events | grep -q 'gms_network_attempt|Cell connection attempt; fallback'
 run events | grep -q 'gms_heartbeat_delay|'
 run recovery-events | grep -q 'reconnect_requested'
@@ -192,4 +201,12 @@ assert_json "$j" fcm_native_duration=3315
 printf '%s\n' '11-18 06:25:43.757 net=1: Connected' 'connected=mtalk.google.com/142.250.157.188,port=5228' 'connectTime=03:22/00:00' > "$MCS_FIXTURE"
 j="$(run status)"
 assert_json "$j" fcm_state=unknown
-echo 'PASS: native MCS state, duration, deduplicated events, network gate, opt-out, 5/10/15-minute retry, recovery evidence, failed broadcasts, manual safety, permission and timeout handling'
+# Recovery on the second native check must cancel the broadcast.
+settime 13000
+printf '%s\n' 'connecting=alt7-mtalk.google.com:5228' 'disconnectTime=55:15/00:00' > "$MCS_FIXTURE"
+export MCS_NEXT_FIXTURE="$TMP/next-dump"
+printf '%s\n' 'connected=mtalk.google.com/142.250.157.188,port=5228' 'connectTime=00:10/00:00' > "$MCS_NEXT_FIXTURE"
+run monitor; requests 4
+j="$(run snapshot)"; assert_json "$j" fcm_state=connected
+unset MCS_NEXT_FIXTURE
+echo 'PASS: MCS state, outage duration, deduplication, network gate, opt-out, retry cooldown, same-window confirmation, heartbeat fallback, permission and timeout handling'

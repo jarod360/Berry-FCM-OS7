@@ -125,7 +125,7 @@ public final class MonitorActivity extends Ui {
         else if (age > 90) state = "unknown（检查数据过期）";
         else if (!nativeState) state = "unknown（原生状态不可读）";
         String readable = state.equals("connected") ? "FCM 已连接"
-                : state.equals("connecting") ? "FCM 正在重连"
+                : state.equals("connecting") ? "FCM 正在重连（尚未连接）"
                 : state.equals("disconnected") ? "FCM 已断开"
                 : state.equals("waiting") ? "等待首次检查"
                 : state.equals("stale") ? "检查数据已过期"
@@ -177,6 +177,7 @@ public final class MonitorActivity extends Ui {
                 + "\n上次观察断开：" + time(j.optLong("fcm_disconnect_since", 0))
                 + "\n最近恢复观测：" + time(j.optLong("fcm_last_restore", 0))
                 + "\n重连请求：" + j.optInt("fcm_attempts", 0) + " 次"
+                + "\n本次连续恢复请求：" + j.optInt("fcm_retry_streak", 0) + " 次"
                 + "\n最近请求结果：" + recoveryLabel(j.optString("fcm_last_result", "none"))
                 + "\n注意：GMS 原生历史有限，同一时刻的多网络关闭事件不等于多次整体断开。");
         String[] lines = FcmMonitorService.lastEvents(this).split("\n");
@@ -219,6 +220,8 @@ public final class MonitorActivity extends Ui {
                     : parts[1].equals("gms_heartbeat_delay") ? "心跳调度延迟"
                     : parts[1].equals("reconnect_requested") ? "已请求恢复"
                     : parts[1].equals("reconnect_failed") ? "恢复请求失败"
+                    : parts[1].equals("recovery_confirmed") ? "休眠后确认仍未连接"
+                    : parts[1].equals("connection_down") ? "确认 FCM 已断开"
                     : parts[1].equals("connection_restored") ? "原生状态恢复"
                     : parts[1].equals("reconnect_skipped") ? "恢复请求跳过"
                     : parts[1].equals("sample_gap") ? "检查中断"

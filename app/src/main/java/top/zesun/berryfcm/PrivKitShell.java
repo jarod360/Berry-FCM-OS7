@@ -236,6 +236,7 @@ final class PrivKitShell {
             }
             autoAttempted = false;
             status = "独立服务运行中";
+            startPrefs(context).edit().remove("last_error").apply();
         } catch (InterruptedException ex) {
             if (launched) startPrefs(context).edit().putString("last_result", "interrupted").apply();
             Thread.currentThread().interrupt();
@@ -246,6 +247,7 @@ final class PrivKitShell {
             status = new AppPrefs(context).pairingRejected()
                     ? "ADB 授权已失效，请重新配对" : "服务启动失败";
             startupTrace += "\n启动失败："+ errorChain(ex) + "\n";
+            startPrefs(context).edit().putString("last_error", errorChain(ex)).apply();
             throw ex;
         } finally {
             starting = false;
@@ -265,11 +267,18 @@ final class PrivKitShell {
     static synchronized String execute(Context context, String command) throws Exception {
         if (!isConnected() || !KIT.pingServer()) {
             // No per-sample ADB fallback, even if the starter is incompatible.
-            if (autoAttempted) throw new IOException(status());
+            AppPrefs prefs = new AppPrefs(context);
+            if (AdbPairingService.isPairingActive() || !prefs.adbPaired() || prefs.pairingRejected())
+                throw new IOException("请先完成 ADB 授权");
+            if (wirelessDebuggingState(context) == 0)
+                throw new IOException("服务未运行，请开启无线调试后启动服务");
             long remaining = cooldownRemaining(context);
             if (remaining > 0)
-                throw new IOException("独立服务等待恢复冷却约 " + ((remaining + 999) / 1000)
-                        + " 秒；也可在连接设置中启动");
+                throw new IOException("服务暂未恢复，" + ((remaining + 999) / 1000)
+                        + " 秒后可再次尝试；也可在授权页面启动");
+            // A failed attempt must not permanently disable recovery. Only a
+            // lost Binder may open ADB again, at the persisted cooldown limit.
+            autoAttempted = false;
             start(context, false);
         }
         autoAttempted = false;
@@ -292,6 +301,10 @@ final class PrivKitShell {
         }
     }
 
+    static String lastStartupError(Context context) {
+        return startPrefs(context).getString("last_error", "");
+    }
+
     // Read-only: sharing diagnostics must neither open ADB nor start a server.
     static String diagnostic(Context context) {
         SharedPreferences p = startPrefs(context);
@@ -306,6 +319,7 @@ final class PrivKitShell {
                 + "\n最近启动结果：" + p.getString("last_result", "none")
                 + "\n最近启动请求时间（epoch ms）：" + stamp
                 + "\n自动启动冷却剩余（秒）：" + ((cooldownRemaining(context) + 999) / 1000)
+                + "\n最近启动失败原因：" + lastStartupError(context)
                 + "\n最近独立服务启动日志：\n" + startupTrace
                 + "\n说明：启动尝试计数不是成功连接次数；日常 Binder 命令不增加此计数。";
     }

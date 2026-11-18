@@ -173,10 +173,26 @@ public final class AuthActivity extends Ui {
         }
         LinearLayout direct = disclosure(instructions, "高级：手动输入连接端口", false);
         connectPortFallback(direct);
+        String error = PrivKitShell.lastStartupError(this);
+        String pairing = prefs.pairingStatus();
+        if (!error.isEmpty() || pairing.startsWith("配对失败") || pairing.startsWith("服务启动失败")) {
+            LinearLayout diag = disclosure(instructions, "查看失败原因", false);
+            TextView log = text((error.isEmpty() ? pairing : error), 12, false, muted);
+            log.setTextIsSelectable(true);
+            diag.addView(log);
+            button(diag, "复制授权诊断", () -> {
+                android.content.ClipboardManager clipboard = getSystemService(android.content.ClipboardManager.class);
+                if (clipboard != null) {
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("BerryFCM 授权诊断",
+                            prefs.pairingStatus() + "\n" + PrivKitShell.diagnostic(this)));
+                    error("授权诊断已复制");
+                }
+            }, false);
+        }
     }
 
     private void startWireless() {
-        if (checking || AdbPairingService.isPairingActive()) return;
+        if (checking || AdbPairingService.isPairingActive() || PrivKitShell.isStarting()) return;
         prefs.wirelessConnectPort(0);
         if (PrivKitShell.wirelessDebuggingState(this) == 0) openWirelessForStart();
         else checkShell();
@@ -410,7 +426,7 @@ public final class AuthActivity extends Ui {
         if (checking || AppPrefs.EXTERNAL.equals(selected)) return;
         final String candidate = selected;
         if (AppPrefs.WIRELESS.equals(candidate)) {
-            if (AdbPairingService.isPairingActive()) return;
+            if (AdbPairingService.isPairingActive() || PrivKitShell.isStarting()) return;
             automaticCheckDone = true;
         }
         checking = true;
@@ -475,11 +491,13 @@ public final class AuthActivity extends Ui {
                 status.setText("授权已失效");
                 detail.setText("系统已拒绝原有配对，请重新配对。");
             } else if (prefs.adbPaired()) {
-                status.setText("服务未启动");
-                detail.setText("已有配对记录，请先启动服务。");
+                boolean failed = !PrivKitShell.lastStartupError(this).isEmpty();
+                status.setText(failed ? "服务启动失败" : "服务未启动");
+                detail.setText(failed ? "请重试启动服务，具体原因见下方“查看失败原因”。" : "已有配对记录，请先启动服务。");
             } else {
-                status.setText("需要 ADB 授权");
-                detail.setText("首次使用请完成无线配对。若已经配对，可检查已有授权。");
+                boolean failed = prefs.pairingStatus().startsWith("配对失败");
+                status.setText(failed ? "配对失败" : "需要 ADB 授权");
+                detail.setText(failed ? "请重新打开系统配对码页面并输入六位码。具体原因见下方。" : "首次使用请完成无线配对。若已经配对，可检查已有授权。");
             }
         } else if (prefs.shellRecentlyVerified()) {
             status.setText("Shell 已验证");
