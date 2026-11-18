@@ -712,7 +712,7 @@ public final class AuthActivity extends Ui {
                 status.setText("授权已失效");
                 status.setTextColor(danger);
                 detail.setText("系统已拒绝原有配对，请重新配对。");
-            } else if (prefs.adbPaired()) {
+            } else if (prefs.adbPaired() || PrivKitShell.hasStoredIdentity(this)) {
                 boolean failed = !PrivKitShell.lastStartupError(this).isEmpty();
                 status.setText(failed ? "服务启动失败" : "服务未启动");
                 detail.setText(failed ? "请重试启动服务，具体原因见下方“查看失败原因”。" : "已有配对记录，请先启动服务。");
