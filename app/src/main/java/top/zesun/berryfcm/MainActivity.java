@@ -72,24 +72,22 @@ public final class MainActivity extends Ui {
         if (!authorizationReady()) {
             state.setTextColor(warning);
             if (wireless && AdbPairingService.isPairingActive()) {
-                state.setText("正在进行 ADB 授权");
-                summary.setText("请按照无线调试页面和通知栏的提示完成配对。");
-                monitorButton.setText("查看授权步骤");
+                state.setText("正在配对");
+                summary.setText("请在通知栏输入系统显示的配对码。");
+                monitorButton.setText("查看配对步骤");
             } else if (wireless && PrivKitShell.isStarting()) {
-                state.setText("正在启动服务…");
-                summary.setText("正在连接无线调试，请保持无线网络连接。");
+                state.setText("正在启动服务");
+                summary.setText("请保持无线调试开启。");
                 monitorButton.setText("正在启动");
                 monitorButton.setEnabled(false);
             } else if (wireless && (prefs.adbPaired() || PrivKitShell.hasStoredIdentity(this)) && !prefs.pairingRejected()) {
                 boolean failed = !PrivKitShell.lastStartupError(this).isEmpty() || "服务启动失败".equals(PrivKitShell.status());
                 state.setText(failed ? "服务启动失败" : "服务未启动");
-                summary.setText("请到 ADB 授权页面启动服务。可先尝试原有配对，无需立即重复配对。");
-                monitorButton.setText(failed ? "重新启动" : "启动服务");
+                summary.setText("原有配对仍保留，可从授权管理重新启动。");
+                monitorButton.setText("打开授权管理");
             } else {
                 state.setText(wireless ? "需要 ADB 授权" : "需要授权");
-                summary.setText(wireless
-                        ? "授权后才能检查 FCM 连接。已有配对会自动检测。"
-                        : "请完成当前连接方式的授权后再开启监控。");
+                summary.setText("请先完成授权，再开启监控。");
                 monitorButton.setText("去授权");
             }
             return; // No monitoring controls, retry timers or stale FCM states before authorization.
@@ -118,14 +116,14 @@ public final class MainActivity extends Ui {
         state.setText(verdict.label);
         state.setTextColor(statusColor(verdict));
 
-        String description = "后台监控已开启 · 应用守护" + (prefs.guardEnabled() ? "已开启" : "未开启")
-                + "\n最近检查：" + (age >= 0 ? age + " 秒前" : "尚无本次检查结果");
+        String description = "最近检查：" + (age >= 0 ? age + " 秒前" : "暂无")
+                + " · 应用守护" + (prefs.guardEnabled() ? "已开启" : "未开启");
         if (age >= 0 && age <= 90 && nativeState && lastError.isEmpty()
                 && snapshot.optLong("fcm_native_duration", -1) >= 0) {
             description += "\n" + ("connected".equals(observed) ? "已连接：" : "当前状态持续：")
                     + MonitorStatus.duration(snapshot.optLong("fcm_native_duration"));
         }
-        if (!lastError.isEmpty()) description += "\n后台将自动重试，详情见监控详情。";
+        if (!lastError.isEmpty()) description += "\n检查失败，后台将自动重试。";
         summary.setText(description);
     }
 

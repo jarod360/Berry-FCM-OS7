@@ -14,8 +14,8 @@ public final class BackgroundActivity extends Ui {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        title("后台保活", "监控和守护任务的运行设置");
-        LinearLayout service = card("运行方式", "前台服务和系统设置只能提高可靠性，无法保证永不被停止。");
+        title("后台保活", "后台任务与启动设置");
+        LinearLayout service = card("后台任务", "开启后会在后台定期检查。");
         monitorSwitch = toggle(service, "FCM 持续监控", prefs.monitorEnabled(), true, value -> {
             prefs.monitorEnabled(value);
             syncService();
@@ -26,11 +26,11 @@ public final class BackgroundActivity extends Ui {
         });
         bootSwitch = toggle(service, "开机 / 更新后恢复已启用任务", prefs.startOnBoot(), false, prefs::startOnBoot);
 
-        LinearLayout android = card("后台状态", "辅助权限不作为启动或继续监控的条件。");
+        LinearLayout android = card("运行状态", null);
         systemStates = text("", 13, false, muted);
         android.addView(systemStates);
         line(android, "授权管理", "自启动、关联启动、高耗电、锁定后台、通知和磁贴", () -> go(AuthActivity.class));
-        LinearLayout androidExtra = disclosure(android, "高级 · Shell 策略与撤销", false);
+        LinearLayout androidExtra = disclosure(android, "高级系统策略", false);
         policy = text("", 12, false, muted);
         androidExtra.addView(policy);
         button(androidExtra, "放行 BerryFCM 后台策略", this::optimize, false);
@@ -57,7 +57,7 @@ public final class BackgroundActivity extends Ui {
             if (bindingSwitches()) return;
             if (privileged && value && !PrivilegeAccess.readyForUserAction(this)) {
                 renderPolicy();
-                error("请先完成授权并启动服务");
+                error("请先授权");
                 go(AuthActivity.class);
                 return;
             }

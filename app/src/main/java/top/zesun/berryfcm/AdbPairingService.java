@@ -111,7 +111,7 @@ public final class AdbPairingService extends Service {
         active = true;
         int manual = intent.getIntExtra("manual_port", 0);
         manualPairPort = manual;
-        publish("等待系统配对服务：请打开“使用配对码配对设备”", false, 0);
+        publish("打开系统配对码页面", false, 0);
         task = worker.submit(() -> discover(generation, manual));
         return START_NOT_STICKY;
     }
@@ -145,8 +145,8 @@ public final class AdbPairingService extends Service {
                 boolean fallback = android.os.SystemClock.elapsedRealtime() - searchStart >= MANUAL_FALLBACK_DELAY_MS;
                 main.post(() -> {
                     if (gate.searching(generation) && !gate.hasPort())
-                        publish(fallback ? "未自动发现端口，可在通知栏输入配对端口:六位配对码"
-                                : "请打开系统无线调试中的“使用配对码配对设备”", fallback, 0);
+                        publish(fallback ? "未发现端口，请输入“端口:配对码”"
+                                : "请打开配对码页面", fallback, 0);
                 });
                 try { Thread.sleep(500L); }
                 catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); return; }
@@ -190,7 +190,7 @@ public final class AdbPairingService extends Service {
             prefs.enableMonitorOnFirstAuthorization();
             boolean requested = (prefs.monitorEnabled() || prefs.guardEnabled()) && FcmMonitorService.start(this);
             finish(generation, requested
-                    ? "授权成功，正在恢复已启用的后台任务"
+                    ? "授权成功，正在启动后台任务"
                     : "授权成功，请返回应用");
         } catch (Exception error) {
             prefs.shellFailed(error.getMessage());

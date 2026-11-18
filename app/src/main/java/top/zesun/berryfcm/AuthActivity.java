@@ -70,7 +70,7 @@ public final class AuthActivity extends Ui {
         super.onCreate(state);
         selected = prefs.mode();
         Shizuku.addRequestPermissionResultListener(shizukuPermission);
-        title("授权管理", "核心授权与辅助后台权限");
+        title("授权管理", "无线 ADB 配对与后台权限");
 
         LinearLayout card = card("授权状态", null);
         status = text("检查状态中", 20, true, ink);
@@ -80,7 +80,7 @@ public final class AuthActivity extends Ui {
         detail.setPadding(0, dp(5), 0, dp(1));
         card.addView(detail);
 
-        LinearLayout chooser = card("授权方式", "无线 ADB 通常只需配对一次；选择其他方式不会立即切换。");
+        LinearLayout chooser = card("授权方式", "无线 ADB 配对一次即可重复使用。");
         tabs = new LinearLayout(this);
         tabs.setOrientation(LinearLayout.VERTICAL);
         chooser.addView(tabs);
@@ -284,12 +284,16 @@ public final class AuthActivity extends Ui {
 
     private void renderTabs() {
         tabs.removeAllViews();
-        LinearLayout group = null;
+        LinearLayout primary = new LinearLayout(this);
+        primary.setOrientation(LinearLayout.HORIZONTAL);
+        tabs.addView(primary, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout advanced = disclosure(tabs, "其他授权方式", !AppPrefs.WIRELESS.equals(selected));
+        LinearLayout group = primary;
         for (int i = 0; i < MODES.length; i++) {
-            if (i == 0 || i == 3) {
+            if (i == 1 || i == 3) {
                 group = new LinearLayout(this);
                 group.setOrientation(LinearLayout.HORIZONTAL);
-                tabs.addView(group, new LinearLayout.LayoutParams(-1, -2));
+                advanced.addView(group, new LinearLayout.LayoutParams(-1, -2));
             }
             final String mode = MODES[i];
             boolean active = mode.equals(selected);
@@ -328,6 +332,13 @@ public final class AuthActivity extends Ui {
         else if (AppPrefs.SHIZUKU.equals(selected)) shizuku();
         else if (AppPrefs.STATIC.equals(selected)) tcp();
         else usb();
+        if (!AppPrefs.WIRELESS.equals(selected) && selected.equals(prefs.shellMode())
+                && !prefs.shellError().isEmpty()) {
+            LinearLayout diagnostic = disclosure(instructions, "失败详情", false);
+            TextView details = text(prefs.shellError(), 12, false, muted);
+            details.setTextIsSelectable(true);
+            diagnostic.addView(details);
+        }
     }
 
     private void step(String label, String description) {
@@ -339,17 +350,17 @@ public final class AuthActivity extends Ui {
 
     private void wireless() {
         if (AdbPairingService.isPairingActive()) {
-            step("正在配对", "请在系统的无线调试页面打开配对码，再从通知栏输入六位数字。");
+            step("正在配对", "打开配对码页面，在通知栏输入六位码。");
             button(instructions, "打开无线调试", this::openWirelessDebugging, true);
             button(instructions, "取消配对", () -> AdbPairingService.stop(this), false);
             return;
         }
         if (PrivKitShell.isStarting() || checking) {
-            step("正在启动服务…", "请保持无线调试开启。");
+            step("正在启动服务", "请保持无线调试开启。");
             return;
         }
         if (PrivKitShell.isConnected()) {
-            step("授权成功", "服务正在运行，可以使用 FCM 监控。");
+            step("授权成功", "后台服务已运行。");
             button(instructions, "返回 FCM 监控", () -> {
                 if (!AppPrefs.WIRELESS.equals(prefs.mode())) {
                     checkShell();
@@ -362,7 +373,7 @@ public final class AuthActivity extends Ui {
         }
         boolean previous = (prefs.adbPaired() || PrivKitShell.hasStoredIdentity(this)) && !prefs.pairingRejected();
         if (previous) {
-            step("已保存 ADB 身份", "自动尝试原身份；仅在系统拒绝时需要重新配对。");
+            step("已配对", "可以直接启动，不必重新输入配对码。");
             button(instructions, "启动服务", this::startWireless, true);
             LinearLayout repair = disclosure(instructions, "重新配对", false);
             wirelessSteps(repair);
@@ -371,7 +382,7 @@ public final class AuthActivity extends Ui {
                 button(instructions, "检查已有授权", this::startWireless, false);
             wirelessSteps(instructions);
         }
-        LinearLayout direct = disclosure(instructions, "高级：手动输入连接端口", false);
+        LinearLayout direct = disclosure(instructions, "手动连接端口", false);
         connectPortFallback(direct);
         String error = PrivKitShell.lastStartupError(this);
         String pairing = prefs.pairingStatus();
@@ -399,7 +410,7 @@ public final class AuthActivity extends Ui {
     }
 
     private void connectPortFallback(LinearLayout parent) {
-        stepIn(parent, "无线调试连接端口", "在系统无线调试首页查看 IP 地址和端口。只填写端口数字，不是六位配对码页面的端口。");
+        stepIn(parent, "连接端口", "填写无线调试首页的连接端口，不是配对端口。");
         EditText field = field(parent, "例如 39123", prefs.wirelessConnectPort() > 0 ? String.valueOf(prefs.wirelessConnectPort()) : "", true);
         button(parent, "使用连接端口启动服务", () -> {
             int port = parsePort(field.getText().toString());
@@ -415,14 +426,14 @@ public final class AuthActivity extends Ui {
     }
 
     private void wirelessSteps(LinearLayout parent) {
-        stepIn(parent, "1 · 打开无线调试",
-                "打开无线调试后，点击“使用配对码配对设备”。");
-        button(parent, "开始配对并打开无线调试", () -> beginPair(0), true);
-        stepIn(parent, "2 · 输入配对码",
-                "保持配对码页面打开，下拉通知栏，在 BerryFCM 通知中输入六位数字。");
-        stepIn(parent, "3 · 完成授权",
-                "配对后自动启动服务并开启 FCM 监控。以后通常不必重新配对。");
-        LinearLayout fallback = disclosure(parent, "端口无法发现？手动输入", false);
+        stepIn(parent, "1. 打开无线调试",
+                "选择“使用配对码配对设备”。");
+        button(parent, "开始配对", () -> beginPair(0), true);
+        stepIn(parent, "2. 输入配对码",
+                "保持系统配对窗口打开，在通知栏输入六位码。");
+        stepIn(parent, "3. 完成授权",
+                "配对成功后自动启动后台服务。");
+        LinearLayout fallback = disclosure(parent, "无法发现端口？", false);
         stepFallback(fallback);
         button(fallback, "只打开无线调试设置", this::openWirelessDebugging, false);
         button(fallback, "取消配对通知", () -> {
@@ -440,7 +451,7 @@ public final class AuthActivity extends Ui {
     }
 
     private void stepFallback(LinearLayout fallback) {
-        TextView tip = text("正常配对无需端口。自动发现失败时可直接在通知栏输入配对端口:六位配对码，不必退出系统配对页面。",
+        TextView tip = text("自动发现失败时，填入配对端口。通知栏也支持输入“端口:配对码”。",
                 12, false, muted);
         tip.setPadding(0, dp(5), 0, dp(8));
         fallback.addView(tip);
@@ -657,7 +668,8 @@ public final class AuthActivity extends Ui {
                     boolean wireless = AppPrefs.WIRELESS.equals(candidate);
                     status.setText(wireless && prefs.pairingRejected() ? "授权已失效，请重新配对" : "连接失败");
                     status.setTextColor(danger);
-                    detail.setText(wireless ? "请确认无线调试已开启，再试一次。\n具体原因：" + message : message);
+                    detail.setText(wireless ? "请检查无线调试并重试。详细错误见下方。" : "检查失败，详细错误见下方。");
+                    if (!wireless) prefs.shellFailed(message);
                     renderInstructions();
                 });
             }
