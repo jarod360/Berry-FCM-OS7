@@ -117,39 +117,57 @@ public final class AdbPairingService extends Service {
     }
 
     private void discover(int generation, int manual) {
-        // Let Priv Kit validate the actual local endpoint (LAN or loopback).
-        // A second loopback bind test rejects valid Android 17 LAN listeners.
         int previous = 0;
+        boolean fallbackPublished = false;
+        String lastFailure = "";
         long searchStart = android.os.SystemClock.elapsedRealtime();
         while (gate.searching(generation) && !Thread.currentThread().isInterrupted()) {
+            int found = 0;
             try {
-                int found = manual > 0 ? manual : PrivKitShell.discoverPairingPort();
+                found = manual > 0 ? manual : PrivKitShell.discoverPairingPort();
                 if (!gate.searching(generation)) return;
-                if (found != previous) {
+                if (found > 0 && found != previous) {
                     if (!gate.found(generation, found)) return;
                     previous = found;
+                    fallbackPublished = false;
+                    lastFailure = "";
+                    PrivKitShell.clearPairingDiscoveryFailure(this);
                     main.post(() -> {
                         if (gate.ready(generation, found))
                             publish("请输入系统显示的六位配对码", true, found);
                     });
                 }
-                // Manual port is an explicit fallback, not an auto-discovered endpoint.
-                Thread.sleep(manual > 0 ? 1000L : 500L);
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
                 return;
             } catch (Exception failure) {
-                if (!gate.searching(generation)) return;
-                if (previous > 0) gate.lost(generation, previous);
+                String reason = PrivKitShell.errorChain(failure);
+                if (!reason.equals(lastFailure)) {
+                    lastFailure = reason;
+                    PrivKitShell.recordPairingDiscoveryFailure(this, reason);
+                    android.util.Log.w("BerryFCM-ADB", "Pairing service discovery failed", failure);
+                }
+            }
+
+            if (!gate.searching(generation)) return;
+            if (found <= 0 && previous > 0) {
+                gate.lost(generation, previous);
                 previous = 0;
-                boolean fallback = android.os.SystemClock.elapsedRealtime() - searchStart >= MANUAL_FALLBACK_DELAY_MS;
+            }
+            // An empty result is also a discovery failure, not a valid port.
+            // Keep automatic discovery alive; manual entry is only an option.
+            if (previous == 0 && !fallbackPublished
+                    && android.os.SystemClock.elapsedRealtime() - searchStart >= MANUAL_FALLBACK_DELAY_MS) {
+                fallbackPublished = true;
                 main.post(() -> {
                     if (gate.searching(generation) && !gate.hasPort())
-                        publish(fallback ? "未发现端口，请输入“端口:配对码”"
-                                : "请打开配对码页面", fallback, 0);
+                        publish("仍在自动查找端口；也可输入配对端口:六位配对码", true, 0);
                 });
-                try { Thread.sleep(500L); }
-                catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); return; }
+            }
+            try { Thread.sleep(manual > 0 ? 1000L : 500L); }
+            catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return;
             }
         }
     }
