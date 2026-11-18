@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [main, build/adb-compat, fix/adb-android17-lifecycle]
+    branches: [main, build/adb-compat, fix/adb-android17-lifecycle, build/issues-1-2-ci-20261119]
     paths:
       - 'app/**'
       - 'tests/**'
