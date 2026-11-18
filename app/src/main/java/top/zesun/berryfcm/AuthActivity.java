@@ -517,7 +517,7 @@ public final class AuthActivity extends Ui {
     }
 
     private void root() {
-        step("Root 授权", "安装并打开 KernelSU、Magisk 或其他 Root 管理器，点击上方启动；如弹出授权请求，允许 BerryFCM。");
+        step("Root 授权", "安装并打开 KernelSU、Magisk 或其他 Root 管理器。若当前使用别的方式，先点本区域的“切换并启动”；如弹出授权请求，允许 BerryFCM。");
         if (!prefs.shellError().isEmpty() && AppPrefs.ROOT.equals(prefs.shellMode())) {
             LinearLayout log = disclosure(instructions, "错误详情", false);
             log.addView(text(prefs.shellError(), 12, false, muted));
@@ -527,8 +527,8 @@ public final class AuthActivity extends Ui {
     private void shizuku() {
         boolean granted = ShizukuShell.authorizedUid() >= 0;
         step("Shizuku " + (granted ? "已授权" : "首次授权"),
-                granted ? "点上方启停图标即可使用或停止当前连接；不会关闭 Shizuku。"
-                        : "先打开 Shizuku 并启动它，再返回点上方启动，允许 BerryFCM 授权。");
+                granted ? "已获得 Shizuku 权限，但不代表它是当前连接。切换到 Shizuku 后才会使用，不会关闭 Shizuku 本身。"
+                        : "先打开并启动 Shizuku，再点本区域的“切换并启动”，允许 BerryFCM 授权。");
         button(instructions, "打开 Shizuku", () -> {
             Intent launch = getPackageManager().getLaunchIntentForPackage("moe.shizuku.privileged.api");
             if (launch == null) error("未安装 Shizuku，请先安装并启动");
