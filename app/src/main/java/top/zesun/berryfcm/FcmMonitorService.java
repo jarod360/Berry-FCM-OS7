@@ -6,18 +6,21 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
+import android.content.BroadcastReceiver;
+import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.content.Intent;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.PowerManager;
 import android.os.SystemClock;
 import android.util.Base64;
-import java.io.File;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
+import java.util.UUID;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -32,7 +35,19 @@ public final class FcmMonitorService extends Service {
     private static final String CHECK = "berryfcm.monitor.check";
     private static final String RECONNECT = "berryfcm.monitor.reconnect";
     private final ScheduledExecutorService worker = Executors.newSingleThreadScheduledExecutor();
-    private boolean scheduled, installed;
+    private volatile boolean scheduled;
+    private boolean installed;
+    private static volatile String activeSession = "";
+    private final String session = UUID.randomUUID().toString();
+    private static volatile long lastResumeRequest;
+    private ConnectivityManager networkManager;
+    private ConnectivityManager.NetworkCallback networkCallback;
+    private BroadcastReceiver resumeReceiver;
+    private volatile long networkSignal;
+    private long consumedNetworkSignal;
+    private long lastCheckElapsed;
+    private long nextAttemptElapsed;
+    private int failureStreak;
     private final AtomicBoolean checkQueued = new AtomicBoolean();
     private final AtomicBoolean reconnectQueued = new AtomicBoolean();
     private String installedMode;
@@ -42,6 +57,39 @@ public final class FcmMonitorService extends Service {
     private long networkChangedAt;
 
     static void start(Context context) { start(context, null); }
+    static boolean isRunning() { return !activeSession.isEmpty(); }
+
+    // Called only from a visible activity. Restore existing enabled tasks,
+    // without changing the user's settings or bypassing a force-stop.
+    static void resumeIfNeeded(Context context) {
+        AppPrefs prefs = new AppPrefs(context);
+        if (!prefs.monitorEnabled() && !prefs.guardEnabled()) return;
+        long now = SystemClock.elapsedRealtime();
+        long age = sampleAgeSeconds(context);
+        if (isRunning() && (!prefs.monitorEnabled() || (age >= 0 && age <= 90))) return;
+        if (lastResumeRequest > 0 && now - lastResumeRequest < 15000) return;
+        lastResumeRequest = now;
+        checkNow(context);
+    }
+
+    static long sampleAgeSeconds(Context context) {
+        SharedPreferences stored = context.getSharedPreferences(SNAPSHOT, MODE_PRIVATE);
+        if (!isRunning() || !activeSession.equals(stored.getString("sample_session", ""))) return -1;
+        if (!new AppPrefs(context).connectionKey().equals(stored.getString("sample_mode", ""))) return -1;
+        long at = stored.getLong("sample_elapsed", -1);
+        long age = SystemClock.elapsedRealtime() - at;
+        return at >= 0 && age >= 0 ? age / 1000 : -1;
+    }
+
+    static String serviceStatus(Context context) {
+        AppPrefs prefs = new AppPrefs(context);
+        if (!prefs.monitorEnabled() && !prefs.guardEnabled()) return "未启用";
+        if (!isRunning()) return "后台服务未运行";
+        if (!prefs.monitorEnabled()) return "应用守护运行中";
+        long age = sampleAgeSeconds(context);
+        if (age < 0 || age > 90) return "等待本次有效采样";
+        return lastError(context).isEmpty() ? "后台服务运行中" : "采样失败，后台重试中";
+    }
     static void checkNow(Context context) { start(context, CHECK); }
     static String manualReconnect(Context context) {
         start(context, RECONNECT);
@@ -76,6 +124,11 @@ public final class FcmMonitorService extends Service {
     static String lastError(Context context) {
         return context.getSharedPreferences(SNAPSHOT, MODE_PRIVATE).getString("error", "");
     }
+    static long nextAttemptIn(Context context) {
+        if (!isRunning()) return 0;
+        long at = context.getSharedPreferences(SNAPSHOT, MODE_PRIVATE).getLong("next_attempt_elapsed", 0);
+        return Math.max(0, (at - SystemClock.elapsedRealtime() + 999) / 1000);
+    }
     static long lastAttemptAt(Context context) {
         return context.getSharedPreferences(SNAPSHOT, MODE_PRIVATE).getLong("attempt_time", 0);
     }
@@ -93,10 +146,11 @@ public final class FcmMonitorService extends Service {
                 "FCM 后台监测", NotificationManager.IMPORTANCE_LOW);
         manager.createNotificationChannel(active);
         NotificationChannel quiet = new NotificationChannel(QUIET_CHANNEL,
-                "FCM 静音监测", NotificationManager.IMPORTANCE_MIN);
+                "FCM 静音监测", NotificationManager.IMPORTANCE_LOW);
         quiet.setSound(null, null);
         manager.createNotificationChannel(quiet);
         startForeground(NOTIFICATION_ID, notification());
+        registerResumeTriggers();
     }
     private Notification notification() {
         String channel = new AppPrefs(this).quietMonitor() ? QUIET_CHANNEL : CHANNEL;
@@ -121,18 +175,17 @@ public final class FcmMonitorService extends Service {
         startForeground(NOTIFICATION_ID, notification());
         boolean firstStart = !scheduled;
         if (firstStart) {
+            activeSession = session;
             getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
-                    .putLong("service_start_time", System.currentTimeMillis()).apply();
+                    .putLong("service_start_time", System.currentTimeMillis())
+                    .putLong("next_attempt_elapsed", 0)
+                    .putLong("attempt_time", 0)
+                    .putString("attempt_state", "pending").apply();
             scheduled = true;
-            worker.scheduleWithFixedDelay(this::runSafe, 0, 15, TimeUnit.SECONDS);
+            worker.scheduleWithFixedDelay(() -> runSafe(false), 0, 15, TimeUnit.SECONDS);
         }
         String action = intent == null ? null : intent.getAction();
-        if (CHECK.equals(action) && !firstStart && checkQueued.compareAndSet(false, true)) {
-            worker.execute(() -> {
-                try { runSafe(); }
-                finally { checkQueued.set(false); }
-            });
-        }
+        if (CHECK.equals(action) && !firstStart) queueCheck(true);
         if (RECONNECT.equals(action) && reconnectQueued.compareAndSet(false, true)) {
             worker.execute(() -> {
                 try { manualReconnectInternal(); }
@@ -142,14 +195,77 @@ public final class FcmMonitorService extends Service {
         return START_STICKY;
     }
 
-    private void runSafe() {
-        try { runOnce(); }
-        catch (RuntimeException error) {
-            getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
-                    .putString("error", safeError(error))
-                    .putString("attempt_state", "failed").apply();
-            installed = false;
+    private void registerResumeTriggers() {
+        try {
+            networkManager = getSystemService(ConnectivityManager.class);
+            networkCallback = new ConnectivityManager.NetworkCallback() {
+                @Override public void onAvailable(Network network) { onNetworkChange(); }
+                @Override public void onLost(Network network) { onNetworkChange(); }
+            };
+            if (networkManager != null) networkManager.registerDefaultNetworkCallback(networkCallback);
+        } catch (RuntimeException ignored) { networkCallback = null; }
+        try {
+            resumeReceiver = new BroadcastReceiver() {
+                @Override public void onReceive(Context context, Intent intent) {
+                    PowerManager power = getSystemService(PowerManager.class);
+                    if (PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED.equals(intent.getAction())
+                            && power != null && power.isDeviceIdleMode()) return;
+                    queueCheck(false);
+                }
+            };
+            IntentFilter filter = new IntentFilter(Intent.ACTION_USER_PRESENT);
+            filter.addAction(Intent.ACTION_SCREEN_ON);
+            filter.addAction(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED);
+            if (Build.VERSION.SDK_INT >= 33)
+                registerReceiver(resumeReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+            else registerReceiver(resumeReceiver, filter);
+        } catch (RuntimeException ignored) { resumeReceiver = null; }
+    }
+
+    private void onNetworkChange() {
+        networkSignal = SystemClock.elapsedRealtime();
+        queueCheck(false);
+    }
+
+    private void queueCheck(boolean manual) {
+        if (!scheduled || !checkQueued.compareAndSet(false, true)) return;
+        try {
+            worker.execute(() -> {
+                try {
+                    if (manual || SystemClock.elapsedRealtime() - lastCheckElapsed >= 5000)
+                        runSafe(true);
+                } finally { checkQueued.set(false); }
+            });
+        } catch (RejectedExecutionException ignored) { checkQueued.set(false); }
+    }
+
+    private void runSafe(boolean requested) {
+        if (Thread.currentThread().isInterrupted()) return;
+        lastCheckElapsed = SystemClock.elapsedRealtime();
+        PowerManager.WakeLock lock = null;
+        try {
+            PowerManager power = getSystemService(PowerManager.class);
+            if (power != null) {
+                lock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "BerryFCM:sample");
+                lock.setReferenceCounted(false);
+                lock.acquire(90000L);
+            }
+        } catch (RuntimeException ignored) { lock = null; }
+        try { runOnce(requested); }
+        catch (RuntimeException error) { recordFailure(error); }
+        finally {
+            if (lock != null && lock.isHeld()) lock.release();
         }
+    }
+
+    private void recordFailure(Exception error) {
+        failureStreak = Math.min(failureStreak + 1, 4);
+        long backoff = 15000L << (failureStreak - 1);
+        nextAttemptElapsed = SystemClock.elapsedRealtime() + backoff;
+        getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
+                .putString("error", safeError(error))
+                .putString("attempt_state", "failed")
+                .putLong("next_attempt_elapsed", nextAttemptElapsed).apply();
     }
 
     static String describeNativeReason(String value) {
@@ -164,21 +280,24 @@ public final class FcmMonitorService extends Service {
             default: return "未识别到原生状态";
         }
     }
-    private void runOnce() {
+    private void runOnce(boolean requested) {
         AppPrefs p = new AppPrefs(this);
         if (!p.monitorEnabled() && !p.guardEnabled()) {
             stopSelf();
             return;
         }
-        if (p.monitorEnabled()) {
+        boolean modeChanged = !p.connectionKey().equals(installedMode);
+        if (p.monitorEnabled() && (requested || modeChanged || SystemClock.elapsedRealtime() >= nextAttemptElapsed)) {
             getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
                     .putLong("attempt_time", System.currentTimeMillis())
-                    .putString("attempt_state", "running").apply();
+                    .putString("attempt_state", "running")
+                    .putLong("next_attempt_elapsed", 0).apply();
             try {
                 String mode = p.mode();
-                if (!installed || !mode.equals(installedMode)) {
+                String key = p.connectionKey();
+                if (!installed || !key.equals(installedMode)) {
+                    installedMode = key;
                     installScript(p, mode);
-                    installedMode = mode;
                     installed = true;
                 }
                 String prefix = monitorPrefix(p, mode);
@@ -197,13 +316,17 @@ public final class FcmMonitorService extends Service {
                     throw new IllegalStateException("监测脚本版本不匹配");
                 String events = result.substring(eventsStart + "\nBERRY_EVENTS_BEGIN".length(), recoveryStart).trim();
                 String recovery = result.substring(recoveryStart + "\nBERRY_RECOVERY_BEGIN".length()).trim();
+                failureStreak = 0;
+                nextAttemptElapsed = 0;
                 getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
+                        .putString("sample_session", session)
+                        .putString("sample_mode", key)
+                        .putLong("sample_elapsed", SystemClock.elapsedRealtime())
+                        .putLong("next_attempt_elapsed", 0)
                         .putString("json", json).putString("events", events).putString("recovery_events", recovery)
                         .remove("error").putString("attempt_state", "success").apply();
             } catch (Exception error) {
-                getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
-                        .putString("error", safeError(error))
-                        .putString("attempt_state", "failed").apply();
+                if (!Thread.currentThread().isInterrupted()) recordFailure(error);
                 installed = false;
             }
         }
@@ -231,13 +354,14 @@ public final class FcmMonitorService extends Service {
             AppPrefs p = new AppPrefs(this);
             if (!p.monitorEnabled()) throw new IllegalStateException("FCM 监控未启用");
             String mode = p.mode();
-            if (!installed || !mode.equals(installedMode)) {
+            String key = p.connectionKey();
+            if (!installed || !key.equals(installedMode)) {
                 installScript(p, mode);
                 installed = true;
-                installedMode = mode;
+                installedMode = key;
             }
             execute(p, mode, monitorPrefix(p, mode) + "reconnect");
-            runOnce();
+            runSafe(true);
         } catch (Exception error) {
             getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
                     .putString("error", "手动重连请求失败：" + safeError(error)).apply();
@@ -260,6 +384,11 @@ public final class FcmMonitorService extends Service {
             if (manager == null) return "unavailable";
             Network current = manager.getActiveNetwork();
             long now = SystemClock.elapsedRealtime();
+            long signal = networkSignal;
+            if (signal != consumedNetworkSignal) {
+                consumedNetworkSignal = signal;
+                networkChangedAt = now;
+            }
             if (current == null) {
                 observedNetwork = null;
                 networkChangedAt = now;
@@ -305,31 +434,19 @@ public final class FcmMonitorService extends Service {
 
     private String execute(AppPrefs prefs, String mode, String command) throws Exception {
         if (AppPrefs.ROOT.equals(mode)) {
-            File output = File.createTempFile("berryfcm-", ".txt", getCacheDir());
-            try {
-                Process process = new ProcessBuilder("su", "-c", "id -u; " + command)
-                        .redirectErrorStream(true).redirectOutput(output).start();
-                if (!process.waitFor(25, TimeUnit.SECONDS)) {
-                    process.destroyForcibly();
-                    throw new IllegalStateException("Root Shell 25 秒超时");
-                }
-                String raw = new String(Files.readAllBytes(output.toPath()), StandardCharsets.UTF_8);
-                int firstLine = raw.indexOf('\n');
-                if (firstLine < 0 || !"0".equals(raw.substring(0, firstLine).trim())) {
-                    prefs.shellFailed("Root UID 验证失败");
-                    throw new IllegalStateException("未取得 Root Shell，请在 KernelSU/Magisk 中授权");
-                }
-                String text = raw.substring(firstLine + 1);
-                if (process.exitValue() != 0)
-                    throw new IllegalStateException("Root Shell 失败（退出码 "
-                            + process.exitValue() + "）：" + text.trim());
-                prefs.shellVerified("uid=0(root)");
-                return text;
-            } finally { output.delete(); }
+            try (PrivilegeShell shell = new RootShell(this)) {
+                String result = shell.execute(command);
+                if (mode.equals(prefs.mode())) prefs.shellVerified("uid=0(root)");
+                return result;
+            } catch (Exception error) {
+                if (mode.equals(prefs.mode())) prefs.shellFailed(error.getMessage());
+                throw error;
+            }
         }
         if (!AppPrefs.WIRELESS.equals(mode) && !AppPrefs.STATIC.equals(mode))
             throw new IllegalStateException("请先在授权中心选择 Root 或 ADB");
         if (adb == null) adb = AdbConnectionManager.get(this);
+        synchronized (adb) {
         try {
             // The shared ADB manager may have been switched by the authorization
             // screen. Check the requested transport on every operation.
@@ -344,15 +461,26 @@ public final class FcmMonitorService extends Service {
                 prefs.shellVerified(identity);
             }
             String result = adb.shell(command);
-            prefs.shellVerified(prefs.shellIdentity());
+            if (mode.equals(prefs.mode())) prefs.shellVerified(prefs.shellIdentity());
             return result;
         } catch (Exception error) {
             adb.disconnectSession();
-            prefs.shellFailed(error.getMessage());
+            if (mode.equals(prefs.mode())) prefs.shellFailed(error.getMessage());
             throw error;
+        }
         }
     }
     @Override public void onDestroy() {
+        scheduled = false;
+        if (session.equals(activeSession)) activeSession = "";
+        if (networkManager != null && networkCallback != null) {
+            try { networkManager.unregisterNetworkCallback(networkCallback); }
+            catch (RuntimeException ignored) { }
+        }
+        if (resumeReceiver != null) {
+            try { unregisterReceiver(resumeReceiver); }
+            catch (RuntimeException ignored) { }
+        }
         worker.shutdownNow();
         super.onDestroy();
     }

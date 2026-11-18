@@ -71,7 +71,7 @@ public final class MainActivity extends Ui {
         monitorButton.setText(enabled ? "立即采样" : "启动 FCM 监控");
         JSONObject snapshot = FcmMonitorService.lastSnapshot(this);
         long stamp = snapshot.optLong("fcm_sample_time", 0);
-        long age = stamp == 0 ? -1 : System.currentTimeMillis() / 1000 - stamp;
+        long age = FcmMonitorService.sampleAgeSeconds(this);
         String lastError = FcmMonitorService.lastError(this);
         String observed = snapshot.optString("fcm_state", "never_seen");
         boolean nativeState = "gms".equals(snapshot.optString("fcm_source"));
@@ -81,9 +81,11 @@ public final class MainActivity extends Ui {
         if (brief.length() > 110) brief = brief.substring(0, 110) + "…";
 
         if (!enabled) state.setText("监控未开启");
+        else if (!FcmMonitorService.isRunning()) state.setText("后台监控未运行");
         else if (!lastError.isEmpty()) state.setText("采样异常 · 等待自动恢复");
         else if (stamp <= 0) state.setText(attempt > 0 ? "等待首次有效采样" : "监控启动中");
-        else if (age < 0 || age > 90) state.setText("采样过期 · 当前未知");
+        else if (age < 0) state.setText("等待本次有效采样");
+        else if (age > 90) state.setText("采样过期 · 当前未知");
         else if (!nativeState) state.setText("FCM 原生状态无法确认");
         else if ("connected".equals(observed)) state.setText("FCM 已连接");
         else if ("connecting".equals(observed)) state.setText("FCM 正在重连");
@@ -93,7 +95,7 @@ public final class MainActivity extends Ui {
         summary.setText("监控 " + (enabled ? "已开启" : "未开启")
                 + " · 应用守护 " + (prefs.guardEnabled() ? "已开启" : "未开启")
                 + "\n最近检测：" + (stamp <= 0 ? "暂无" :
-                        age < 0 ? "时间异常" : age + " 秒前")
+                        age < 0 ? "上次运行的记录" : age + " 秒前")
                 + (enabled && age >= 0 && age <= 90 && !nativeState && lastError.isEmpty()
                     ? "\n原因：" + nativeReason : "")
                 + "\n保留的连接关闭事件：" + snapshot.optInt("fcm_native_close_events", 0) + " 条（非独立断联次数）"
@@ -103,10 +105,12 @@ public final class MainActivity extends Ui {
                         + snapshot.optLong("fcm_native_duration") + " 秒" : "")
                 + (attempt > 0 && stamp <= 0 ? "\n最近尝试："
                         + Math.max(0, (System.currentTimeMillis() - attempt) / 1000) + " 秒前" : "")
+                + "\n" + FcmMonitorService.serviceStatus(this)
+                + (FcmMonitorService.nextAttemptIn(this) > 0 ? " · " + FcmMonitorService.nextAttemptIn(this) + " 秒后重试" : "")
                 + (brief.isEmpty() ? "" : "\n错误：" + brief));
 
         boolean initial = AppPrefs.WIRELESS.equals(prefs.mode()) && !prefs.adbPaired();
-        boolean failed = enabled && !lastError.isEmpty();
+        boolean failed = enabled && !lastError.isEmpty() && !prefs.shellError().isEmpty();
         issue.setVisibility(initial || failed ? View.VISIBLE : View.GONE);
         if (initial) {
             actionTitle.setText("尚未完成无线 ADB 配对");
@@ -123,6 +127,7 @@ public final class MainActivity extends Ui {
     @Override protected void onResume() {
         super.onResume();
         RecentTasks.apply(this, prefs.hideRecents());
+        FcmMonitorService.resumeIfNeeded(this);
         ui.removeCallbacks(refresh);
         ui.post(refresh);
     }

@@ -91,17 +91,18 @@ public final class MonitorActivity extends Ui {
         if (current == null) return;
         JSONObject j = FcmMonitorService.lastSnapshot(this);
         long sample = j.optLong("fcm_sample_time", 0);
-        long age = sample == 0 ? -1 : System.currentTimeMillis() / 1000 - sample;
+        long age = FcmMonitorService.sampleAgeSeconds(this);
         String lastError = FcmMonitorService.lastError(this);
         String state = j.optString("fcm_state", "never_seen");
         boolean nativeState = "gms".equals(j.optString("fcm_source"));
         long attempt = FcmMonitorService.lastAttemptAt(this);
         long serviceStart = FcmMonitorService.lastStartAt(this);
         if (!prefs.monitorEnabled()) state = "unknown（监控未开启）";
+        else if (!FcmMonitorService.isRunning()) state = "unknown（后台服务未运行）";
         else if (!lastError.isEmpty()) state = "unknown（最近一次采样失败）";
         else if (sample <= 0 && (attempt > 0 || serviceStart > 0)) state = "waiting";
-        else if (age < 0 || age > 90)
-            state = "unknown（采样数据过期）";
+        else if (age < 0) state = "waiting";
+        else if (age > 90) state = "unknown（采样数据过期）";
         else if (!nativeState) state = "unknown（原生状态不可读）";
         String readable = state.equals("connected") ? "FCM 已连接"
                 : state.equals("connecting") ? "FCM 正在重连"
@@ -117,7 +118,7 @@ public final class MonitorActivity extends Ui {
                 : "后台正在自动重试，无需手动重复配对。";
         current.setText("FCM 状态：" + readable
                 + "\n最近采样：" + (sample <= 0 ? "暂无" : time(sample)
-                + (age < 0 ? "（时间异常）" : "（" + age + " 秒前）"))
+                + (age < 0 ? "（上次运行的记录）" : "（" + age + " 秒前）"))
                 + (prefs.monitorEnabled() && sample > 0 && age >= 0 && age <= 90
                     && !nativeState && lastError.isEmpty() ? "\n原因：" + nativeReason : "")
                 + "\n保留的连接关闭事件：" + j.optInt("fcm_native_close_events", 0) + " 条（不是独立断联次数）"
@@ -131,6 +132,8 @@ public final class MonitorActivity extends Ui {
                         ? "等待网络稳定" : "offline".equals(gate) ? "当前无活动网络"
                         : "unavailable".equals(gate) ? "网络信息不可读取，自动恢复暂停"
                         : retryIn > 0 ? "请求冷却约 " + retryIn + " 秒" : "等待持续异常确认") : "")
+                + "\n" + FcmMonitorService.serviceStatus(this)
+                + (FcmMonitorService.nextAttemptIn(this) > 0 ? " · " + FcmMonitorService.nextAttemptIn(this) + " 秒后重试" : "")
                 + "\n" + progress
                 + (lastError.isEmpty() ? "" : "\n采样异常：" + lastError));
         technical.setText("原始状态：" + state
@@ -203,6 +206,7 @@ public final class MonitorActivity extends Ui {
     }
     @Override protected void onResume() {
         super.onResume();
+        FcmMonitorService.resumeIfNeeded(this);
         ui.removeCallbacks(update);
         ui.post(update);
     }
