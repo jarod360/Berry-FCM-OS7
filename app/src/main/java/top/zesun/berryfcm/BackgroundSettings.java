@@ -214,9 +214,23 @@ final class BackgroundSettings {
                 .putExtra(Settings.EXTRA_CHANNEL_ID, channel)); }
         catch (RuntimeException ex) { notifications(activity); }
     }
+    private static boolean openComponent(Activity activity, String pkg, String cls) {
+        try { activity.startActivity(new Intent().setClassName(pkg, cls)); return true; }
+        catch (RuntimeException ex) { return false; }
+    }
     static void powerSettings(Activity activity) {
-        try { activity.startActivity(new Intent(Intent.ACTION_POWER_USAGE_SUMMARY)); }
+        // Vivo/iQOO power management entry points used by existing open-source apps.
+        if (openComponent(activity, "com.vivo.abeui", "com.vivo.abeui.highpower.ExcessivePowerManagerActivity")
+                || openComponent(activity, "com.vivo.abe", "com.vivo.applicationbehaviorengine.ui.ExcessivePowerManagerActivity")
+                || openComponent(activity, "com.vivo.abe", "com.vivo.abe.unifiedpower.HighPowerConsumptionActivity")) return;
+        try { activity.startActivity(new Intent("android.intent.action.POWER_USAGE_SUMMARY")); }
         catch (RuntimeException ex) { details(activity); }
+    }
+    static void associatedStart(Activity activity) {
+        if (openComponent(activity, "com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.PurviewTabActivity")
+                || openComponent(activity, "com.iqoo.secure", "com.iqoo.secure.safeguard.PurviewTabActivity")) return;
+        // Some ROM versions expose both controls in the same startup-management screen.
+        autostart(activity);
     }
 
     static boolean batteryExempt(Activity activity) {
@@ -240,6 +254,7 @@ final class BackgroundSettings {
                     "com.vivo.permissionmanager.activity.BgStartUpManagerActivity");
             activity.startActivity(intent);
         } catch (RuntimeException ignored) {
+            if (openComponent(activity, "com.iqoo.secure", "com.iqoo.secure.ui.phoneoptimize.BgStartUpManager")) return;
             try { activity.startActivity(new Intent("com.iqoo.secure.BGSTARTUPMANAGER")); }
             catch (RuntimeException ignoredAgain) { details(activity); }
         }

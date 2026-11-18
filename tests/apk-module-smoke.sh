@@ -141,7 +141,7 @@ need 'BackgroundSettings.restoreSelf(this, shell)' "$src/BackgroundActivity.java
 need 'self_op_previous_' "$src/BackgroundSettings.java"
 need 'readAppOp' "$src/BackgroundSettings.java"
 need '恢复未通过回读' "$src/BackgroundSettings.java"
-need 'areNotificationsEnabled' "$src/BackgroundActivity.java"
+need 'areNotificationsEnabled' "$src/AuthActivity.java"
 need 'AppTask' "$src/RecentTasks.java"
 need 'gh release create' "$root/.github/workflows/build-apk.yml"
 
@@ -232,17 +232,27 @@ java -cp "$classes" top.zesun.berryfcm.PairingGateSmoke
 # Check the specific tile component, not an unrelated disabled component.
 awk '/android:name="\.FcmTileService"/ {tile=1; next} tile && /android:enabled="false"/ {ok=1; exit} tile && /<service|<intent-filter/ {exit} END {exit !ok}' "$manifest"
 # Neither authorization success nor service startup may opt in to the tile.
-if grep -n 'FcmTileService.setOffered' "$src/AuthActivity.java" "$src/AdbPairingService.java" "$src/FcmMonitorService.java" "$src/PrivKitShell.java" "$src/BerryFcmApp.java" "$src/BootReceiver.java"; then
+if grep -n 'FcmTileService.setOffered' "$src/AdbPairingService.java" "$src/FcmMonitorService.java" "$src/PrivKitShell.java" "$src/BerryFcmApp.java" "$src/BootReceiver.java"; then
   echo 'Only an explicit user action may expose the Quick Settings tile' >&2; exit 1
 fi
-need 'FcmTileService.setOffered(this, true)' "$src/BackgroundActivity.java"
+need 'FcmTileService.setOffered(this, true)' "$src/AuthActivity.java"
 need 'Tile.STATE_UNAVAILABLE' "$src/FcmTileService.java"
 need 'canRunInBackground(context)' "$src/FcmMonitorService.java"
 need 'canRunInBackground(this)' "$src/FcmMonitorService.java"
 need 'STOP_FOREGROUND_REMOVE' "$src/FcmMonitorService.java"
 
-need 'private void addTile()' "$src/BackgroundActivity.java"
-need 'BackgroundSettings.backgroundRestriction(this)' "$src/BackgroundActivity.java"
-need 'BackgroundSettings.originAutoStartStatus(this)' "$src/BackgroundActivity.java"
+need 'private void addTile()' "$src/AuthActivity.java"
+need 'BackgroundSettings.backgroundRestriction(this)' "$src/AuthActivity.java"
+need 'BackgroundSettings.originAutoStartStatus(this)' "$src/AuthActivity.java"
 need 'onTileAdded()' "$src/FcmTileService.java"
 need 'onTileRemoved()' "$src/FcmTileService.java"
+
+# Auxiliary permissions are advisory; core monitor and guard cannot depend on them.
+need 'createAuxiliaryPermissions()' "$src/AuthActivity.java"
+need 'refreshAuxiliaryPermissions()' "$src/AuthActivity.java"
+need 'BackgroundSettings.associatedStart(this)' "$src/AuthActivity.java"
+need 'BackgroundSettings.powerSettings(this)' "$src/AuthActivity.java"
+need 'FcmMonitorService.refreshDisplay(this)' "$src/AuthActivity.java"
+if grep -nE 'BackgroundSettings\.(batteryExempt|originAutoStartStatus|backgroundRestriction|monitorNotificationStatus)|FcmTileService\.(offered|displayStatus)|areNotificationsEnabled' "$src/PrivilegeAccess.java" "$src/FcmMonitorService.java" "$src/BootReceiver.java"; then
+  echo 'Optional system permissions must not block background task execution' >&2; exit 1
+fi

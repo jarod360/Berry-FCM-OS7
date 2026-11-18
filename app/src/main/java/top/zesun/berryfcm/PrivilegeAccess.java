@@ -19,6 +19,8 @@ final class PrivilegeAccess {
     // A first pairing exchange is not authorization. Allow background startup
     // only with a live service or a previously verified transport that can
     // legitimately recover. This preserves recovery for established users.
+    // Do not gate this on battery optimization, OEM autostart/associated launch,
+    // high power, recents lock, notifications or Quick Settings tile consent.
     static boolean canRunInBackground(Context context) {
         AppPrefs prefs = new AppPrefs(context);
         if (readyForUserAction(context)) return true;

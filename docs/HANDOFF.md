@@ -303,3 +303,8 @@ alpha.46（#44228259741）已通过 API 37.0 SDK 安装、依赖解析、原生�
 ### 后台权限统一入口与状态回读（用户最新要求）
 - 磁贴、通知、系统电池优化、OriginOS 自启动/关联启动/高耗电/最近任务锁定统一归入后台保活页面；设置页仅保留导航入口。磁贴默认关闭，主动添加后读取系统添加/移除回调；不随服务启动添加。监控通知类别和总体通知权限分别读取，返回页面重新刷新。标准 Android 电池豁免、后台限制用系统 API 回读；不能将 Android 未限制等同于 OriginOS 允许高耗电。
 - 参考 Oolong (https://github.com/HuanCheng65/Oolong/blob/ba4b1a074781679240c03dd837eb4a9be8649f1b/app/src/main/java/oolong/client/utils/BackgroundSettings.kt) 的 On/Off/Unknown 和厂商设置跳转，Smart-Edge (https://github.com/Imtiaz-Official/Smart-Edge/blob/04cbca29b4776985b9e0eee84161d5c23ee1e89e/app/src/main/java/com/imi/smartedge/sidebar/panel/Extensions.kt) 的 Vivo 私有 AppOps 10002 候选。仅当 ROM 自身返回明确 autoStart 操作名才尝试只读模式，且标注厂商开关需实机核对，异常/未知不标为关闭。未发现经过 OriginOS 7 验证的关联启动、高耗电、最近任务锁定读取接口；当前逐项显示需系统确认，后续必须以目标 ROM 开关前后差分验证读回，不伪造布尔值，不申请无障碍。未触发 APK 编译。
+
+### 授权管理与辅助后台权限的最终分工（覆盖前面页面布局说明）
+用户明确：自启动、关联启动、允许后台高耗电、锁定后台等全部在授权管理给出点击跳转，返回后检查真实状态。它们仅辅助系统稳定性，不作为 ADB/Root/Shizuku 已授权后的监控/守护门槛；通知或快捷磁贴未开启也不得停任务，更不自动添加磁贴。后台保活页面只管理用户任务开关、运行状态、已有高级策略及授权管理导航。没有核心授权才禁止执行特权命令；无线调试关闭但现有 UID 2000 Binder 仍活着时继续运行。
+- 授权页直接列出辅助权限和显示选项，返回时立即读取系统状态。自启动沿用 ROM 名称校验的 AppOps 候选，关联启动、高耗电、最近任务锁定仍需目标设备差分验证，不冒充已授权。参考 HelloDaemon、YCAppTool、Smart-Edge 的 Vivo 高耗电页面入口，以及 Legado 的 PurviewTabActivity 权限管理入口；全部按可打开性逐级降级，不声称厂商页面必然直达。最近任务在用户确认且具备现有核心权限后仅发送 APP_SWITCH，锁定由用户亲自操作；未授权时给手动操作提示。隐藏卡片和锁定是不同选项。
+- 低干扰显示仅刷新现有前台通知，不再借由显示开关启动/停止监控；不变更任务开关。回归约束检查监控/授权资格/开机恢复不引用辅助权限，避免后续引入硬门槛。当前源码提交，不编译。后续须验证 OriginOS 7 的真实权限状态映射。

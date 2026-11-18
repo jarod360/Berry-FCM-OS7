@@ -36,8 +36,8 @@ public final class SettingsActivity extends Ui {
         style.addView(theme);
 
         LinearLayout quick = card("权限与后台", null);
-        line(quick, "后台保活", "系统权限、通知、快捷磁贴与后台任务", () -> go(BackgroundActivity.class));
-        line(quick, "授权与连接", "更换 Root / ADB / Shizuku 方式", () -> go(AuthActivity.class));
+        line(quick, "后台保活", "监控与守护任务", () -> go(BackgroundActivity.class));
+        line(quick, "授权管理", "核心授权、辅助权限、通知和快捷磁贴", () -> go(AuthActivity.class));
 
         LinearLayout about = card("版本与更新", "在线更新只检查 GitHub Releases，不读取 Actions 测试包。");
         button(about, "检查新版本", () -> go(UpdateActivity.class), true);

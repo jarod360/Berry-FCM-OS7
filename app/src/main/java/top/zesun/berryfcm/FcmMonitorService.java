@@ -35,6 +35,7 @@ public final class FcmMonitorService extends Service {
     private static final int NOTIFICATION_ID = 7212;
     private static final String CHECK = "berryfcm.monitor.check";
     private static final String RECONNECT = "berryfcm.monitor.reconnect";
+    private static final String REFRESH_DISPLAY = "berryfcm.monitor.display";
     private final ScheduledExecutorService worker = Executors.newSingleThreadScheduledExecutor();
     private volatile boolean scheduled;
     private boolean installed;
@@ -94,6 +95,11 @@ public final class FcmMonitorService extends Service {
         return lastError(context).isEmpty() ? "后台服务运行中" : "采样失败，后台重试中";
     }
     static void checkNow(Context context) { start(context, CHECK); }
+    static void refreshDisplay(Context context) {
+        if (!isRunning()) return;
+        try { context.startService(new Intent(context, FcmMonitorService.class).setAction(REFRESH_DISPLAY)); }
+        catch (RuntimeException ignored) { /* existing notification remains until next refresh */ }
+    }
     static String manualReconnect(Context context) {
         start(context, RECONNECT);
         return "已安排后台检查；仅在确认 FCM 尚未连接时请求恢复，结果见恢复记录";
@@ -207,6 +213,16 @@ public final class FcmMonitorService extends Service {
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         AppPrefs prefs = new AppPrefs(this);
+        if (intent != null && REFRESH_DISPLAY.equals(intent.getAction())) {
+            if (scheduled) {
+                startForeground(NOTIFICATION_ID, notification());
+                lastNotificationText = notificationText();
+                return START_STICKY;
+            }
+            stopForeground(STOP_FOREGROUND_REMOVE);
+            stopSelf();
+            return START_NOT_STICKY;
+        }
         if ((!prefs.monitorEnabled() && !prefs.guardEnabled()) || !PrivilegeAccess.canRunInBackground(this)) {
             stopForeground(STOP_FOREGROUND_REMOVE);
             stopSelf();

@@ -1,6 +1,9 @@
 package top.zesun.berryfcm;
 
 import android.Manifest;
+import android.app.StatusBarManager;
+import android.content.ComponentName;
+import android.graphics.drawable.Icon;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.drawable.GradientDrawable;
@@ -27,6 +30,8 @@ public final class AuthActivity extends Ui {
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private LinearLayout tabs, instructions;
     private TextView status, detail;
+    private TextView autoStartRow, associatedRow, highPowerRow, lockRow, batteryRow, notificationRow, monitorNotificationRow, restrictionRow, tileRow;
+    private android.widget.Button removeTileButton;
     private String selected;
     private boolean checking;
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -65,7 +70,7 @@ public final class AuthActivity extends Ui {
         super.onCreate(state);
         selected = prefs.mode();
         Shizuku.addRequestPermissionResultListener(shizukuPermission);
-        title("连接与授权", "选择一种授权方式");
+        title("授权管理", "核心授权与辅助后台权限");
 
         LinearLayout card = card("授权状态", null);
         status = text("检查状态中", 20, true, ink);
@@ -90,6 +95,144 @@ public final class AuthActivity extends Ui {
         renderTabs();
         renderInstructions();
         renderStatus();
+        createAuxiliaryPermissions();
+    }
+
+    private TextView permissionRow(LinearLayout parent, Runnable click) {
+        TextView row = text("", 14, false, ink);
+        row.setPadding(dp(4), dp(12), dp(4), dp(12));
+        row.setMinHeight(dp(48));
+        row.setOnClickListener(v -> click.run());
+        row.setFocusable(true);
+        parent.addView(row);
+        return row;
+    }
+
+    private void permissionText(TextView row, String name, String state) {
+        row.setText(name + "  ·  " + state + "  ›");
+    }
+
+    private void createAuxiliaryPermissions() {
+        LinearLayout auxiliary = card("辅助后台权限", "建议开启，由你在系统中选择。不影响核心授权或当前监控、守护任务的运行。");
+        autoStartRow = permissionRow(auxiliary, () -> BackgroundSettings.autostart(this));
+        associatedRow = permissionRow(auxiliary, () -> BackgroundSettings.associatedStart(this));
+        highPowerRow = permissionRow(auxiliary, () -> BackgroundSettings.powerSettings(this));
+        lockRow = permissionRow(auxiliary, this::openRecentsForLock);
+        batteryRow = permissionRow(auxiliary, () -> {
+            if (BackgroundSettings.batteryExempt(this)) BackgroundSettings.batteryList(this);
+            else BackgroundSettings.requestBattery(this);
+        });
+        restrictionRow = permissionRow(auxiliary, () -> BackgroundSettings.details(this));
+        notificationRow = permissionRow(auxiliary, () -> BackgroundSettings.notifications(this));
+        button(auxiliary, "刷新权限状态", this::refreshAuxiliaryPermissions, false);
+
+        LinearLayout display = card("通知与快捷磁贴", "独立显示选项，不控制后台监控和守护。");
+        monitorNotificationRow = permissionRow(display, () -> BackgroundSettings.monitorNotifications(this, prefs.quietMonitor()));
+        android.widget.Switch quiet = new android.widget.Switch(this);
+        quiet.setText("监控通知低干扰模式");
+        quiet.setTextColor(ink);
+        quiet.setMinHeight(dp(48));
+        quiet.setChecked(prefs.quietMonitor());
+        display.addView(quiet);
+        quiet.setOnCheckedChangeListener((v, enabled) -> {
+            prefs.quietMonitor(enabled);
+            // Update an already running foreground notification, never start or
+            // stop a task merely because the notification preference changed.
+            FcmMonitorService.refreshDisplay(this);
+            refreshAuxiliaryPermissions();
+        });
+        tileRow = permissionRow(display, this::addTile);
+        removeTileButton = button(display, "移除 FCM 快捷磁贴", () -> {
+            FcmTileService.setOffered(this, false);
+            refreshAuxiliaryPermissions();
+        }, false);
+        android.widget.Switch hide = new android.widget.Switch(this);
+        hide.setText("隐藏最近任务卡片");
+        hide.setTextColor(ink);
+        hide.setMinHeight(dp(48));
+        hide.setChecked(prefs.hideRecents());
+        display.addView(hide);
+        hide.setOnCheckedChangeListener((v, enabled) -> {
+            if (RecentTasks.apply(this, enabled)) prefs.hideRecents(enabled);
+            else {
+                error("系统未确认设置，请在最近任务中确认");
+                hide.post(() -> {
+                    if (hide.isChecked() != prefs.hideRecents()) hide.setChecked(prefs.hideRecents());
+                });
+            }
+        });
+        refreshAuxiliaryPermissions();
+    }
+
+    private void refreshAuxiliaryPermissions() {
+        if (autoStartRow == null) return;
+        permissionText(autoStartRow, "自启动", BackgroundSettings.originAutoStartStatus(this));
+        permissionText(associatedRow, "关联启动", "需在系统确认");
+        permissionText(highPowerRow, "允许后台高耗电", "需在系统确认");
+        permissionText(lockRow, "锁定后台", "需在最近任务确认");
+        permissionText(batteryRow, "忽略电池优化", BackgroundSettings.batteryExempt(this) ? "已开启" : "未开启");
+        permissionText(restrictionRow, "Android 后台限制", BackgroundSettings.backgroundRestriction(this));
+        android.app.NotificationManager manager = getSystemService(android.app.NotificationManager.class);
+        permissionText(notificationRow, "通知权限", manager == null ? "无法读取" :
+                manager.areNotificationsEnabled() ? "已开启" : "未开启");
+        permissionText(monitorNotificationRow, "监控通知类别", BackgroundSettings.monitorNotificationStatus(this, prefs.quietMonitor()));
+        permissionText(tileRow, "FCM 快捷磁贴", FcmTileService.displayStatus(this));
+        removeTileButton.setVisibility(FcmTileService.offered(this) ? View.VISIBLE : View.GONE);
+    }
+
+    private void openRecentsForLock() {
+        if (prefs.hideRecents()) {
+            error("请先关闭隐藏最近任务卡片，再在最近任务中锁定");
+            return;
+        }
+        android.app.AlertDialog.Builder dialog = new android.app.AlertDialog.Builder(this)
+                .setTitle("锁定后台")
+                .setMessage("进入最近任务，在 BerryFCM 卡片菜单中选择锁定。仅由你操作，不修改系统锁定状态。若系统不支持自动跳转，请手动打开最近任务。")
+                .setNegativeButton("取消", null);
+        if (PrivilegeAccess.readyForUserAction(this)) {
+            dialog.setPositiveButton("打开最近任务", (d, w) -> worker.execute(() -> {
+                try (PrivilegeShell shell = PrivilegeAccess.open(this)) {
+                    shell.execute("input keyevent KEYCODE_APP_SWITCH");
+                } catch (Exception ex) {
+                    runOnUiThread(() -> error("无法跳转，请手动打开系统最近任务"));
+                }
+            }));
+        } else dialog.setPositiveButton("知道了", null);
+        dialog.show();
+    }
+
+    private void addTile() {
+        if (!PrivilegeAccess.readyForUserAction(this)) {
+            error("请先完成授权，再添加磁贴");
+            go(AuthActivity.class);
+            return;
+        }
+        boolean alreadyOffered = FcmTileService.offered(this);
+        FcmTileService.setOffered(this, true);
+        if (Build.VERSION.SDK_INT < 33) {
+            error("请在系统下拉快捷栏的编辑页面手动添加 BerryFCM");
+            refreshAuxiliaryPermissions();
+            return;
+        }
+        StatusBarManager status = getSystemService(StatusBarManager.class);
+        if (status == null) { error("请在系统下拉快捷栏的编辑页面手动添加 BerryFCM"); refreshAuxiliaryPermissions(); return; }
+        try { status.requestAddTileService(
+                new ComponentName(this, FcmTileService.class),
+                "BerryFCM 监控",
+                Icon.createWithResource(this, R.drawable.ic_bf_fcm),
+                getMainExecutor(),
+                result -> {
+                    boolean added = result == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED
+                            || result == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ALREADY_ADDED;
+                    if (!added && !alreadyOffered) FcmTileService.setOffered(this, false);
+                    if (added) FcmTileService.noteAdded(this, true);
+                    error(added ? "磁贴已添加" : "未添加磁贴");
+                    refreshAuxiliaryPermissions();
+                });
+        } catch (RuntimeException ex) {
+            if (!alreadyOffered) FcmTileService.setOffered(this, false);
+            error("无法打开系统磁贴添加窗口");
+        }
     }
 
     private void renderTabs() {
@@ -524,6 +667,7 @@ public final class AuthActivity extends Ui {
 
     @Override protected void onResume() {
         super.onResume();
+        refreshAuxiliaryPermissions();
         ui.removeCallbacks(refresh);
         ui.post(refresh);
         if (startAfterSettings && leftForSettings) {
@@ -537,7 +681,7 @@ public final class AuthActivity extends Ui {
         }
         if (!automaticCheckDone && !checking && !AdbPairingService.isPairingActive()
                 && AppPrefs.WIRELESS.equals(selected) && !PrivKitShell.isConnected()
-                && !prefs.pairingRejected() && PrivKitShell.wirelessDebuggingState(this) == 1) {
+                && prefs.adbPaired() && !prefs.pairingRejected() && PrivKitShell.wirelessDebuggingState(this) == 1) {
             automaticCheckDone = true;
             checkShell();
             return;
