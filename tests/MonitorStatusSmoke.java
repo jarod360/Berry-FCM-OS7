@@ -19,6 +19,13 @@ public final class MonitorStatusSmoke {
         expect(MonitorStatus.State.UNKNOWN,true,true,true,10,false,true,"unknown");
         if (!"6分 40秒".equals(MonitorStatus.duration(400))) throw new AssertionError("duration");
         if (!"1天 1小时 1分 1秒".equals(MonitorStatus.duration(90061))) throw new AssertionError("duration days");
-        System.out.println("PASS: shared monitor truth table and duration formatting");
+        if (!"GMS 计时：0 秒（待后续采样确认）".equals(MonitorStatus.connectedDuration(0, 0)))
+            throw new AssertionError("native zero may be genuine");
+        if (!"已观察在线：15秒（GMS 计时仍为 0，非实际总时长）"
+                .equals(MonitorStatus.connectedDuration(0, 15)))
+            throw new AssertionError("stalled clock fallback");
+        if (!"GMS 计时：2分 0秒".equals(MonitorStatus.connectedDuration(120, 15)))
+            throw new AssertionError("prefer native nonzero time");
+        System.out.println("PASS: shared monitor truth table and qualified duration formatting");
     }
 }
