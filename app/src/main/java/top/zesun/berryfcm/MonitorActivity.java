@@ -18,7 +18,7 @@ import java.util.concurrent.Executors;
 public final class MonitorActivity extends Ui {
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler ui = new Handler(Looper.getMainLooper());
-    private TextView headline, current, technical, events, eventsFull, recoveryEvents, environmentEvents, manualResult;
+    private TextView headline, current, technical, events, eventsFull, recoveryEvents, environmentEvents, manualResult, reconnectHint;
     private Button checkButton, reconnectButton;
     private Switch enabled, automatic;
     private final Runnable update = new Runnable() {
@@ -75,7 +75,9 @@ public final class MonitorActivity extends Ui {
             FcmMonitorService.checkNow(this);
             render();
         }, true);
-        reconnectButton = button(control, "尝试重新连接", this::reconnect, false);
+        reconnectButton = button(control, "尝试恢复断开的连接", this::reconnect, false);
+        reconnectHint = text("", 12, false, muted);
+        control.addView(reconnectHint);
         manualResult = text("", 13, false, muted);
         manualResult.setTextIsSelectable(true);
         control.addView(manualResult);
@@ -114,11 +116,9 @@ public final class MonitorActivity extends Ui {
         syncChecked(enabled, prefs.monitorEnabled());
         syncChecked(automatic, prefs.autoReconnect());
         checkButton.setText(!ready ? "去授权" : !prefs.monitorEnabled() ? "开启监控" : !FcmMonitorService.isRunning() ? "启动监控" : "立即检查");
-        reconnectButton.setVisibility(ready && prefs.monitorEnabled() && FcmMonitorService.isRunning() ? View.VISIBLE : View.GONE);
         String manual = FcmMonitorService.manualReconnectResult(this);
         manualResult.setVisibility(manual.isEmpty() ? View.GONE : View.VISIBLE);
-        manualResult.setText("手动重连：" + manual);
-        reconnectButton.setEnabled(!manual.startsWith("正在读取"));
+        manualResult.setText("最近一次手动操作：" + manual);
         JSONObject j = FcmMonitorService.lastSnapshot(this);
         long sample = j.optLong("fcm_sample_time", 0);
         long age = FcmMonitorService.sampleAgeSeconds(this);
@@ -141,6 +141,15 @@ public final class MonitorActivity extends Ui {
                 !lastError.isEmpty(), nativeState, j.optString("fcm_state"));
         headline.setText(verdict.label);
         headline.setTextColor(statusColor(verdict));
+        boolean disconnectedNow = verdict == MonitorStatus.State.DISCONNECTED
+                || verdict == MonitorStatus.State.CONNECTING;
+        reconnectButton.setVisibility(disconnectedNow ? View.VISIBLE : View.GONE);
+        reconnectButton.setEnabled(disconnectedNow && !manual.startsWith("正在读取"));
+        reconnectHint.setText(verdict == MonitorStatus.State.CONNECTED
+                ? "当前已连接，无需恢复。只有确认断联后才会显示恢复按钮。"
+                : disconnectedNow
+                ? "仅向 Google 推送请求恢复，不会强制断开；是否发送和结果请看下方记录。"
+                : "尚未确认断开，不发送恢复请求。可先点“立即检查”。");
         String nativeReason = FcmMonitorService.describeNativeReason(j.optString("fcm_native_reason", "unrecognized"));
         String gate = j.optString("fcm_auto_gate", "unavailable");
         int retryIn = j.optInt("fcm_retry_in", 0);
@@ -191,14 +200,14 @@ public final class MonitorActivity extends Ui {
                     + " · 屏幕 " + localValue(env.optString("screen"))
                     + " · Doze " + localValue(env.optString("device_idle"))
                     + "\nGMS Doze 白名单：" + localValue(env.optString("gms_doze_exempt")))
-                + "\n最后关闭错误码：" + j.optString("fcm_last_close_code", "无")
+                + "\n历史最后一次关闭错误（不代表现在断开）：" + j.optString("fcm_last_close_code", "无")
                 + "\n原生连接成功事件：" + j.optInt("fcm_native_connected_events", 0) + " 条"
                 + "\n上次观察在线：" + time(j.optLong("fcm_last_seen", 0))
                 + "\n上次观察断开：" + time(j.optLong("fcm_disconnect_since", 0))
                 + "\n最近恢复观测：" + time(j.optLong("fcm_last_restore", 0))
-                + "\n重连请求：" + j.optInt("fcm_attempts", 0) + " 次"
-                + "\n本次连续恢复请求：" + j.optInt("fcm_retry_streak", 0) + " 次"
-                + "\n最近请求结果：" + recoveryLabel(j.optString("fcm_last_result", "none"))
+                + "\n历史已发送的恢复请求：" + j.optInt("fcm_attempts", 0) + " 次"
+                + "\n连续恢复尝试次数：" + j.optInt("fcm_retry_streak", 0) + " 次"
+                + "\n历史上次恢复请求结果：" + recoveryLabel(j.optString("fcm_last_result", "none"))
                 + "\n注意：GMS 原生历史有限，同一时刻的多网络关闭事件不等于多次整体断开。");
         String[] lines = FcmMonitorService.lastEvents(this).split("\n");
         events.setText(eventText(lines, 6));
@@ -269,6 +278,18 @@ public final class MonitorActivity extends Ui {
     private void reconnect() {
         if (!authorizationReady()) { go(AuthActivity.class); return; }
         if (!prefs.monitorEnabled() || !FcmMonitorService.isRunning()) { error("请先开启 FCM 监控"); return; }
+        JSONObject snapshot = FcmMonitorService.lastSnapshot(this);
+        MonitorStatus.State verdict = MonitorStatus.resolve(true, true, true,
+                FcmMonitorService.sampleAgeSeconds(this),
+                !FcmMonitorService.currentError(this).isEmpty(),
+                "gms".equals(snapshot.optString("fcm_source")),
+                snapshot.optString("fcm_state"));
+        if (verdict != MonitorStatus.State.DISCONNECTED
+                && verdict != MonitorStatus.State.CONNECTING) {
+            error("未确认断联，没有发送恢复请求。请先立即检查。");
+            render();
+            return;
+        }
         worker.execute(() -> {
             try {
                 String text = FcmMonitorService.manualReconnect(this);
