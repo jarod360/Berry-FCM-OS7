@@ -283,3 +283,5 @@ alpha.46（#44228259741）已通过 API 37.0 SDK 安装、依赖解析、原生�
 - 新源码提交 [55434d1](https://github.com/jarod360/Berry-FCM-OS7/commit/55434d18785f62461656ccd59bb084561de0c467)：各入口统一实际授权条件；守护结果改为准确的强制停止语义，保存检查时间；后台策略读取必须成功并排除权限失败后才写入，Doze 使用完整包名匹配。回滚记录先于 GMS 策略变更写入。未新增权限，尚未确认新 CI。
 - 上一独立构建提交 [8b42663](https://github.com/jarod360/Berry-FCM-OS7/commit/8b426632f40bf761bd4c437412e56868ea033d4e) 已推送；此交接更新时尚未取得该批完成结果。历史 alpha.47 已有签名/Artifact 证据，alpha.49 的实机失败由用户反馈记录，不能混同最新版成功证据。
 - 下一动作：将本轮完整代码同步到 build/native-fcm-batch，核对实际工作流和最新 Artifact；继续解决编译/回归失败及非阻塞模块，之后才提供实测包。未获设备通过不发布 Release，不修改 main/KSU。
+
+**构建分支推进记录（本轮最后核对）**：代码批次对应 [8ba62c0](https://github.com/jarod360/Berry-FCM-OS7/commit/8ba62c04652597da23a158d59fd1ad40da317039)，已推送 `build/native-fcm-batch`；该提交与开发代码基线 1c878df 仅存在构建 workflow 触发配置差异。已实际查询历史 [#44228547705](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44228547705)：build 成功、签名与验签成功、Artifact alpha.47（14394306272）未过期，发布任务跳过。当前新提交尚无可确认的完成结果，不能推荐旧 alpha.47 作为已修复的授权版本。此后开发分支只追加文档记录，不因此重复触发构建。
