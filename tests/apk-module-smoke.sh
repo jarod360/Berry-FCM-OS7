@@ -45,6 +45,9 @@ need 'dev.rikka.shizuku:api:13.1.5' "$root/app/build.gradle"
 test -s "$root/app/src/main/aidl/top/zesun/berryfcm/IBerryShell.aidl"
 need 'shellInvalidate' "$src/AppPrefs.java"
 need 'R.drawable.ic_bf_auth' "$src/AdbPairingService.java"
+need '@drawable/berry_launcher_selected' "$root/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml"
+need 'For OriginOS7' "$src/MainActivity.java"
+need 'OriginOS 7（已测试）' "$src/SettingsActivity.java"
 need 'R.drawable.ic_bf_fcm' "$src/FcmMonitorService.java"
 need 'R.drawable.ic_bf_fcm' "$src/AuthActivity.java"
 need '@drawable/ic_bf_fcm' "$manifest"
@@ -364,8 +367,8 @@ need 'ShizukuShell.isRunning()' "$src/AuthActivity.java"
 if grep -q 'cmd appops get top.zesun.berryfcm 2>&1' "$src/AuthActivity.java"; then
   echo 'Full Android AppOps is not Vivo permission status' >&2; exit 1
 fi
-need 'permissionText(associatedRow, "关联启动", "需在系统确认")' "$src/AuthActivity.java"
-need 'permissionText(highPowerRow, "允许后台高耗电", "需在系统确认")' "$src/AuthActivity.java"
+need 'permissionText(associatedRow, "关联启动", "需在 OriginOS 中查看")' "$src/AuthActivity.java"
+need 'permissionText(highPowerRow, "允许后台高耗电", "需在 OriginOS 中查看")' "$src/AuthActivity.java"
 
 # Keep optional permissions out of the main authorization view.
 need 'disclosure(permissionCard, "自启动、电池和后台权限", false)' "$src/AuthActivity.java"
@@ -379,7 +382,7 @@ need 'toggleSurface.setColor(surface)' "$src/AuthActivity.java"
 
 # Actionable authorization UI and truthful OriginOS permission state.
 need 'disclosure(chooser, "选择与管理授权方式", true)' "$src/AuthActivity.java"
-need 'permissionText(autoStartRow, "自启动", "需在系统确认")' "$src/AuthActivity.java"
+need 'permissionText(autoStartRow, "自启动", "需在 OriginOS 中查看")' "$src/AuthActivity.java"
 need 'step("Root 授权"' "$src/AuthActivity.java"
 need 'step("Shizuku "' "$src/AuthActivity.java"
 need 'text(caption, 16, true, ink)' "$src/Ui.java"
