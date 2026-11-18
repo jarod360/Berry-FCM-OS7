@@ -395,3 +395,11 @@ Termux 本机无线 ADB 配对通过，id=2000(shell)，SELinux u:r:shell:s0，G
 - 15:29:22.850 ACTION_HEARTBEAT_NOW：caller uid=2000，DELIVERED，同一 BroadcastFilter 4558867。
 
 三条请求前后 GMS 一直已连接；仅证实后两条投递，不证实断联恢复。后续须在真实断联下独立验证、读取原生连接，不使用 Root。开发分支 54b9e849 按真实 UID 分流：2000 首次 MCS_HEARTBEAT、后续交替 ACTION_HEARTBEAT_NOW；0 保留可选恢复。测试 cd1301bf 覆盖两条 Shell 指令、停止使用私有重连广播和避免虚假成功。验证分支 ea745402 已提交检查，不发布。非 Root 实机恢复结论仍待验证。
+
+
+### alpha.58 已发布；继续开发，不以等待手机验证为阻塞
+
+- 实际查询构建 [#44259745606](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44259745606)：berryfcm/build=success，berryfcm/test-release=success，发布 [v0.1.0-alpha.58](https://github.com/jarod360/Berry-FCM-OS7/releases/tag/v0.1.0-alpha.58)。对应源码 1875a5765cdf8262b86cbc82339cbe4fd708429c，包含 Android 17 Conscrypt TLS 兼容、已有身份恢复、UID2000 心跳指令分流。实际手机的内置 ADB 仍待验证；只证明两条心跳广播可投递，不能宣称真实断联恢复通过。
+- 发布后仅继续开发分支，不重复发布：fa6d23e 修复手动重连未完成状态和新的采样时间要求；b2bf7c3 去掉重复心跳/未确认的 GcmSenderProxy；f536f02 管理实际系统监控通知类别，延续旧渠道 ID 和用户关闭设置，不再通过切换渠道或启动服务控制显示；51aa212 固定手动任务授权身份，守护列表/连接方式变化后立即在下一轮重新检查，交互和定时守护均检查目标并在解除停止后请求一次心跳；ad1d2b2 和 9fb11ac 隔离通知刷新异常、修复已结束 periodic future 可重新建立、限定主用户 GMS UID 和准确包名。通知和辅助授权不阻断监控。系统活动应用仍可显示 FGS，不能由使用者的通知设置保证系统界面全部隐藏。
+- [#44260473364](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44260473364) 已确认 post-alpha58 第一批 Shell/模块回归通过，查询时 Android 编译仍执行中；之后的通知异常和多用户修复需要针对最新提交的回归。
+- 继续保留未验收事项：内置 ADB 首次配对/发现、重启及撤销配对实际状态、断开无线调试后 Binder 存活、心跳触发真实 FCM 恢复、锁屏休眠实际持续工作、OriginOS 厂商权限差分回读、应用内固定签名覆盖升级。不能把模拟、源码检查、已连接时广播投递或 Root 结果替代非 Root 设备验收。无须等真机才能继续其它开发，但不可声称实机结论已经获得。

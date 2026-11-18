@@ -129,11 +129,14 @@ final class BackgroundSettings {
     }
     static String gmsBackgroundNetwork(android.content.Context context,
                                         PrivilegeShell shell, boolean allow) throws Exception {
-        String uidOutput = checkedRead(shell, "cmd package list packages -U com.google.android.gms");
+        String uidOutput = checkedRead(shell, "cmd package list packages -U --user 0 " + GuardOps.GMS);
         java.util.regex.Matcher uidMatch = java.util.regex.Pattern.compile(
-                "uid:([0-9]+)").matcher(uidOutput);
+                "(?m)^package:" + java.util.regex.Pattern.quote(GuardOps.GMS)
+                        + "\\s+uid:([0-9]+)\\s*$").matcher(uidOutput);
         if (!uidMatch.find()) throw new IllegalStateException("无法通过 PackageManager 取得 GMS UID");
         String uid = uidMatch.group(1);
+        if (Long.parseLong(uid) >= 100000L)
+            throw new IllegalStateException("返回的 UID 不属于主用户，未修改网络策略");
         android.content.SharedPreferences own = context.getSharedPreferences(
                 "berry_fcm_policy_ownership", android.content.Context.MODE_PRIVATE);
         String before = checkedRead(shell, "cmd netpolicy list restrict-background-whitelist");

@@ -1,4 +1,4 @@
-name: Verify consolidated monitor and UI changes (no release)
+name: Verify final consolidated logic (no APK or release)
 on:
   push:
     branches: [verify/fcm-recovery]
@@ -20,18 +20,6 @@ jobs:
           sh -n app/src/main/assets/fcm-monitor.sh
           sh tests/apk-native-fcm-smoke.sh
           sh tests/apk-module-smoke.sh
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-      - uses: android-actions/setup-android@v4
-        with:
-          packages: 'platform-tools platforms;android-37.0 build-tools;37.0.0'
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '9.6.1'
-      - name: Compile complete Android app (no signed APK or release)
-        run: gradle --no-daemon :app:assembleDebug
       - name: Record regression result
         if: always()
         env:
