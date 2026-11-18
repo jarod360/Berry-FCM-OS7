@@ -337,3 +337,11 @@ alpha.46（#44228259741）已通过 API 37.0 SDK 安装、依赖解析、原生�
 ### alpha.54 制品发布修复
 - [Actions #44245895574](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44245895574) 完整 build 成功：原生 FCM、模块检查、Debug/Release 编译、合并权限范围、固定证书、公钥签名验签、上传全部通过。制品 14401338560，BerryFCM-v0.1.0-alpha.54，已确认原始签名 `V2 Signer: certificate SHA-256 digest` 与固定指纹一致且 Number of signers=1。发布 job 下载原制品且 ZIP digest 正确，但脚本只匹配旧 Signer #1 输出导致校验失败，并非签名错误。
 - 发布/晋升统一支持 Build Tools 37 的 V2 Signer 和历史 Signer #n 输出，继续要求单签名、精确固定指纹、包名和原版本号。仅允许 build/native-fcm-batch 的显式 `[promote-test:<run_id>]` 触发仅发布 job（跳过 build）；校验指定 run 原 build 成功和八项必要门槛，允许发布 job 自身失败的旧 run，下载其同一制品。此轮只晋升原 #44245895574 / alpha.54，不重复编译、不生成新 APK，不改签名或版本。实际发布状态待 Actions 确认。
+
+### alpha.54 发布阻断已精确定位
+- [仅晋升任务 #44247523166](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44247523166) 已实际跳过 build，原 #44245895574 的八个必需步骤核对、原制品下载、apksigner 签名验证（单签名且固定指纹）、aapt 包名 top.zesun.berryfcm / versionCode 54 / versionName 0.1.0-alpha.54 全部通过。唯一失败是 gh release create HTTP403 Resource not accessible by integration，未发布。
+- GitHub 官方 REST Release 文档 https://docs.github.com/en/rest/releases/releases#create-a-release 明确指出：target_commitish 与默认分支存在 .github/workflows 差异时，需要 Workflows:write，GITHUB_TOKEN 无法获得该权限。当前独立构建分支确实有 workflow 差异；不能将 tag 指向错误提交、不能为绕过限制而合并 main。保留用户授权的原制品版本和提交。
+- 发布步骤（仅 gh release create）支持仓库级 Actions secret BERRYFCM_RELEASE_TOKEN，用户自行配置仅限 Berry-FCM-OS7 的 fine-grained PAT，Contents:Read and write、Workflows:Read and write；无需透露 token，不改 APK 签名密钥。其他步骤仍使用 GITHUB_TOKEN；没有此权限时不降低校验、不伪造发布结果。此凭据尚未配置/验证，未重触发构建或发布。配置后可只晋升原 run 44245895574；不需编译、不动 main/KSU。
+
+### alpha.54 发布方案修正（不增加任何 Secret）
+用户明确无需增加 Token。保留原四个签名 Secrets；删除未使用的 BERRYFCM_RELEASE_TOKEN 入口。发布源快照 `release/alpha.54` / `2b239ccbc0624b09e67143c86d3f69499205bc1b` 已由原实际构建提交 `bde6ff58263c55e7b283a387eb9b6625e3f2dbed` 派生并验证，唯一差异是 `.github/workflows/build-apk.yml` 恢复为当前 main 的版本；全部产品源码、测试、其他文件完全相同，两份 workflow 的 blob SHA 与 main 一致。GitHub Release tag 指向该快照，不冒充原始构建提交；Release 说明同时记录原始构建 SHA / run 44245895574 及快照 SHA。晋升流程使用默认 GITHUB_TOKEN，重新验证原 run 全部八项门槛、原 APK、包名、版本、固定签名、快照唯一 CI 差异和 main workflow 一致性，再发布原制品。不重新编译，不修改 main/KSU，不更改签名；如 GitHub 拒绝，不自动请求更多权限。实际发布结果仍待核实。
