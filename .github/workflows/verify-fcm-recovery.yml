@@ -1,0 +1,32 @@
+name: Verify FCM recovery (no APK)
+on:
+  push:
+    branches: [verify/fcm-recovery]
+permissions:
+  contents: read
+  statuses: write
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Record regression run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh api "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" -f context=berryfcm/recovery-regression -f state=pending -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+      - uses: actions/checkout@v4
+      - name: Validate shell syntax and execute repository recovery tests
+        run: |
+          sh -n app/src/main/assets/fcm-monitor.sh
+          sh -n tests/apk-native-fcm-smoke.sh
+          sh tests/apk-native-fcm-smoke.sh
+      - name: Verify Java source wiring
+        run: sh tests/apk-module-smoke.sh
+      - name: Record regression result
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RESULT: ${{ job.status }}
+        run: |
+          case "$RESULT" in success) state=success;; *) state=failure;; esac
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" -f context=berryfcm/recovery-regression -f state="$state" -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
