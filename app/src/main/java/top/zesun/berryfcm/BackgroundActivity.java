@@ -22,7 +22,7 @@ public final class BackgroundActivity extends Ui {
         super.onCreate(state);
         title("后台保活", "监控和守护任务的运行设置");
         LinearLayout service = card("运行方式", "前台服务和系统设置只能提高可靠性，无法保证永不被停止。");
-        monitorSwitch = toggle(service, "FCM 持续监控", prefs.monitorEnabled(), true, value -> {
+        monitorSwitch = toggle(service, "FCM 监控", prefs.monitorEnabled(), true, value -> {
             prefs.monitorEnabled(value);
             syncService();
         });
