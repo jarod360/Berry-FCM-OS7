@@ -333,3 +333,7 @@ alpha.46（#44228259741）已通过 API 37.0 SDK 安装、依赖解析、原生�
 
 ### 2026-11-18 集中构建失败修复
 - [Actions #44242562721](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44242562721)：SDK、原生 FCM 模拟以及完整 APK 模块/权限 scope 回归均实际通过；`compileDebugJavaWithJavac` 唯一报错 `PrivKitShell.java:92`，官方 `createAdbManager` 声明 checked `PrivilegeStartupException`，Java 包装方法遗漏 throws。已查明所有三处调用方已声明 throws Exception，直接向上透传原始异常供现有诊断，无额外捕获或授权逻辑变动。签名/发布未执行。只针对已确认的完整构建失败修正，仍以同一个通过产物自动发布用户已批准的测试 prerelease。
+
+### alpha.54 制品发布修复
+- [Actions #44245895574](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44245895574) 完整 build 成功：原生 FCM、模块检查、Debug/Release 编译、合并权限范围、固定证书、公钥签名验签、上传全部通过。制品 14401338560，BerryFCM-v0.1.0-alpha.54，已确认原始签名 `V2 Signer: certificate SHA-256 digest` 与固定指纹一致且 Number of signers=1。发布 job 下载原制品且 ZIP digest 正确，但脚本只匹配旧 Signer #1 输出导致校验失败，并非签名错误。
+- 发布/晋升统一支持 Build Tools 37 的 V2 Signer 和历史 Signer #n 输出，继续要求单签名、精确固定指纹、包名和原版本号。仅允许 build/native-fcm-batch 的显式 `[promote-test:<run_id>]` 触发仅发布 job（跳过 build）；校验指定 run 原 build 成功和八项必要门槛，允许发布 job 自身失败的旧 run，下载其同一制品。此轮只晋升原 #44245895574 / alpha.54，不重复编译、不生成新 APK，不改签名或版本。实际发布状态待 Actions 确认。
