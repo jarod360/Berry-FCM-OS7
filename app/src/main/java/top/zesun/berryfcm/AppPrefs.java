@@ -19,6 +19,16 @@ final class AppPrefs {
         p = context.getSharedPreferences("berry_fcm_guardian", Context.MODE_PRIVATE);
     }
     String mode() { return p.getString("mode", WIRELESS); }
+    String authTab() {
+        String selected = p.getString("auth_tab", mode());
+        return ROOT.equals(selected) || WIRELESS.equals(selected) || STATIC.equals(selected)
+                || SHIZUKU.equals(selected) || EXTERNAL.equals(selected) ? selected : mode();
+    }
+    void authTab(String value) { p.edit().putString("auth_tab", value).apply(); }
+    boolean servicePaused(String mode) { return p.getBoolean("service_paused_" + mode, false); }
+    void servicePaused(String mode, boolean paused) {
+        p.edit().putBoolean("service_paused_" + mode, paused).apply();
+    }
     void mode(String value) {
         if (!value.equals(mode())) {
             p.edit().putString("mode", value).putLong("shell_verified_at", 0).apply();
@@ -29,6 +39,7 @@ final class AppPrefs {
                 .putLong("shell_verified_at", System.currentTimeMillis())
                 .putLong("shell_verified_elapsed", SystemClock.elapsedRealtime())
                 .putString("shell_mode", mode).putString("shell_identity", identity)
+                .putString("auth_tab", mode).putBoolean("service_paused_" + mode, false)
                 .remove("shell_error").apply();
     }
     String connectionKey() {

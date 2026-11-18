@@ -1,6 +1,8 @@
 package top.zesun.berryfcm;
 
 import android.content.Context;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.content.SharedPreferences;
 import android.provider.Settings;
 import android.os.Looper;
@@ -101,9 +103,10 @@ final class PrivKitShell {
     static boolean canRecoverExisting(Context context) {
         AppPrefs prefs = new AppPrefs(context);
         return AppPrefs.WIRELESS.equals(prefs.mode()) && !prefs.pairingRejected()
+                && !prefs.servicePaused(AppPrefs.WIRELESS)
                 && (prefs.adbPaired() || hasStoredIdentity(context))
                 && !AdbPairingService.isPairingActive()
-                && wirelessDebuggingState(context) == 1;
+                && localNetworkAllowed(context) && wirelessDebuggingState(context) != 0;
     }
 
     // A foreground entry may recover a saved identity even if old versions
@@ -135,8 +138,28 @@ final class PrivKitShell {
         }, "berry-adb-recovery").start();
     }
 
+    static boolean localNetworkAllowed(Context context) {
+        return Build.VERSION.SDK_INT < 37 || context.checkSelfPermission(
+                "android.permission.ACCESS_LOCAL_NETWORK") == PackageManager.PERMISSION_GRANTED;
+    }
+
+    static int systemConnectPort() {
+        try {
+            Class<?> properties = Class.forName("android.os.SystemProperties");
+            int port = (Integer) properties.getMethod("getInt", String.class, int.class)
+                    .invoke(null, "service.adb.tls.port", -1);
+            return port > 0 && port <= 65535 ? port : 0;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+            return 0;
+        }
+    }
+
     static int wirelessDebuggingState(Context context) {
-        try { return Settings.Global.getInt(context.getContentResolver(), "adb_wifi_enabled", -1); }
+        try {
+            int state = Settings.Global.getInt(context.getContentResolver(), "adb_wifi_enabled", -1);
+            // SDK 37 may redact this setting to zero; unknown is not disabled.
+            return Build.VERSION.SDK_INT >= 37 && state == 0 ? -1 : state;
+        }
         catch (RuntimeException ignored) { return -1; }
     }
 
@@ -227,7 +250,9 @@ final class PrivKitShell {
             return;
         }
         if (!explicit && !canRecoverExisting(context))
-            throw new IOException("等待真实配对认证");
+            throw new IOException("等待真实配对认证或服务已被用户停止");
+        if (!localNetworkAllowed(context))
+            throw new IOException("Android 17 本地网络权限未授予，无法自动发现无线 ADB");
         autoAttempted = true;
         starting = true;
         status = "正在启动服务";
@@ -251,14 +276,18 @@ final class PrivKitShell {
                 AppPrefs prefs = new AppPrefs(context);
                 int manual = prefs.wirelessConnectPort();
                 prefs.wirelessConnectPort(0);
-                Integer port = manual > 0 ? manual : null;
+                // Pairing and connection are different ports. Prefer adbd's
+                // current TLS connect property, then upstream NSD.
+                int tls = manual > 0 ? 0 : systemConnectPort();
+                Integer port = manual > 0 ? manual : tls > 0 ? tls : null;
                 if (port == null && wirelessDebuggingState(context) == 0) {
                     prefs.pairingUnavailable();
                     throw new IOException("系统无线调试未开启");
                 }
                 rememberLaunch(context);
                 launched = true;
-                startupTrace = "";
+                startupTrace = "连接端口来源：" + (manual > 0 ? "手动连接端口" :
+                        tls > 0 ? "当前系统 TLS 端口" : "mDNS 自动发现") + "\n";
                 // Start using the resolved endpoint directly. A separate check opens a second ADB session.
                 // Only check the identity on launch failure to classify rejection versus discovery failure.
                 status = "正在连接 ADB 并启动服务";
@@ -319,6 +348,8 @@ final class PrivKitShell {
     }
 
     static synchronized String execute(Context context, String command) throws Exception {
+        if (new AppPrefs(context).servicePaused(AppPrefs.WIRELESS))
+            throw new IOException("无线 ADB 服务已被用户手动停止");
         if (!isConnected() || !KIT.pingServer()) {
             // No per-sample ADB fallback, even if the starter is incompatible.
             AppPrefs prefs = new AppPrefs(context);
@@ -376,6 +407,11 @@ final class PrivKitShell {
                 + "\n最近启动失败原因：" + lastStartupError(context)
                 + "\n最近独立服务启动日志：\n" + (startupTrace.isEmpty() ? p.getString(TRACE_KEY, "") : startupTrace)
                 + "\n说明：启动尝试计数不是成功连接次数；日常 Binder 命令不增加此计数。";
+    }
+
+    static synchronized void stopManually(Context context) {
+        new AppPrefs(context).servicePaused(AppPrefs.WIRELESS, true);
+        stop();
     }
 
     static synchronized void stop() {

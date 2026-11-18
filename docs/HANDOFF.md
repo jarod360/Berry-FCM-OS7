@@ -395,3 +395,6 @@ Termux 本机无线 ADB 配对通过，id=2000(shell)，SELinux u:r:shell:s0，G
 - 15:29:22.850 ACTION_HEARTBEAT_NOW：caller uid=2000，DELIVERED，同一 BroadcastFilter 4558867。
 
 三条请求前后 GMS 一直已连接；仅证实后两条投递，不证实断联恢复。后续须在真实断联下独立验证、读取原生连接，不使用 Root。开发分支 54b9e849 按真实 UID 分流：2000 首次 MCS_HEARTBEAT、后续交替 ACTION_HEARTBEAT_NOW；0 保留可选恢复。测试 cd1301bf 覆盖两条 Shell 指令、停止使用私有重连广播和避免虚假成功。验证分支 ea745402 已提交检查，不发布。非 Root 实机恢复结论仍待验证。
+
+### alpha.58 SDK37 authorization repair
+User device: NSD connect discovery code 7 (permission denied), manual pairing can exchange a key but independent UID2000 Binder does not start. Official Android 17 default access for target37 needs ACCESS_LOCAL_NETWORK runtime permission. targetSdk updated 35->37; request must precede normal NSD and connection. The system's service.adb.tls.port is the live ADB *connect* port, not the pairing port, and is a safe first candidate if readable; otherwise retain Priv Kit discovery. A zero adb_wifi_enabled read may be redacted on Android17; treat it as unknown. Add service-paused preference and manual restart/stop controls for both BerryFCM transports; do not stop global Shizuku daemon or erase saved ADB identity. Source: Android Developer Local Network Permission; Shizuku-Next EnvironmentUtils / StartTransport. No target-device successful authorization proof yet.

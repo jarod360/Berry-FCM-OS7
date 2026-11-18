@@ -188,6 +188,8 @@ public final class AdbPairingService extends Service {
             if (!gate.pairing(generation)) return;
             prefs.activateMode(AppPrefs.WIRELESS, prefs.host(), prefs.staticPort(), identity);
             prefs.enableMonitorOnFirstAuthorization();
+            // Pairing alone is not authorization: the live Binder and id
+            // above must both succeed before enabling background tasks.
             boolean requested = (prefs.monitorEnabled() || prefs.guardEnabled()) && FcmMonitorService.start(this);
             finish(generation, requested
                     ? "授权成功，正在恢复已启用的后台任务"

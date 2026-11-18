@@ -10,8 +10,8 @@ final class PrivilegeAccess {
     // still performs real identity validation on a worker.
     static boolean readyForUserAction(Context context) {
         AppPrefs prefs = new AppPrefs(context);
-        if (AppPrefs.WIRELESS.equals(prefs.mode())) return PrivKitShell.isConnected();
-        if (AppPrefs.SHIZUKU.equals(prefs.mode())) return ShizukuShell.authorizedUid() >= 0;
+        if (AppPrefs.WIRELESS.equals(prefs.mode())) return !prefs.servicePaused(AppPrefs.WIRELESS) && PrivKitShell.isConnected();
+        if (AppPrefs.SHIZUKU.equals(prefs.mode())) return !prefs.servicePaused(AppPrefs.SHIZUKU) && ShizukuShell.authorizedUid() >= 0;
         return (AppPrefs.ROOT.equals(prefs.mode()) || AppPrefs.STATIC.equals(prefs.mode()))
                 && prefs.mode().equals(prefs.shellMode()) && prefs.shellError().isEmpty()
                 && !prefs.shellIdentity().isEmpty();
@@ -25,11 +25,12 @@ final class PrivilegeAccess {
         AppPrefs prefs = new AppPrefs(context);
         if (readyForUserAction(context)) return true;
         return AppPrefs.WIRELESS.equals(prefs.mode())
+                && !prefs.servicePaused(AppPrefs.WIRELESS)
                 && prefs.adbPaired() && !prefs.pairingRejected()
                 && AppPrefs.WIRELESS.equals(prefs.shellMode())
                 && prefs.shellIdentity().matches("(?s)^uid=2000(?:\\D.*)?$")
                 && !AdbPairingService.isPairingActive()
-                && PrivKitShell.wirelessDebuggingState(context) == 1;
+                && PrivKitShell.wirelessDebuggingState(context) != 0;
     }
 
     static String probe(Context context, String mode, String host, int port) throws Exception {

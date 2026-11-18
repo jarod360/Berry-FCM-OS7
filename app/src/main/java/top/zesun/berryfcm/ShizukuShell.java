@@ -27,6 +27,13 @@ final class ShizukuShell implements PrivilegeShell {
         } catch (RuntimeException error) { return -1; }
     }
 
+    static synchronized void stopBinding() {
+        if (binding == null) return;
+        try { Shizuku.unbindUserService(binding.args, binding, true); }
+        catch (RuntimeException ignored) { }
+        binding = null;
+    }
+
     static String readiness() {
         try {
             if (!Shizuku.pingBinder()) return "请先安装并启动 Shizuku 服务";
@@ -63,6 +70,8 @@ final class ShizukuShell implements PrivilegeShell {
     }
 
     private static synchronized IBerryShell connect(Context context) throws Exception {
+        if (new AppPrefs(context).servicePaused(AppPrefs.SHIZUKU))
+            throw new IllegalStateException("BerryFCM 的 Shizuku Shell 服务已被手动停止");
         if (Looper.myLooper() == Looper.getMainLooper())
             throw new IllegalStateException("Shizuku Shell requires a worker thread");
         int uid = authorizedUid();
