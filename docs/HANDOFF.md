@@ -414,3 +414,12 @@ Auth page now shows a single large actual state (已启动/已停止/启动失�
 
 ### 2026-11-18 OEM permission UI clean-up
 Removed the full `cmd appops get top.zesun.berryfcm` dump incorrectly labeled as vendor permissions diagnosis. Android AppOps are not reliable indicators of OriginOS 自启动、关联启动、高耗电. Kept separate user-actionable settings links and conservative '需在系统确认' when an OEM toggle cannot be read. Does not alter privileges, policies, or the already-released APK.
+
+## 2026-11-19 Issue #1/#2 集中研发接续（未发布）
+- 唯一分支：[dev/issues-1-2-wake-ui-20261119](https://github.com/jarod360/Berry-FCM-OS7/tree/dev/issues-1-2-wake-ui-20261119)，基于已发行 alpha.89 对应 SHA `150017898629e8b436909ee0213babbb02c22007`。不修改 alpha.89、main、KSU、签名及权限。
+- **CPU 策略**：新装默认智能省电，已有 alpha.89 用户保留原持续持锁；手动再次选持续时弹窗确认，取消不写设置。仅开启守护不需要持续持锁。保留 15 秒机会性巡检、60 秒请求闹钟与原生 GMS 判断/恢复阈值，不承诺 Doze 下 60 秒硬唤醒。
+- **有界持锁**：FCM 采样与手动恢复各最多 120 秒事务锁（考虑安装脚本与每命令45秒 Shell 等待）；守护分批每条 Shell 命令最多 60 秒，闹钟 PendingIntent → 前台服务 worker 交接最多 90 秒。可信原生 GMS 异常首次出现时可进入最长 90 秒的确认窗口，**同一异常绝不循环续约**，新原生 connected 才重置。停止、切换或服务销毁释放。累积锁时长分别统计，互相重叠时不得相加成耗电量。
+- **UI**：四项胶囊导航、后台保活作为设置次级页面并保留首页入口、深浅模式公用圆角确认框、用户文字命名和折叠标题调整、智能/持续策略选择与锁状态可见。选定的 PNG 启动图标仍沿用；小通知图标维持单色矢量并显式着色。OriginOS 通知中心旧图标/缓存问题仍要真机对照。
+- **静态审计**：在原 `tests/apk-module-smoke.sh` 增加模式迁移、锁寿命、异常窗口、闹钟交接、授权确认、页面链接、Manifest/快捷键检查；不借 Gradle 编译报错替代逻辑审查。**尚未运行完整 Android 编译和目标设备实测**。
+- **保留用户跨夜证据**：19日03:14原生断开、03:15 UID2000 请求与原生重连，05:00–06:23 Doze 约16秒检查、约4分钟闹钟延迟。此证据不证明广播导致重连或设备物理深睡仍16秒；日志为滚动缓冲，非无损整夜每一条采样。
+- **后续验收**：前置脚本/源码审查 → 一次完整固定签名 CI 编译 → 同一制品测试包；再同网络做智能省电与持续唤醒 A/B，测每小时电量、温度、P95/最长巡检空档、持续断联恢复、杀进程/UID2000 Binder 停止后的恢复、通知/图标和主题/覆盖安装。CI 成功不等于手机验收。

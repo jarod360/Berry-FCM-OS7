@@ -115,8 +115,7 @@ public final class FcmMonitorService extends Service {
         FcmMonitorService instance = live;
         if (instance != null) {
             AppPrefs prefs = new AppPrefs(context);
-            instance.releaseConfirmationWakeLock();
-            instance.confirmationUsed = false;
+            instance.resetConfirmationWindow();
             instance.updatePersistentWakeLock(prefs.monitorEnabled());
             logRuntime(context, "wake_mode_changed", prefs.wakeMode()
                     + "; lock_held=" + isCpuWakeLockHeld());
@@ -457,6 +456,10 @@ public final class FcmMonitorService extends Service {
             confirmationSince = -1;
             logRuntime(this, "wake_lock_failed", "confirmation: " + safeError(error));
         }
+    }
+    private synchronized void resetConfirmationWindow() {
+        releaseConfirmationWakeLock();
+        confirmationUsed = false;
     }
     private synchronized void releaseConfirmationWakeLock() {
         if (confirmationLock == null) return;

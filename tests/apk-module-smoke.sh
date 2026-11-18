@@ -466,3 +466,59 @@ assert len(data) > 2500, "launcher artwork missing"
 assert len(set(zlib.decompress(image_data))) > 12, "launcher image lacks visible detail"
 print("PASS: launcher PNG decoded (192x192, valid chunks and pixels)")
 PY_ICON
+
+# Issues #1 and #2: review policy/UI invariants before any Gradle invocation.
+python3 - "$src" <<'PY_WAKE_UI'
+from pathlib import Path
+import sys
+root = Path(sys.argv[1])
+read = lambda name: (root / name).read_text(encoding="utf-8")
+p, svc, wd = (read(x) for x in ("AppPrefs.java", "FcmMonitorService.java", "MonitorWatchdog.java"))
+ui, bg, auth = (read(x) for x in ("Ui.java", "BackgroundActivity.java", "AuthActivity.java"))
+settings, main = read("SettingsActivity.java"), read("MainActivity.java")
+monitor = read("MonitorActivity.java")
+manifest = (root.parents[3] / "AndroidManifest.xml").read_text(encoding="utf-8")
+def must(ok, reason):
+    assert ok, reason
+
+must('WAKE_SMART = "smart"' in p and 'WAKE_CONTINUOUS = "continuous"' in p, "wake modes")
+must('p.contains("monitor_enabled") || p.contains("guard_enabled")' in p
+     and 'p.getString("wake_mode", fallback)' in p
+     and 'p.edit().putString("wake_mode", initial).commit()' in p, "preference migration")
+must('if (!monitorEnabled || !AppPrefs.WAKE_CONTINUOUS.equals(' in svc
+     and 'persistentWakeLock.acquire()' in svc, "continuous CPU lock gate")
+must(all(x in svc for x in ('new TransactionLock("sample", 120000L)',
+     'new TransactionLock("manual", 120000L)', 'new TransactionLock("guard", 60000L)',
+     'transactions.remove(lock)', 'try (TransactionLock lease')), "bounded task CPU locks")
+must('confirmationLock.acquire(90000L)' in svc
+     and svc.index('if (confirmationUsed)') < svc.index('confirmationUsed = true;')
+     and 'resetConfirmationWindow()' in svc, "finite one-shot outage confirmation")
+must('updateConfirmationWindow(parsed)' in svc
+     and '"gms".equals(sample.optString("fcm_source"))' in svc, "native GMS evidence")
+must(svc.count('releaseConfirmationWakeLock();') >= 3
+     and svc.count('releasePersistentWakeLock();') >= 3, "lifecycle cleanup")
+must('holdForService(context)' in wd and 'handoff.acquire(90000L)' in wd
+     and 'PendingIntent.FLAG_IMMUTABLE' in wd
+     and 'AlarmManager.ELAPSED_REALTIME_WAKEUP' in wd
+     and 'setAndAllowWhileIdle' in wd, "bounded immutable alarm handoff")
+must('if (!p.monitorEnabled()) MonitorWatchdog.releaseHandoff();' in svc,
+     "guard must not drop FCM alarm handoff")
+must('String[] names = {"概览", "监控", "守护", "设置"}' in ui
+     and 'type == BackgroundActivity.class' not in ui, "four-tab navigation")
+must('() -> go(BackgroundActivity.class)' in settings
+     and '() -> go(BackgroundActivity.class)' in main, "background entry retained")
+must('navContainer.setPadding(dp(14), dp(6), dp(14), bottom + dp(8));' in ui,
+     "gesture navigation safe inset")
+must('protected void confirmAction(' in ui
+     and 'dialog.setOnCancelListener' in ui
+     and 'AlertDialog.Builder' not in auth
+     and auth.count('confirmAction(') >= 2, "themed safe confirmation dialogs")
+must('this::syncWakeChoice' in bg
+     and 'confirmAction("开启持续唤醒？"' in bg
+     and 'FcmMonitorService.wakeModeChanged(this)' in bg, "mode switch requires confirmation")
+must('累计确认窗口持锁' in monitor and '累计事务持锁' in bg,
+     "CPU wake statistics visible")
+must('android.permission.WAKE_LOCK' in manifest
+     and 'android:name=".MonitorWatchdog"' in manifest, "Manifest permissions")
+print("PASS: issues 1/2 pre-build policy, lifecycle, UI and Android permissions")
+PY_WAKE_UI
