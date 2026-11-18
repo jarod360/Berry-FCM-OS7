@@ -316,3 +316,13 @@ need 'PrivKitShell.recoverOnForeground(this)' "$src/AuthActivity.java"
 need 'hasStoredIdentity(context)' "$src/PrivKitShell.java"
 need 'foregroundRecovery.compareAndSet(false, true)' "$src/PrivKitShell.java"
 echo 'PASS: Priv Kit host integration and persisted-identity recovery wiring'
+
+# Android 17 permission, TLS port and explicit service lifecycle.
+need 'targetSdk 37' "$root/app/build.gradle"
+need 'android.permission.ACCESS_LOCAL_NETWORK' "$root/app/src/main/AndroidManifest.xml"
+need 'requestLocalNetworkIfNeeded' "$src/AuthActivity.java"
+need 'systemConnectPort()' "$src/PrivKitShell.java"
+need 'service.adb.tls.port' "$src/PrivKitShell.java"
+need 'stopManually(this)' "$src/AuthActivity.java"
+need 'ShizukuShell.stopBinding()' "$src/AuthActivity.java"
+need 'prefs.authTab(mode)' "$src/AuthActivity.java"

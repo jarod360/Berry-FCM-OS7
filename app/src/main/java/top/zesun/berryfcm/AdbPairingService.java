@@ -176,6 +176,7 @@ public final class AdbPairingService extends Service {
         }
         if (!gate.pairing(generation)) return;
         prefs.wirelessConnectPort(0);
+        prefs.servicePaused(AppPrefs.WIRELESS, false);
         main.post(() -> { if (gate.pairing(generation))
             publish("配对完成，正在启动服务…", false, 0); });
         try {
