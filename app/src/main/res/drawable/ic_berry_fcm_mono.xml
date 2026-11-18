@@ -1,10 +1,14 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">
+    <!-- Monochrome companion to the chosen cloud, signal and notification icon. -->
     <path android:fillColor="#00000000" android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="8" android:strokeLineJoin="round"
-        android:pathData="M54,27 L75,36 L75,55 C75,67 66,75 54,82 C42,75 33,67 33,55 L33,36 Z"/>
+        android:strokeWidth="5.2" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M25,70 C12,70 10,57 17,49 C21,44 27,43 32,44 C36,30 49,23 62,27 C72,30 78,37 79,46 C90,47 95,58 88,65"/>
     <path android:fillColor="#00000000" android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="5" android:strokeLineCap="round" android:strokeLineJoin="round"
-        android:pathData="M42,54 L49,54 L53,44 L58,63 L62,54 L67,54"/>
+        android:strokeWidth="4.3" android:strokeLineCap="round"
+        android:pathData="M80,20 C88,22 94,28 96,36 M80,29 C84,30 87,33 88,37"/>
+    <path android:fillColor="#00000000" android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="4.5" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M52,48 C44,48 42,55 42,60 L42,69 L36,76 L36,80 L70,80 L70,76 L64,69 L64,60 C64,55 61,48 53,48 M49,86 Q53,91 57,86"/>
 </vector>
