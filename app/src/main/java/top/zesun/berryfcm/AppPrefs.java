@@ -37,6 +37,8 @@ final class AppPrefs {
     }
     String host() { return p.getString("host", "127.0.0.1"); }
     void host(String value) { p.edit().putString("host", value).apply(); }
+    int wirelessConnectPort() { return p.getInt("wireless_connect_port", 0); }
+    void wirelessConnectPort(int value) { p.edit().putInt("wireless_connect_port", value).apply(); }
     int pairPort() { return p.getInt("pair_port", 0); }
     void pairPort(int value) { p.edit().putInt("pair_port", value).apply(); }
     int staticPort() { return p.getInt("static_port", 5555); }
@@ -104,6 +106,7 @@ final class AppPrefs {
         return p.getBoolean("adb_paired", pairingStatus().startsWith("配对成功"));
     }
     void markAdbPaired() { p.edit().putBoolean("adb_paired", true).apply(); }
+    void clearAdbPaired() { p.edit().putBoolean("adb_paired", false).apply(); }
     String pairingStatus() { return p.getString("pairing_status", "尚未配对"); }
     void pairingStatus(String value) { p.edit().putString("pairing_status", value).apply(); }
 }

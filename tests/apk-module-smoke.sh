@@ -200,3 +200,20 @@ echo 'PASS: APK navigation modules, notification ADB pairing, FCM guard, insets,
 if grep -q "android.os.ServiceSpecificException" "$src/BerryShellUserService.java"; then
   echo "Hidden Android exception import in Shizuku service"; exit 1
 fi
+
+# Real-device pairing can succeed while the connect-service discovery fails.
+# Keep pairing port and connect port separate and reuse the existing identity.
+need 'discoverConnectPort(15000L, continuation)' "$src/AdbConnectionManager.java"
+need 'connect("127.0.0.1", port)' "$src/AdbConnectionManager.java"
+need 'prefs.clearAdbPaired()' "$src/AdbConnectionManager.java"
+need 'wireless_connect_port' "$src/AppPrefs.java"
+need 'PrivKitShell.start(this)' "$src/AdbPairingService.java"
+need 'PrivKitShell.execute(this, "id")' "$src/AdbPairingService.java"
+need '配对成功，独立服务未启动' "$src/AdbPairingService.java"
+need '检查已有配对并启动' "$src/AuthActivity.java"
+need 'openWirelessForStart' "$src/AuthActivity.java"
+need 'startAfterSettings && leftForSettings' "$src/AuthActivity.java"
+need '使用连接端口启动服务' "$src/AuthActivity.java"
+if grep -q 'connectTls(context.getApplicationContext(), 8000)' "$src/AdbConnectionManager.java"; then
+  echo "Legacy ADB discovery must not replace Priv Kit discovery"; exit 1
+fi

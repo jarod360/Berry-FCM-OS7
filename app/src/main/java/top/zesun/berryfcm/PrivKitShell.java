@@ -85,8 +85,9 @@ final class PrivKitShell {
     private static void start(Context context, boolean explicit) throws Exception {
         if (Looper.myLooper() == Looper.getMainLooper())
             throw new IllegalStateException("独立服务必须在后台启动");
-        if (!new AppPrefs(context).adbPaired()) throw new IOException("请先完成无线 ADB 配对");
+        if (!explicit && !new AppPrefs(context).adbPaired()) throw new IOException("请先完成无线 ADB 配对或检查已有身份");
         if (isConnected() && KIT.pingServer()) {
+            new AppPrefs(context).markAdbPaired();
             autoAttempted = false;
             return;
         }
@@ -121,6 +122,7 @@ final class PrivKitShell {
             if (!isConnected() || !KIT.pingServer())
                 throw new IOException("独立服务未回传有效的 UID 2000 Binder");
             if (launched) startPrefs(context).edit().putString("last_result", "binder_ready").apply();
+            new AppPrefs(context).markAdbPaired();
             autoAttempted = false;
             status = "独立服务运行中";
         } catch (InterruptedException ex) {
