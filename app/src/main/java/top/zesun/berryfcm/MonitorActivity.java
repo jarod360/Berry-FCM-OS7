@@ -200,10 +200,10 @@ public final class MonitorActivity extends Ui {
                 + "\n最近请求结果：" + recoveryLabel(j.optString("fcm_last_result", "none"))
                 + "\n注意：GMS 原生历史有限，同一时刻的多网络关闭事件不等于多次整体断开。");
         String[] lines = FcmMonitorService.lastEvents(this).split("\n");
-        events.setText(eventText(lines, 6));
-        eventsFull.setText(eventText(lines, 24));
-        recoveryEvents.setText(eventText(FcmMonitorService.lastRecoveryEvents(this).split("\\n"), 24));
-        environmentEvents.setText(eventText(FcmMonitorService.lastEnvironmentEvents(this).split("\\n"), 24));
+        events.setText(eventText(lines, 6, false));
+        eventsFull.setText(eventText(lines, 24, true));
+        recoveryEvents.setText(eventText(FcmMonitorService.lastRecoveryEvents(this).split("\\n"), 24, true));
+        environmentEvents.setText(eventText(FcmMonitorService.lastEnvironmentEvents(this).split("\\n"), 24, true));
     }
 
     private static String localValue(String value) {
@@ -218,7 +218,7 @@ public final class MonitorActivity extends Ui {
     private String recoveryDecision(JSONObject j, int retryIn) {
         switch (j.optString("fcm_recovery_decision", "")) {
             case "gms_stopped_unknown": return "GMS 停止状态未通过检查，未发送请求";
-            case "requested": return "命令已返回，等待原生连接确认";
+            case "requested": return "已尝试恢复，等待连接确认";
             case "request_failed": return "重连请求失败，见恢复记录";
             case "confirmation_changed": return "第二次检查状态变化，暂不干预";
             case "cooldown": return "等待下次恢复 · 约 " + retryIn + " 秒";
@@ -233,14 +233,14 @@ public final class MonitorActivity extends Ui {
     }
     private String recoveryLabel(String value) {
         switch (value) {
-            case "requested": return "命令已返回，未确认投递或恢复";
+            case "requested": return "已尝试，等待确认";
             case "failed": return "请求未确认";
-            case "restored": return "请求后观察到原生恢复（不证明因果）";
+            case "restored": return "已观察到恢复（原因未确认）";
             default: return "尚无请求";
         }
     }
 
-    private String eventText(String[] lines, int maximum) {
+    private String eventText(String[] lines, int maximum, boolean detailed) {
         StringBuilder result = new StringBuilder();
         for (int i = lines.length - 1; i >= Math.max(0, lines.length - maximum); i--) {
             String[] parts = lines[i].split("\\|", 3);
@@ -261,8 +261,9 @@ public final class MonitorActivity extends Ui {
                     : parts[1].equals("reconnect_skipped") ? "恢复请求跳过"
                     : parts[1].equals("sample_gap") ? "检查中断"
                     : parts[1].equals("environment") ? "检查环境变化（非 GMS 路由证据）" : parts[1];
-            result.append(stamp).append("  ").append(label).append("\n")
-                    .append(parts[2]).append("\n\n");
+            result.append(stamp).append("  ").append(label).append("\n");
+            if (detailed) result.append(parts[2]).append("\n");
+            result.append("\n");
         }
         return result.length() == 0 ? "暂无监控事件" : result.toString().trim();
     }

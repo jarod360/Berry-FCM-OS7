@@ -217,7 +217,10 @@ public final class UpdateActivity extends Ui {
             }
             ui.postDelayed(watchDownload, 1000);
         } catch (Exception ex) {
-            state.edit().remove("auto_install").remove("waiting_install_permission").apply();
+            // A failed download is not an installable saved update.
+            state.edit().remove("auto_install").remove("waiting_install_permission")
+                    .remove("id").remove("name").remove("version").remove("digest").apply();
+            install.setVisibility(View.GONE);
             details.setText("下载失败：" + ex.getMessage());
             download.setVisibility(apkUrl != null && remoteVersion > localVersion() ? View.VISIBLE : View.GONE);
         }
@@ -302,7 +305,7 @@ public final class UpdateActivity extends Ui {
                     if (isDestroyed() || isFinishing()) return;
                     getPreferences(MODE_PRIVATE).edit().remove("auto_install").remove("waiting_install_permission").apply();
                     details.setText("安装校验未通过：" + error.getMessage());
-                    install.setVisibility(View.VISIBLE);
+                    install.setVisibility(View.GONE);
                     if (apkUrl != null && remoteVersion > localVersion()) download.setVisibility(View.VISIBLE);
                 });
             }

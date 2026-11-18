@@ -531,7 +531,7 @@ public final class FcmMonitorService extends Service {
             String decision = reply.optString("fcm_recovery_decision");
             String message;
             switch (decision) {
-                case "requested": message = "广播命令已返回，未确认投递或 FCM 恢复"; break;
+                case "requested": message = "已尝试恢复，等待连接确认"; break;
                 case "request_failed": message = "广播请求失败，请查看恢复记录中的 UID 和错误"; break;
                 case "cooldown": message = "未发送广播：距上次请求不足60秒"; break;
                 case "gms_stopped_unknown": message = "未发送广播：GMS 停止状态未通过检查"; break;

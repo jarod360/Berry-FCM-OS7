@@ -332,3 +332,11 @@ need 'Monitor notification refresh failed' "$src/FcmMonitorService.java"
 need 'periodic.isCancelled() || periodic.isDone()' "$src/FcmMonitorService.java"
 need 'list packages -U --user 0' "$src/BackgroundSettings.java"
 need 'list packages -U --user 0' "$root/app/src/main/assets/fcm-monitor.sh"
+
+# UI: clear operational copy, expandable diagnostics and failure states.
+need 'disclosure(tabs, "其他授权方式"' "$src/AuthActivity.java"
+need 'checkFailureMode = candidate' "$src/AuthActivity.java"
+need 'eventText(lines, 6, false)' "$src/MonitorActivity.java"
+need 'eventText(lines, 24, true)' "$src/MonitorActivity.java"
+need 'reconnectButton.setVisibility(fresh && disconnected' "$src/MonitorActivity.java"
+need 'install.setVisibility(View.GONE)' "$src/UpdateActivity.java"
