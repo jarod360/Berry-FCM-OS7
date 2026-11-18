@@ -321,3 +321,25 @@ j="$(run snapshot)"
 assert_json "$j" fcm_recovery_decision=cooldown
 run recovery-events | grep -q '手动恢复未发送'
 echo 'PASS: Root automatic recovery command and native recovery confirmation, explicit manual cooldown'
+# GMS may legitimately show zero briefly. Repeated unchanged zero should not be
+# presented as the precise connected duration.
+rm -f "$BERRY_FCM_DATA"/mcs-monitor.state "$BERRY_FCM_DATA"/mcs-evidence
+printf '%s\n' 'DeviceID: [fixture]' 'connected=mtalk.google.com/142.250.157.188,port=5228' 'connectTime=00:00/00:00' > "$MCS_FIXTURE"
+settime 17000
+run monitor
+j="$(run snapshot)"
+assert_json "$j" fcm_state=connected
+assert_json "$j" fcm_native_duration=0
+assert_json "$j" fcm_observed_up_seconds=0
+settime 17015
+run monitor
+j="$(run snapshot)"
+assert_json "$j" fcm_native_duration=0
+assert_json "$j" fcm_observed_up_seconds=15
+# Change the remote endpoint: old observed interval cannot be carried forward.
+printf '%s\n' 'DeviceID: [fixture]' 'connected=mtalk.google.com/74.125.135.188,port=5228' 'connectTime=00:00/00:00' > "$MCS_FIXTURE"
+settime 17030
+run monitor
+j="$(run snapshot)"
+assert_json "$j" fcm_observed_up_seconds=0
+echo 'PASS: GMS zero clock, bounded observed online fallback and endpoint reset'
