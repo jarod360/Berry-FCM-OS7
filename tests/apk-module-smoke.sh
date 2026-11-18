@@ -352,3 +352,7 @@ if grep -q 'cmd appops get top.zesun.berryfcm 2>&1' "$src/AuthActivity.java"; th
 fi
 need 'permissionText(associatedRow, "关联启动", "需在系统确认")' "$src/AuthActivity.java"
 need 'permissionText(highPowerRow, "允许后台高耗电", "需在系统确认")' "$src/AuthActivity.java"
+
+# Keep optional permissions out of the main authorization view.
+need 'disclosure(permissionCard, "后台运行权限", false)' "$src/AuthActivity.java"
+need 'disclosure(notificationCard, "通知与快捷功能", false)' "$src/AuthActivity.java"

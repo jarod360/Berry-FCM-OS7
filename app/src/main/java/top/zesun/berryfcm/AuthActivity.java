@@ -178,7 +178,8 @@ public final class AuthActivity extends Ui {
     }
 
     private void createAuxiliaryPermissions() {
-        LinearLayout auxiliary = card("辅助后台权限", "建议开启，由你在系统中选择。不影响核心授权或当前监控、守护任务的运行。");
+        LinearLayout permissionCard = card(null, null);
+        LinearLayout auxiliary = disclosure(permissionCard, "后台运行权限", false);
         autoStartRow = permissionRow(auxiliary, "自启动", () -> BackgroundSettings.autostart(this));
         associatedRow = permissionRow(auxiliary, "关联启动", () -> BackgroundSettings.associatedStart(this));
         highPowerRow = permissionRow(auxiliary, "允许后台高耗电", () -> BackgroundSettings.powerSettings(this));
@@ -190,7 +191,8 @@ public final class AuthActivity extends Ui {
         restrictionRow = permissionRow(auxiliary, "Android 后台限制", () -> BackgroundSettings.details(this));
         notificationRow = permissionRow(auxiliary, "通知权限", () -> BackgroundSettings.notifications(this));
         button(auxiliary, "刷新权限状态", this::refreshAuxiliaryPermissions, false);
-        LinearLayout display = card("通知与快捷磁贴", "独立显示选项，不控制后台监控和守护。");
+        LinearLayout notificationCard = card(null, null);
+        LinearLayout display = disclosure(notificationCard, "通知与快捷功能", false);
         monitorNotificationRow = permissionRow(display, "监控通知类别", () -> BackgroundSettings.monitorNotifications(this, prefs.quietMonitor()));
         android.widget.Switch quiet = new android.widget.Switch(this);
         quiet.setText("监控通知低干扰模式");
