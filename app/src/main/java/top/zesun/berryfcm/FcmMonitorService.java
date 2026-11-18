@@ -111,6 +111,7 @@ public final class FcmMonitorService extends Service {
         return "后台服务运行中";
     }
     static void checkNow(Context context) { start(context, CHECK); }
+    static boolean startFromWatchdog(Context context) { return start(context, CHECK); }
     static void refreshDisplay(Context context) {
         if (!isRunning()) return;
         try { context.startService(new Intent(context, FcmMonitorService.class).setAction(REFRESH_DISPLAY)); }
@@ -157,6 +158,7 @@ public final class FcmMonitorService extends Service {
         }
     }
     static void stop(Context context) {
+        MonitorWatchdog.cancel(context);
         context.stopService(new Intent(context, FcmMonitorService.class));
     }
     static JSONObject lastSnapshot(Context context) {
@@ -177,7 +179,7 @@ public final class FcmMonitorService extends Service {
     static String lastRuntimeEvents(Context context) {
         return context.getSharedPreferences(SNAPSHOT, MODE_PRIVATE).getString("runtime_events", "");
     }
-    private static synchronized void logRuntime(Context context, String event, String details) {
+    static synchronized void logRuntime(Context context, String event, String details) {
         SharedPreferences stored = context.getSharedPreferences(SNAPSHOT, MODE_PRIVATE);
         String safe = details.replace('\r', ' ').replace('\n', ' ').replace('|', '/');
         if (safe.length() > 220) safe = safe.substring(0, 220);
@@ -286,8 +288,9 @@ public final class FcmMonitorService extends Service {
             logRuntime(this, "service_started", "pid=" + android.os.Process.myPid()
                     + "; mode=" + prefs.mode());
         }
-        updatePeriodicSchedules(prefs);
         updatePersistentWakeLock(prefs.monitorEnabled() || prefs.guardEnabled());
+        updatePeriodicSchedules(prefs);
+        MonitorWatchdog.schedule(this);
         String action = intent == null ? null : intent.getAction();
         if (CHECK.equals(action) && !firstStart) queueCheck(true);
         if (RECONNECT.equals(action) && reconnectQueued.compareAndSet(false, true)) {
