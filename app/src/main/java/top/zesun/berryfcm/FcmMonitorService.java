@@ -57,7 +57,7 @@ public final class FcmMonitorService extends Service {
     private Network observedNetwork;
     private long networkChangedAt;
 
-    static void start(Context context) { start(context, null); }
+    static boolean start(Context context) { return start(context, null); }
     static boolean isRunning() { return !activeSession.isEmpty(); }
 
     // Called only from a visible activity. Restore existing enabled tasks,
@@ -96,15 +96,17 @@ public final class FcmMonitorService extends Service {
         start(context, RECONNECT);
         return "已安排后台检查；仅在确认 FCM 尚未连接时请求恢复，结果见恢复记录";
     }
-    private static void start(Context context, String action) {
+    private static boolean start(Context context, String action) {
         Intent intent = new Intent(context, FcmMonitorService.class);
         if (action != null) intent.setAction(action);
         try {
             if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent);
             else context.startService(intent);
+            return true;
         } catch (RuntimeException error) {
             context.getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
                     .putString("error", "系统禁止启动后台监测：" + error.getMessage()).apply();
+            return false;
         }
     }
     static void stop(Context context) {

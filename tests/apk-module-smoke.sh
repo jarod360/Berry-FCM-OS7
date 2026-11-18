@@ -31,7 +31,7 @@ need 'io.github.priv-kit:priv-core:0.20.0' "$root/app/build.gradle"
 need 'autoAttempted' "$src/PrivKitShell.java"
 need 'RECOVERY_COOLDOWN_MS' "$src/PrivKitShell.java"
 need 'getLifecycleBinder().isBinderAlive()' "$src/PrivKitShell.java"
-need 'PrivKitShell.allowStart()' "$src/AdbPairingService.java"
+need 'PrivKitShell.allowStart(this)' "$src/AdbPairingService.java"
 # The only direct ADB call in PrivKitShell must be the native starter.
 test "$(grep -c 'executeOnce(' "$src/PrivKitShell.java")" -eq 1
 need 'AppPrefs.WIRELESS, "127.0.0.1", 0, launch' "$src/PrivKitShell.java"
@@ -188,10 +188,32 @@ classes="${RUNNER_TEMP:-/tmp}/berryfcm-guard-smoke"
 mkdir -p "$classes"
 javac -d "$classes" "$src/GuardOps.java" "$root/tests/GuardOpsSmoke.java"
 java -cp "$classes" top.zesun.berryfcm.GuardOpsSmoke
+javac -d "$classes" "$src/LaunchCooldown.java" "$root/tests/LaunchCooldownSmoke.java"
+java -cp "$classes" top.zesun.berryfcm.LaunchCooldownSmoke
+need 'PrivilegeConfig.INSTANCE.configure(3600000L, false)' "$src/PrivKitShell.java"
+need 'PrivKitShell.initialize()' "$src/BerryFcmApp.java"
+need 'rememberLaunch(context)' "$src/PrivKitShell.java"
 
 echo 'PASS: APK navigation modules, notification ADB pairing, FCM guard, insets, tile, release workflow, and removed accessibility scope'
 
 # Optional Shizuku service uses public Android SDK exceptions.
 if grep -q "android.os.ServiceSpecificException" "$src/BerryShellUserService.java"; then
   echo "Hidden Android exception import in Shizuku service"; exit 1
+fi
+
+# Real-device pairing can succeed while the connect-service discovery fails.
+# Keep pairing port and connect port separate and reuse the existing identity.
+need 'discoverConnectPort(15000L, continuation)' "$src/AdbConnectionManager.java"
+need 'connect("127.0.0.1", port)' "$src/AdbConnectionManager.java"
+need 'prefs.clearAdbPaired()' "$src/AdbConnectionManager.java"
+need 'wireless_connect_port' "$src/AppPrefs.java"
+need 'PrivKitShell.start(this)' "$src/AdbPairingService.java"
+need 'PrivKitShell.execute(this, "id")' "$src/AdbPairingService.java"
+need '配对成功，独立服务未启动' "$src/AdbPairingService.java"
+need '检查已有配对并启动' "$src/AuthActivity.java"
+need 'openWirelessForStart' "$src/AuthActivity.java"
+need 'startAfterSettings && leftForSettings' "$src/AuthActivity.java"
+need '使用连接端口启动服务' "$src/AuthActivity.java"
+if grep -q 'connectTls(context.getApplicationContext(), 8000)' "$src/AdbConnectionManager.java"; then
+  echo "Legacy ADB discovery must not replace Priv Kit discovery"; exit 1
 fi

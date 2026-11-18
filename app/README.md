@@ -2,15 +2,15 @@
 
 统一目标与验收：[PRODUCT_PLAN.md](../docs/PRODUCT_PLAN.md) · 当前交接：[HANDOFF.md](../docs/HANDOFF.md) · [签名约定](../docs/SIGNING.md)
 
-普通 Android APK，桌面名称 **BerryFCM**，包名 **top.zesun.berryfcm**。以 Root 或用户主动配对的 ADB Shell 读取 GMS FCM Socket，维护应用 stopped 状态，并使用原生 Android 前台服务与用户设置提高后台运行可靠性。不是第三方无障碍服务管理器。
+普通 Android APK，桌面名称 **BerryFCM**，包名 **top.zesun.berryfcm**。以 Root 或用户主动授权的独立 Shell 读取 GMS MCS 原生状态（TCP 仅为辅助证据），维护应用 stopped 状态，并使用原生 Android 前台服务与用户设置提高后台运行可靠性。不是第三方无障碍服务管理器。
 
 ## 导航模块
 
 | 页面 | 核心操作 |
 | --- | --- |
 | 概览 \`MainActivity\` | 观测状态、采样年龄、已观测断联、授权按钮与各模块导航 |
-| 授权 \`AuthActivity\` | 无线 ADB mDNS 发现、Shizuku 风格通知栏 RemoteInput 六位码、Root、静态 TCP、Shell UID 验证 |
-| FCM \`MonitorActivity\` | 用户开启后台采样、Socket 证据/未知/过期、事件时间线、请求重连 |
+| 授权 \`AuthActivity\` | 无线 ADB mDNS 发现、Shizuku 风格通知栏 RemoteInput 六位码、Priv Kit 独立服务、Root、静态 TCP、可选 Shizuku、Shell UID 验证 |
+| FCM \`MonitorActivity\` | 用户开启后台采样、GMS 原生状态/未知/过期、事件时间线、请求重连 |
 | 守护 \`GuardActivity\` | 应用扫描、搜索、多选/已选置顶、系统应用过滤、stopped 检测与修复、自动守护 |
 | 保活 \`BackgroundActivity\` | FGS/开机启动、DeviceIdle 与 AppOps、GMS Doze 与后台网络白名单、OriginOS 设置跳转、最近任务隐藏 |
 | 诊断 \`DiagnosticsActivity\` | Google 原生 FCM Diagnostics、mtalk 端口可达性、GMS 策略、监控历史分享 |
@@ -19,18 +19,19 @@
 
 ## 无线调试通知栏配对
 
-1. 在首页点 **进入授权中心**，保持「无线 ADB」模式。
-2. 点 **开始通知栏配对（自动发现端口）**。系统如询问通知或附近设备权限，请允许。
-3. 打开手机开发者选项 → 无线调试 → 使用配对码配对设备。
-4. 停留在该系统页面，**下拉通知栏**，在 BerryFCM 通知中点输入六位配对码。
-5. 检查通知中的配对结果，回 APK「验证当前 Root / ADB Shell 能力」。mDNS 发现失败时，直接在同一通知栏输入 `端口:六位码`（例如 `37123:123456`），**无需离开系统配对页面**；授权页手动配对端口仍是备用入口。
+1. 首次使用，在连接设置选择「无线 ADB」。
+2. 点击 **开始配对并打开无线调试**，系统如询问通知或附近设备权限，请允许。
+3. 在系统无线调试页面选择「使用配对码配对设备」，停留在此页面，下拉通知栏输入六位配对码。
+4. mDNS 无法发现配对端口时，直接在同一通知栏输入 `端口:六位码`（例如 `37123:123456`），无需离开系统页面。
+5. 配对成功后自动开始监控，使用现有 ADB 身份启动 Priv Kit 独立进程；Binder 回传成功后无需保持 ADB 连接，也不必再次点击授权或验证。
 
-配对身份保存在 AndroidKeyStore，但配对码不保存。手机关闭无线调试、ROM 杀死 Shell 或重启后，**持久身份不代表当前 ADB Shell 有效**。APP 不能静默打开系统无线调试。
+已完成新版 v3 身份配对的用户无需重新配对。配对码不保存，身份保存在 AndroidKeyStore。独立服务真正停止时可能需要重新启动（仍使用原配对身份）；如果系统关闭了无线调试，启动服务可能需要临时打开它。正常采样不反复建立无线 ADB，启动失败时不降级为逐次短连接。Root 用户可直接使用 Root 模式。Shizuku 仅为可选路径，不要求安装。
+
 
 ## 后台与权限边界
 
 - \`FcmMonitorService\`：独立于页面的前台服务，计划每 15 秒采样；\`BootReceiver\` 在系统许可且用户设置开启时恢复服务；\`FcmTileService\` 用 Android TileService 实现下拉检测/入口。**三者均不需要 AccessibilityService**。
-- Socket 证据仅说明 TCP 层观察；ADB Shell 未暴露 GMS UID、未知 DNS、脚本失败或采样过期时不报告已连接。几秒断联可能漏检。
+- GMS 原生 MCS 状态为在线判据，TCP 仅说明传输层观察；读取失败或过期时显示未知。历史关闭事件不等于独立断联次数，GMS 历史缓冲区容量有限。
 - \`GuardOps\` 仅针对用户选中的应用与 GMS 检测 stopped，并受控调用系统解停命令；不同 ROM 上 ADB Shell 可能无该权限，必须以实际回读为准。
 - Android 标准 Doze/AppOps 可使用授权 Shell 修改；GMS 白名单及计量网络的撤销只针对 BerryFCM 记录为自己添加的项目。
 - OriginOS 的自启/关联启动/允许后台高耗电/最近任务锁定提供系统页入口，缺少可靠私有接口时不可伪装为自动开关。隐藏最近任务卡片不是隐藏进程。
@@ -68,3 +69,10 @@
 ### 最近源码完善
 
 `alpha.41` 增加无 Root/ADB 的 mtalk Java Socket 网络诊断，以及带原始状态记录和撤销入口的 BerryFCM 自身 Doze/AppOps 后台策略。OriginOS 自启动/关联启动无可靠可验证的独立快捷入口时，只提供真实的系统启动管理入口及手动检查说明。
+
+
+### 当前独立服务开发验证
+
+- 开源依据：[GKD](https://github.com/gkd-kit/gkd) 的实际 Priv Kit 依赖和 [Priv Kit v0.20.0](https://github.com/priv-kit/priv-kit/tree/v0.20.0) 的官方 nativeStarterCommand / Binder 命令接口。
+- [专项检查 #44227839661](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44227839661) 已通过；[集中构建 alpha.47](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44228547705) 已成功编译、固定签名和验签。源码未合并 main，也未发布 Release。
+- 实机验收必须分开核对：旧配对覆盖安装、一次启动服务后普通采样不再建立无线 ADB、Wi-Fi/移动网络切换仍可执行 Binder、服务死亡时提示和限频恢复、Root/静态 TCP/可选 Shizuku 回归；不能仅凭 APK 编译成功宣布通知问题已解决。

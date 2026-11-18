@@ -30,6 +30,7 @@ public final class AdbPairingService extends Service {
     private NsdManager.DiscoveryListener discovery;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private int port;
+    private volatile boolean pairing;
 
     static void begin(Context context, int manualPort) {
         Intent i = new Intent(context, AdbPairingService.class).setAction(ACTION_BEGIN)
@@ -62,6 +63,7 @@ public final class AdbPairingService extends Service {
             return START_NOT_STICKY;
         }
         if (ACTION_REPLY.equals(action)) {
+            if (pairing) return START_NOT_STICKY;
             int selectedPort = intent.getIntExtra("port", port);
             CharSequence value = null;
             android.os.Bundle reply = RemoteInput.getResultsFromIntent(intent);
@@ -79,6 +81,7 @@ public final class AdbPairingService extends Service {
                 publish("请输入六位码；若未发现端口，请输入“端口:六位码”", true, selectedPort);
                 return START_NOT_STICKY;
             }
+            pairing = true;
             stopDiscovery();
             publish("配对中，正在验证 ADB 身份…", false, 0);
             final int p = selectedPort;
@@ -102,18 +105,22 @@ public final class AdbPairingService extends Service {
             discovery = new NsdManager.DiscoveryListener() {
                 @Override public void onDiscoveryStarted(String type) {}
                 @Override public void onStartDiscoveryFailed(String type, int error) {
+                    if (pairing) return;
                     updateStatus("mDNS 发现失败（" + error + "），可返回授权页填写备用端口");
                 }
                 @Override public void onStopDiscoveryFailed(String type, int error) {}
                 @Override public void onDiscoveryStopped(String type) {}
                 @Override public void onServiceLost(NsdServiceInfo service) {}
                 @Override public void onServiceFound(NsdServiceInfo service) {
+                    if (pairing) return;
                     try {
                         nsd.resolveService(service, new NsdManager.ResolveListener() {
                             @Override public void onResolveFailed(NsdServiceInfo service, int error) {
+                                if (pairing) return;
                                 updateStatus("配对端口解析失败：" + error);
                             }
                             @Override public void onServiceResolved(NsdServiceInfo resolved) {
+                                if (pairing) return;
                                 // Accept only this phone's own ADB pairing service,
                                 // not another Android device advertising mDNS on the LAN.
                                 java.net.InetAddress address = resolved.getHost();
@@ -153,26 +160,38 @@ public final class AdbPairingService extends Service {
     }
 
     private void pair(int selectedPort, String code) {
+        AppPrefs prefs = new AppPrefs(this);
         try {
             AdbConnectionManager adb = AdbConnectionManager.get(this);
             if (!adb.pairLocal(selectedPort, code))
                 throw new IllegalStateException("配对未成功，请核对配对码及端口");
-            AppPrefs prefs = new AppPrefs(this);
-            prefs.mode(AppPrefs.WIRELESS);
-            prefs.markAdbPaired();
-            PrivKitShell.allowStart();
-            prefs.pairingStatus("配对成功，正在启动独立服务");
-            // Pairing exchanges identity. Monitoring starts the independent
-            // Priv Kit service once, then executes commands over Binder.
-            prefs.monitorEnabled(true);
-            FcmMonitorService.start(this);
-            complete("配对成功，已启动监控；后台将自动连接并采样");
         } catch (Exception error) {
             String message = String.valueOf(error.getMessage());
-            new AppPrefs(this).shellFailed(message);
-            if (message.contains("RSA routines") || message.contains("SSL library")) {
-                complete("配对失败：TLS 握手异常，请检查系统无线调试并重试");
-            } else complete("配对失败：" + message);
+            prefs.shellFailed(message);
+            complete("配对失败：" + message);
+            return;
+        }
+        prefs.markAdbPaired();
+        prefs.wirelessConnectPort(0);
+        PrivKitShell.allowStart(this);
+        prefs.pairingStatus("配对成功，正在启动独立服务");
+        publish("配对成功，正在启动独立服务…", false, 0);
+        try {
+            // Finish the actual independent service handshake while the pairing
+            // foreground service is still active. Do not claim success early.
+            PrivKitShell.start(this);
+            String identity = PrivKitShell.execute(this, "id").trim();
+            if (!identity.matches("(?s)^uid=2000(?:\\D.*)?$"))
+                throw new IllegalStateException("独立服务身份不匹配");
+            prefs.activateMode(AppPrefs.WIRELESS, prefs.host(), prefs.staticPort(), identity);
+            prefs.monitorEnabled(true);
+            boolean requested = FcmMonitorService.start(this);
+            complete(requested
+                    ? "配对成功，独立服务已运行，已请求启动监控"
+                    : "配对成功，独立服务已运行；请返回应用启动监控");
+        } catch (Exception error) {
+            prefs.shellFailed(error.getMessage());
+            complete("配对成功，独立服务未启动：" + error.getMessage() + "。无需重新配对。");
         }
     }
 

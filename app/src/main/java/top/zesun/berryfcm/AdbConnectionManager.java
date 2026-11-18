@@ -5,6 +5,9 @@ import android.os.Build;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
 import androidx.annotation.NonNull;
+import kotlin.coroutines.EmptyCoroutineContext;
+import kotlinx.coroutines.BuildersKt;
+import priv.kit.core.Privilege;
 import io.github.muntashirakon.adb.AbsAdbConnectionManager;
 import io.github.muntashirakon.adb.AdbStream;
 import java.io.ByteArrayOutputStream;
@@ -65,6 +68,7 @@ final class AdbConnectionManager extends AbsAdbConnectionManager {
             // v1/v2 identity has authenticated the current TLS client.
             AppPrefs prefs = new AppPrefs(context);
             prefs.shellFailed("ADB 身份已更新；请重新进行无线配对");
+            prefs.clearAdbPaired();
             prefs.pairingStatus("TLS 身份已修复，等待重新配对");
         }
         privateKey = (PrivateKey) store.getKey(KEY_ALIAS, null);
@@ -86,17 +90,28 @@ final class AdbConnectionManager extends AbsAdbConnectionManager {
     synchronized boolean autoConnectLocal(Context context) throws Exception {
         if ("wireless".equals(activeTransport) && isConnected()) return true;
         disconnectSession();
-        try {
-            setThrowOnUnauthorised(true);
-            boolean connected = connectTls(context.getApplicationContext(), 8000);
-            if (connected) activeTransport = "wireless";
-            return connected;
-        } catch (InterruptedException error) {
-            // libadb also reports mDNS timeout as InterruptedException.
-            // Do not confuse disappearance of adbd with loss of pairing.
-            if (Thread.currentThread().isInterrupted()) throw error;
-            throw new IOException("未发现本机无线 ADB 服务；请确认无线调试已开启", error);
+        setThrowOnUnauthorised(true);
+        AppPrefs prefs = new AppPrefs(context);
+        int port = prefs.wirelessConnectPort();
+        // The port changes whenever adbd restarts; a manual choice is one-shot.
+        if (port != 0) prefs.wirelessConnectPort(0);
+        if (port == 0) {
+            try {
+                // Use the modern Android NSD implementation in the same Priv Kit
+                // version as GKD. Discovery does not use or replace our ADB key.
+                port = BuildersKt.<Integer>runBlocking(EmptyCoroutineContext.INSTANCE,
+                        (scope, continuation) -> Privilege.INSTANCE.createAdbManager("BerryFCM")
+                                .discoverConnectPort(15000L, continuation));
+            } catch (InterruptedException interrupted) {
+                throw interrupted;
+            } catch (Exception failure) {
+                throw new IOException("未发现本机无线 ADB 连接端口；请打开无线调试，或填写无线调试首页的连接端口（不是配对端口）", failure);
+            }
         }
+        if (port <= 0 || port > 65535) throw new IOException("无线 ADB 连接端口无效");
+        boolean connected = connect("127.0.0.1", port);
+        if (connected) activeTransport = "wireless";
+        return connected;
     }
 
     synchronized boolean connectStatic(String host, int port) throws Exception {
@@ -127,6 +142,10 @@ final class AdbConnectionManager extends AbsAdbConnectionManager {
             String identity = shell("id").trim();
             if (!identity.matches("(?s)^uid=2000(?:\\D.*)?$"))
                 throw new IOException("ADB Shell 身份异常");
+            if (AppPrefs.WIRELESS.equals(mode)) {
+                AppPrefs prefs = new AppPrefs(context);
+                prefs.markAdbPaired();
+            }
             return "id".equals(command) ? identity : shell(command);
         } finally {
             disconnectSession();
