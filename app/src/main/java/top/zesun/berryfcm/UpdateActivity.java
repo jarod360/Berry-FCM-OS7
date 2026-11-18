@@ -36,7 +36,9 @@ public final class UpdateActivity extends Ui {
     private static final String CERT_SHA256 = "BB328497280F72FE6662E84D7D0D0B15BAF425872B9B360287ED120529D97615";
     private static final Pattern NUMBER = Pattern.compile("alpha[.-]([0-9]+)\\.apk$");
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
-    private boolean checkedOnOpen;
+    private boolean checkedOnOpen, resumed, checking, verifying;
+    private final android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable watchDownload = this::pollDownload;
     private TextView details, notes;
     private Button download, install;
     private String apkUrl, apkName, digest;
@@ -44,14 +46,14 @@ public final class UpdateActivity extends Ui {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        title("版本更新", "检查 · 下载 · 签名校验 · 安装");
+        title("版本更新", "应用内下载并安装新版");
         LinearLayout panel = card("检查更新", "只从官方 GitHub Releases 下载；安装需系统确认。");
         details = text("当前版本：0.1.0-alpha." + localVersion() + "\n尚未检查更新", 14, false, ink);
         panel.addView(details);
         button(panel, "检查新版本", this::checkRelease, true);
-        download = button(panel, "下载新版 APK", this::downloadApk, false);
+        download = button(panel, "立即更新", this::downloadApk, true);
         download.setVisibility(View.GONE);
-        install = button(panel, "校验并安装下载的 APK", this::verifyInstall, false);
+        install = button(panel, "继续安装", this::verifyInstall, false);
         install.setVisibility(getPreferences(MODE_PRIVATE).getLong("id", 0) > 0 ? View.VISIBLE : View.GONE);
         LinearLayout releaseNotes = disclosure(panel, "版本更新说明", false);
         notes = text("尚无更新说明", 12, false, muted);
@@ -70,6 +72,8 @@ public final class UpdateActivity extends Ui {
         } catch (Exception error) { return 0; }
     }
     private void checkRelease() {
+        if (checking || verifying || getPreferences(MODE_PRIVATE).getBoolean("auto_install", false)) return;
+        checking = true;
         details.setText("正在查询 GitHub Releases…");
         worker.execute(() -> {
             HttpURLConnection conn = null;
@@ -121,6 +125,7 @@ public final class UpdateActivity extends Ui {
                 JSONObject selected = asset, current = release;
                 int releaseNumber = best;
                 runOnUiThread(() -> {
+                    checking = false;
                     if (selected == null) {
                         details.setText("尚无正式签名的 Release APK；当前版本号：" + localVersion());
                         notes.setText("Actions 构建产物不作为自动更新来源。");
@@ -140,33 +145,79 @@ public final class UpdateActivity extends Ui {
                     download.setVisibility(newer ? View.VISIBLE : View.GONE);
                 });
             } catch (Exception error) {
-                runOnUiThread(() -> { details.setText("检查更新失败：" + error.getMessage()); download.setVisibility(View.GONE); });
+                runOnUiThread(() -> { checking = false; details.setText("检查更新失败：" + error.getMessage()); download.setVisibility(View.GONE); });
             } finally { if (conn != null) conn.disconnect(); }
         });
     }
 
     private void downloadApk() {
-        if (apkName == null || apkUrl == null || remoteVersion <= localVersion()) return;
+        if (checking || verifying || getPreferences(MODE_PRIVATE).getBoolean("auto_install", false)
+                || apkName == null || apkUrl == null || remoteVersion <= localVersion()) return;
         if (!apkName.matches("[a-zA-Z0-9._-]+\\.apk")) {
             details.setText("文件名称不安全，拒绝下载"); return;
         }
         try {
-            File existing = new File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), apkName);
+            File dir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+            if (dir == null) throw new IllegalStateException("下载目录不可用");
+            DownloadManager dm = getSystemService(DownloadManager.class);
+            long oldId = getPreferences(MODE_PRIVATE).getLong("id", 0);
+            if (oldId > 0) dm.remove(oldId);
+            File existing = new File(dir, apkName);
             if (existing.exists() && !existing.delete()) throw new IllegalStateException("旧下载文件无法清理");
             DownloadManager.Request req = new DownloadManager.Request(Uri.parse(apkUrl));
             req.setTitle(apkName);
             req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
             req.setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, apkName);
-            long id = getSystemService(DownloadManager.class).enqueue(req);
-            getPreferences(MODE_PRIVATE).edit().putLong("id", id)
-                    .putString("name", apkName).putString("digest", digest).apply();
+            long id = dm.enqueue(req);
+            if (!getPreferences(MODE_PRIVATE).edit().putLong("id", id)
+                    .putString("name", apkName).putString("digest", digest)
+                    .putInt("version", remoteVersion).putBoolean("auto_install", true)
+                    .remove("waiting_install_permission").commit()) {
+                dm.remove(id);
+                throw new IllegalStateException("无法保存下载记录");
+            }
             download.setVisibility(View.GONE);
-            install.setVisibility(View.VISIBLE);
-            details.setText("APK 已提交系统下载管理器。下载完成后返回此页校验安装。");
+            install.setVisibility(View.GONE);
+            details.setText("正在下载新版，完成后自动校验并打开系统安装窗口。");
+            ui.removeCallbacks(watchDownload);
+            ui.post(watchDownload);
         } catch (Exception error) { details.setText("下载失败：" + error.getMessage()); }
     }
 
+    private void pollDownload() {
+        if (!resumed || verifying) return;
+        SharedPreferences state = getPreferences(MODE_PRIVATE);
+        if (!state.getBoolean("auto_install", false)) return;
+        long id = state.getLong("id", 0);
+        try {
+            DownloadManager dm = getSystemService(DownloadManager.class);
+            try (android.database.Cursor c = dm.query(new DownloadManager.Query().setFilterById(id))) {
+                if (c == null || !c.moveToFirst()) throw new IllegalStateException("下载记录不存在");
+                int status = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
+                if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                    verifyInstall();
+                    return;
+                }
+                if (status == DownloadManager.STATUS_FAILED)
+                    throw new IllegalStateException("系统下载失败，原因代码 " + c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON)));
+                long done = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR));
+                long total = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
+                details.setText("正在下载新版" + (total > 0 ? " · " + Math.min(100, done * 100 / total) + "%" : "")
+                        + "\n下载完成后自动校验安装。");
+            }
+            ui.postDelayed(watchDownload, 1000);
+        } catch (Exception ex) {
+            state.edit().remove("auto_install").remove("waiting_install_permission").apply();
+            details.setText("下载失败：" + ex.getMessage());
+            download.setVisibility(apkUrl != null && remoteVersion > localVersion() ? View.VISIBLE : View.GONE);
+        }
+    }
+
     private void verifyInstall() {
+        if (verifying) return;
+        verifying = true;
+        ui.removeCallbacks(watchDownload);
+        install.setVisibility(View.GONE);
         details.setText("正在校验下载状态、包名、版本号与签名…");
         worker.execute(() -> {
             try {
@@ -197,6 +248,9 @@ public final class UpdateActivity extends Ui {
                     throw new SecurityException("包名不一致");
                 long code = Build.VERSION.SDK_INT >= 28 ? info.getLongVersionCode() : info.versionCode;
                 if (code <= localVersion()) throw new IllegalStateException("APK 版本号没有升级");
+                int expectedVersion = state.getInt("version", 0);
+                if (expectedVersion > 0 && code != expectedVersion)
+                    throw new SecurityException("APK 版本与选择的 Release 不一致");
                 Signature[] signers = Build.VERSION.SDK_INT >= 28
                         ? (info.signingInfo == null ? null : info.signingInfo.getApkContentsSigners())
                         : info.signatures;
@@ -208,14 +262,21 @@ public final class UpdateActivity extends Ui {
                 Uri uri = dm.getUriForDownloadedFile(id);
                 if (uri == null) throw new IllegalStateException("系统无法提供安装 URI");
                 runOnUiThread(() -> {
+                    verifying = false;
+                    install.setVisibility(View.VISIBLE);
+                    if (!resumed) return; // do not open an installer from the background
+                    state.edit().remove("auto_install").apply();
                     try {
                         if (Build.VERSION.SDK_INT >= 26
                                 && !getPackageManager().canRequestPackageInstalls()) {
-                            details.setText("签名已通过。请允许 BerryFCM 安装未知来源应用，然后再次点击校验安装。");
+                            state.edit().putBoolean("waiting_install_permission", true).apply();
+                            details.setText("签名已通过。首次更新请允许 BerryFCM 安装应用，返回后自动继续。");
                             startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                                     Uri.parse("package:" + getPackageName())));
                             return;
                         }
+                        state.edit().remove("waiting_install_permission").apply();
+                        details.setText("校验通过，请在系统安装窗口确认更新。");
                         Intent intent = new Intent(Intent.ACTION_VIEW)
                                 .setDataAndType(uri, "application/vnd.android.package-archive")
                                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
@@ -225,7 +286,13 @@ public final class UpdateActivity extends Ui {
                     }
                 });
             } catch (Exception error) {
-                runOnUiThread(() -> details.setText("安装校验未通过：" + error.getMessage()));
+                runOnUiThread(() -> {
+                    verifying = false;
+                    getPreferences(MODE_PRIVATE).edit().remove("auto_install").remove("waiting_install_permission").apply();
+                    details.setText("安装校验未通过：" + error.getMessage());
+                    install.setVisibility(View.VISIBLE);
+                    if (apkUrl != null && remoteVersion > localVersion()) download.setVisibility(View.VISIBLE);
+                });
             }
         });
     }
@@ -245,10 +312,31 @@ public final class UpdateActivity extends Ui {
     }
     @Override protected void onResume() {
         super.onResume();
-        if (!checkedOnOpen) {
+        resumed = true;
+        SharedPreferences state = getPreferences(MODE_PRIVATE);
+        int version = state.getInt("version", 0);
+        if (version > 0 && version <= localVersion()) {
+            long id = state.getLong("id", 0);
+            if (id > 0) { try { getSystemService(DownloadManager.class).remove(id); } catch (RuntimeException ignored) {} }
+            state.edit().clear().apply();
+            install.setVisibility(View.GONE);
+        }
+        if (state.getBoolean("waiting_install_permission", false)) {
+            state.edit().remove("waiting_install_permission").apply();
+            if (getPackageManager().canRequestPackageInstalls()) verifyInstall();
+            else { details.setText("尚未允许安装应用，可点击继续安装重试。"); install.setVisibility(View.VISIBLE); }
+        } else if (state.getBoolean("auto_install", false)) {
+            ui.removeCallbacks(watchDownload);
+            ui.post(watchDownload);
+        } else if (!checkedOnOpen) {
             checkedOnOpen = true;
             checkRelease();
         }
     }
-    @Override protected void onDestroy() { worker.shutdownNow(); super.onDestroy(); }
+    @Override protected void onPause() {
+        resumed = false;
+        ui.removeCallbacks(watchDownload);
+        super.onPause();
+    }
+    @Override protected void onDestroy() { ui.removeCallbacks(watchDownload); worker.shutdownNow(); super.onDestroy(); }
 }

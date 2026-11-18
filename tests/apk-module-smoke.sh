@@ -256,3 +256,9 @@ need 'FcmMonitorService.refreshDisplay(this)' "$src/AuthActivity.java"
 if grep -nE 'BackgroundSettings\.(batteryExempt|originAutoStartStatus|backgroundRestriction|monitorNotificationStatus)|FcmTileService\.(offered|displayStatus)|areNotificationsEnabled' "$src/PrivilegeAccess.java" "$src/FcmMonitorService.java" "$src/BootReceiver.java"; then
   echo 'Optional system permissions must not block background task execution' >&2; exit 1
 fi
+
+need '立即更新' "$src/UpdateActivity.java"
+need 'pollDownload()' "$src/UpdateActivity.java"
+need 'waiting_install_permission' "$src/UpdateActivity.java"
+need 'if (!resumed) return' "$src/UpdateActivity.java"
+need 'code != expectedVersion' "$src/UpdateActivity.java"
