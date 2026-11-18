@@ -118,8 +118,11 @@ public final class MainActivity extends Ui {
             actionButton.setText("前往无线配对");
         } else if (failed) {
             actionTitle.setText("监控正在自动重试");
-            actionDetail.setText("配对身份仍保留，通常无需重新配对。"
-                    + "先查看采样异常；只有身份失效时再进入连接设置。");
+            actionDetail.setText(AppPrefs.SHIZUKU.equals(prefs.mode())
+                    ? "确认 Shizuku 服务已启动并授权；恢复后会自动检查。"
+                    : AppPrefs.WIRELESS.equals(prefs.mode())
+                    ? "配对身份仍保留，通常无需重新配对；请查看采样异常。"
+                    : "请确认所选 Shell 权限及连接方式。");
             actionButton.setText("检查连接与授权");
         }
     }

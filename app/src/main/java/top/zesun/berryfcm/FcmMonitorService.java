@@ -453,6 +453,8 @@ public final class FcmMonitorService extends Service {
     }
 
     private static String workDir(String mode) {
+        if (AppPrefs.SHIZUKU.equals(mode)) return ShizukuShell.authorizedUid() == 0
+                ? "/data/local/tmp/berry_fcm_shizuku_root" : "/data/local/tmp/berry_fcm_apk";
         return AppPrefs.ROOT.equals(mode) ? "/data/adb/berry_fcm_apk" : "/data/local/tmp/berry_fcm_apk";
     }
     // This is the app's default network, not proof of GMS's route or reachability.
@@ -522,31 +524,28 @@ public final class FcmMonitorService extends Service {
                 throw error;
             }
         }
+        if (AppPrefs.SHIZUKU.equals(mode)) {
+            try (PrivilegeShell shell = new ShizukuShell(this)) {
+                int uid = ShizukuShell.authorizedUid();
+                if (uid < 0) throw new IllegalStateException(ShizukuShell.readiness());
+                String result = shell.execute(command);
+                if (mode.equals(prefs.mode())) prefs.shellVerified(uid == 0 ? "uid=0(root)" : "uid=2000(shell)");
+                return result;
+            } catch (Exception error) {
+                if (mode.equals(prefs.mode())) prefs.shellFailed(error.getMessage());
+                throw error;
+            }
+        }
         if (!AppPrefs.WIRELESS.equals(mode) && !AppPrefs.STATIC.equals(mode))
             throw new IllegalStateException("请先在授权中心选择 Root 或 ADB");
-        if (adb == null) adb = AdbConnectionManager.get(this);
-        synchronized (adb) {
         try {
-            // The shared ADB manager may have been switched by the authorization
-            // screen. Check the requested transport on every operation.
-            boolean ok = AppPrefs.WIRELESS.equals(mode)
-                    ? adb.autoConnectLocal(this)
-                    : adb.connectStatic(prefs.host(), prefs.staticPort());
-            if (!ok) throw new IllegalStateException("ADB Shell 未连接；请检查无线调试或 TCP 端口");
-            if (!prefs.shellRecentlyVerified()) {
-                String identity = adb.shell("id").trim();
-                if (!identity.contains("uid=2000"))
-                    throw new IllegalStateException("ADB Shell 身份异常：" + identity);
-                prefs.shellVerified(identity);
-            }
-            String result = adb.shell(command);
-            if (mode.equals(prefs.mode())) prefs.shellVerified(prefs.shellIdentity());
+            if (adb == null) adb = AdbConnectionManager.get(this);
+            String result = adb.executeOnce(this, mode, prefs.host(), prefs.staticPort(), command);
+            if (mode.equals(prefs.mode())) prefs.shellVerified("uid=2000(shell)");
             return result;
         } catch (Exception error) {
-            adb.disconnectSession();
             if (mode.equals(prefs.mode())) prefs.shellFailed(error.getMessage());
             throw error;
-        }
         }
     }
     @Override public void onDestroy() {

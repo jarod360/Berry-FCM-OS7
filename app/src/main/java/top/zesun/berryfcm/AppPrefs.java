@@ -11,6 +11,7 @@ final class AppPrefs {
     static final String ROOT = "root";
     static final String WIRELESS = "wireless";
     static final String STATIC = "static";
+    static final String SHIZUKU = "shizuku";
     static final String EXTERNAL = "external";
     private final SharedPreferences p;
 
@@ -31,6 +32,7 @@ final class AppPrefs {
                 .remove("shell_error").apply();
     }
     String connectionKey() {
+        if (SHIZUKU.equals(mode())) return SHIZUKU + ":" + ShizukuShell.authorizedUid();
         return STATIC.equals(mode()) ? STATIC + ":" + host() + ":" + staticPort() : mode();
     }
     String host() { return p.getString("host", "127.0.0.1"); }
