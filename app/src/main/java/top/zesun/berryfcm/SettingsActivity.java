@@ -38,6 +38,9 @@ public final class SettingsActivity extends Ui {
         });
         style.addView(theme);
 
+        LinearLayout background = card("后台保活", "监控、守护、熄屏巡检方式和系统策略。");
+        line(background, "后台保活设置", "运行开关、智能省电 / 持续唤醒", () -> go(BackgroundActivity.class));
+
         LinearLayout about = card("版本与更新", "在线更新只检查 GitHub Releases，不读取 Actions 测试包。");
         button(about, "检查新版本", () -> go(UpdateActivity.class), true);
         line(about, "项目主页", "GitHub · 源码与版本说明", () -> openUrl("https://github.com/jarod360/Berry-FCM-OS7"));

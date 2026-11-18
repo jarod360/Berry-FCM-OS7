@@ -4,6 +4,9 @@ import android.os.Bundle;
 import android.widget.Switch;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
+import android.view.View;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -11,6 +14,9 @@ public final class BackgroundActivity extends Ui {
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private TextView policy, systemStates;
     private Switch monitorSwitch, guardSwitch, bootSwitch;
+    private RadioGroup wakeChoices;
+    private int smartChoiceId, continuousChoiceId;
+    private boolean syncingWakeChoices;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -26,28 +32,84 @@ public final class BackgroundActivity extends Ui {
         });
         bootSwitch = toggle(service, "开机 / 更新后恢复已启用任务", prefs.startOnBoot(), false, prefs::startOnBoot);
 
+        LinearLayout power = card("熄屏巡检方式", "两种方式均保留原生 FCM 状态判断与受控恢复；系统 Doze 下闹钟可能延迟。");
+        wakeChoices = new RadioGroup(this);
+        wakeChoices.setOrientation(RadioGroup.VERTICAL);
+        RadioButton smart = new RadioButton(this);
+        smart.setId(View.generateViewId());
+        smartChoiceId = smart.getId();
+        smart.setText("智能省电 · 任务执行时短时持锁");
+        smart.setTextSize(14);
+        smart.setTextColor(ink);
+        smart.setMinHeight(dp(52));
+        RadioButton continuous = new RadioButton(this);
+        continuous.setId(View.generateViewId());
+        continuousChoiceId = continuous.getId();
+        continuous.setText("持续唤醒 · 更及时的熄屏巡检（耗电较高）");
+        continuous.setTextSize(14);
+        continuous.setTextColor(ink);
+        continuous.setMinHeight(dp(52));
+        wakeChoices.addView(smart);
+        wakeChoices.addView(continuous);
+        power.addView(wakeChoices);
+        syncWakeChoice();
+        wakeChoices.setOnCheckedChangeListener((group, id) -> {
+            if (syncingWakeChoices) return;
+            String selected = id == continuousChoiceId ? AppPrefs.WAKE_CONTINUOUS
+                    : id == smartChoiceId ? AppPrefs.WAKE_SMART : null;
+            if (selected == null || selected.equals(prefs.wakeMode())) return;
+            if (AppPrefs.WAKE_CONTINUOUS.equals(selected)) {
+                confirmAction("开启持续唤醒？",
+                        "持续唤醒会尽量保持 CPU 运行，以提高熄屏巡检及时性。"
+                        + "\n可能增加待机耗电、发热，并阻止真正的深度休眠。"
+                        + "\n系统仍可能停止应用，无法保证每分钟必定检查。",
+                        "仍然开启", () -> applyWakeMode(selected), this::syncWakeChoice);
+            } else applyWakeMode(selected);
+        });
+        power.addView(text("智能省电依靠实际调度事件触发检查；无事件且 CPU 挂起时可能延迟数分钟。"
+                + "\n从 alpha.89 升级会保留原有持续唤醒，便于对照测试。", 12, false, muted));
+
         LinearLayout android = card("后台任务状态", "这些开关不能保证系统永远不会结束后台任务。");
         systemStates = text("", 13, false, muted);
         android.addView(systemStates);
         LinearLayout androidExtra = disclosure(android, "高级：系统省电与流量限制（一般无需修改）", false);
         TextView explanation = text("以下操作需要 Root、ADB 或 Shizuku 授权，修改的是 Android 系统限制，不是 FCM 连接本身。无法解决 Google 服务器不可达的问题。", 12, false, muted);
         androidExtra.addView(explanation);
-        androidExtra.addView(text("BerryFCM 自身后台限制", 14, true, ink));
+        androidExtra.addView(text("本应用后台限制", 14, true, ink));
         androidExtra.addView(text("减少系统休眠和后台运行限制，可能提高监控存活率；不会保证永远运行。", 12, false, muted));
-        button(androidExtra, "放宽 BerryFCM 后台限制", this::optimize, false);
-        button(androidExtra, "恢复 BerryFCM 修改过的限制", this::restoreOwn, false);
+        button(androidExtra, "放宽后台限制", this::optimize, false);
+        button(androidExtra, "恢复原有后台设置", this::restoreOwn, false);
+        LinearLayout divider = new LinearLayout(this);
+        divider.setMinimumHeight(dp(12));
+        androidExtra.addView(divider);
         androidExtra.addView(text("Google 推送服务（GMS）", 14, true, ink));
         androidExtra.addView(text("休眠白名单：允许系统休眠时 Google 推送继续工作。如果上面已显示 GMS 在白名单中，就不必重复添加。", 12, false, muted));
         button(androidExtra, "添加 Google 推送到休眠白名单", () -> gmsPolicy(true), false);
-        button(androidExtra, "撤销本应用添加的 Google 推送休眠放行", () -> gmsPolicy(false), false);
+        button(androidExtra, "撤销 Google 推送休眠豁免", () -> gmsPolicy(false), false);
         androidExtra.addView(text("后台流量：仅针对 Android 的省流量模式限制；不能替代代理、VPN 或网络连接。", 12, false, muted));
         button(androidExtra, "允许 Google 推送使用后台计量流量", () -> gmsNetwork(true), false);
         button(androidExtra, "撤销本应用添加的后台流量放行", () -> gmsNetwork(false), false);
-        androidExtra.addView(text("“恢复”只撤销 BerryFCM 有记录的改动，不会重置整个系统，也不会修改其他应用的权限。", 12, false, muted));
+        androidExtra.addView(text("“恢复”仅撤销本应用记录的修改，不会重置系统或更改其他应用的权限。", 12, false, muted));
         policy = text("", 12, false, muted);
         policy.setTextIsSelectable(true);
         androidExtra.addView(policy);
 
+        renderPolicy();
+    }
+
+    private void syncWakeChoice() {
+        if (wakeChoices == null) return;
+        syncingWakeChoices = true;
+        try {
+            wakeChoices.check(AppPrefs.WAKE_CONTINUOUS.equals(prefs.wakeMode())
+                    ? continuousChoiceId : smartChoiceId);
+        } finally { syncingWakeChoices = false; }
+    }
+    private void applyWakeMode(String mode) {
+        if (mode.equals(prefs.wakeMode())) { syncWakeChoice(); return; }
+        prefs.wakeMode(mode);
+        FcmMonitorService.wakeModeChanged(this);
+        syncWakeChoice();
         renderPolicy();
     }
 
@@ -82,9 +144,14 @@ public final class BackgroundActivity extends Ui {
         syncChecked(monitorSwitch, prefs.monitorEnabled());
         syncChecked(guardSwitch, prefs.guardEnabled());
         syncChecked(bootSwitch, prefs.startOnBoot());
+        syncWakeChoice();
         systemStates.setText("后台运行：" + (!PrivilegeAccess.readyForUserAction(this) ? "需要授权" : FcmMonitorService.serviceStatus(this))
                 + "\nFCM 监控：" + (prefs.monitorEnabled() ? "已开启" : "未开启")
-                + "\n应用守护：" + (prefs.guardEnabled() ? "已开启" : "未开启"));
+                + "\n应用守护：" + (prefs.guardEnabled() ? "已开启" : "未开启")
+                + "\n熄屏方式：" + (AppPrefs.WAKE_CONTINUOUS.equals(prefs.wakeMode()) ? "持续唤醒" : "智能省电")
+                + "\nCPU 唤醒锁：" + (FcmMonitorService.isCpuWakeLockHeld() ? "当前持有" : "未持有")
+                + "\n累计持续持锁：" + MonitorStatus.duration(FcmMonitorService.continuousWakeMs(this) / 1000)
+                + "\n累计事务持锁：" + MonitorStatus.duration(FcmMonitorService.transactionWakeMs(this) / 1000));
     }
 
     private void optimize() {

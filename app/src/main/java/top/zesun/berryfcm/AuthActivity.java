@@ -223,7 +223,7 @@ public final class AuthActivity extends Ui {
         monitorTip.setPadding(0, dp(6), 0, dp(6));
         display.addView(monitorTip);
         display.addView(text("运行通知默认不响铃；是否显示或提醒由系统通知设置管理，关闭通知可能影响前台运行可见性。", 12, false, muted));
-        tileRow = permissionRow(display, "快捷设置开关（非通知）", this::addTile);
+        tileRow = permissionRow(display, "快捷磁贴", this::addTile);
         removeTileButton = button(display, "移除 FCM 快捷磁贴", () -> {
             if (tileRequestPending) { error("请先完成系统的磁贴添加确认"); return; }
             FcmTileService.setOffered(this, false);
@@ -267,20 +267,21 @@ public final class AuthActivity extends Ui {
             error("请先关闭隐藏最近任务卡片，再在最近任务中锁定");
             return;
         }
-        android.app.AlertDialog.Builder dialog = new android.app.AlertDialog.Builder(this)
-                .setTitle("锁定后台")
-                .setMessage("进入最近任务，在 BerryFCM 卡片菜单中选择锁定。仅由你操作，不修改系统锁定状态。若系统不支持自动跳转，请手动打开最近任务。")
-                .setNegativeButton("取消", null);
-        if (PrivilegeAccess.readyForUserAction(this)) {
-            dialog.setPositiveButton("打开最近任务", (d, w) -> worker.execute(() -> {
-                try (PrivilegeShell shell = PrivilegeAccess.open(this)) {
-                    shell.execute("input keyevent KEYCODE_APP_SWITCH");
-                } catch (Exception ex) {
-                    runOnUiThread(() -> error("无法跳转，请手动打开系统最近任务"));
-                }
-            }));
-        } else dialog.setPositiveButton("知道了", null);
-        dialog.show();
+        boolean canOpen = PrivilegeAccess.readyForUserAction(this);
+        confirmAction("锁定后台",
+                "在系统最近任务中打开本应用卡片菜单并选择锁定。"
+                + "\n这一步由你在系统内完成。",
+                canOpen ? "打开最近任务" : "知道了",
+                () -> {
+                    if (!canOpen) return;
+                    worker.execute(() -> {
+                        try (PrivilegeShell shell = PrivilegeAccess.open(this)) {
+                            shell.execute("input keyevent KEYCODE_APP_SWITCH");
+                        } catch (Exception ex) {
+                            runOnUiThread(() -> error("无法跳转，请手动打开系统最近任务"));
+                        }
+                    });
+                });
     }
 
     private void addTile() {
@@ -382,13 +383,10 @@ public final class AuthActivity extends Ui {
             return;
         }
         final String candidate = selected;
-        new android.app.AlertDialog.Builder(this)
-                .setTitle("切换授权方式")
-                .setMessage("当前使用：" + methodName(prefs.mode())
-                        + "\n准备切换到：" + methodName(candidate)
-                        + "\n\n先验证新方式，成功后才切换；若失败，仍使用原来的方式。不需要先停止旧授权。")
-                .setNegativeButton("取消", null)
-                .setPositiveButton("验证并切换", (dialog, which) -> {
+        confirmAction("切换授权方式",
+                methodName(prefs.mode()) + " → " + methodName(candidate)
+                + "\n先验证新方式。成功后切换；失败则继续使用原有授权。",
+                "验证并切换", () -> {
                     if (!candidate.equals(selected)) return;
                     if (checking || PrivKitShell.isStarting() || AdbPairingService.isCodeSubmitted()) {
                         error("正在执行其他授权操作，请完成或取消该操作后重试");
@@ -398,7 +396,7 @@ public final class AuthActivity extends Ui {
                         AdbPairingService.stop(this);
                         continueAfterCancel(candidate, action, 0);
                     } else action.run();
-                }).show();
+                });
     }
 
     private void continueAfterCancel(String candidate, Runnable action, int attempt) {

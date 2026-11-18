@@ -1,6 +1,7 @@
 package top.zesun.berryfcm;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.content.res.ColorStateList;
@@ -26,6 +27,7 @@ abstract class Ui extends Activity {
     private LinearLayout frame;
     private LinearLayout header;
     private LinearLayout nav;
+    private LinearLayout navContainer;
     private boolean dark;
     private boolean secondaryPage;
     private boolean syncingSwitches;
@@ -78,11 +80,18 @@ abstract class Ui extends Activity {
         content.setPadding(dp(16), dp(12), dp(16), dp(24));
         scroll.addView(content);
         frame.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        navContainer = new LinearLayout(this);
+        navContainer.setPadding(dp(14), dp(6), dp(14), dp(8));
         nav = new LinearLayout(this);
-        nav.setPadding(dp(5), dp(5), dp(5), dp(5));
-        nav.setBackgroundColor(panel);
-        frame.addView(nav);
-        if (secondaryPage) nav.setVisibility(View.GONE);
+        GradientDrawable capsule = new GradientDrawable();
+        capsule.setColor(panel);
+        capsule.setCornerRadius(dp(28));
+        capsule.setStroke(dp(1), dark ? 0xff324361 : 0xffe0e6f1);
+        nav.setBackground(capsule);
+        nav.setPadding(dp(6), dp(6), dp(6), dp(6));
+        navContainer.addView(nav, new LinearLayout.LayoutParams(-1, -2));
+        frame.addView(navContainer);
+        if (secondaryPage) navContainer.setVisibility(View.GONE);
         else buildNavigation();
         setContentView(frame);
         frame.setOnApplyWindowInsetsListener((v, insets) -> {
@@ -99,7 +108,7 @@ abstract class Ui extends Activity {
             }
             frame.setPadding(left, 0, right, secondaryPage ? bottom : 0);
             header.setPadding(dp(20), top + dp(12), dp(20), dp(9));
-            nav.setPadding(dp(5), dp(5), dp(5), bottom + dp(5));
+            navContainer.setPadding(dp(14), dp(6), dp(14), bottom + dp(8));
             return insets;
         });
     }
@@ -170,7 +179,7 @@ abstract class Ui extends Activity {
         box.setPadding(dp(14), dp(14), dp(14), dp(14));
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(panel);
-        drawable.setCornerRadius(dp(14));
+        drawable.setCornerRadius(dp(18));
         drawable.setStroke(dp(1), dark ? 0xff28354c : 0xffe4e9f2);
         box.setBackground(drawable);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
@@ -246,7 +255,7 @@ abstract class Ui extends Activity {
         LinearLayout trigger = new LinearLayout(this);
         trigger.setGravity(Gravity.CENTER_VERTICAL);
         trigger.setPadding(dp(2), dp(7), dp(2), dp(7));
-        trigger.setMinimumHeight(dp(44));
+        trigger.setMinimumHeight(dp(48));
         trigger.setFocusable(true);
         trigger.setBackground(new RippleDrawable(ColorStateList.valueOf(
                 dark ? 0x33ffffff : 0x12000000), null, null));
@@ -284,6 +293,60 @@ abstract class Ui extends Activity {
         row.addView(detail, new LinearLayout.LayoutParams(0, -2, 1.2f));
         parent.addView(row);
     }
+    /** One consistent, themed confirmation surface; cancellation never executes a privileged action. */
+    protected void confirmAction(String heading, String message, String actionText, Runnable action) {
+        confirmAction(heading, message, actionText, action, null);
+    }
+    protected void confirmAction(String heading, String message, String actionText,
+                                 Runnable action, Runnable onCancel) {
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.setPadding(dp(20), dp(20), dp(20), dp(16));
+        body.addView(text(heading, 18, true, ink));
+        TextView detail = text(message, 16, false, muted);
+        detail.setPadding(0, dp(12), 0, dp(16));
+        body.addView(detail);
+        LinearLayout controls = new LinearLayout(this);
+        controls.setOrientation(LinearLayout.HORIZONTAL);
+        controls.setGravity(Gravity.END);
+        Button cancel = dialogButton("取消", false);
+        Button accept = dialogButton(actionText, true);
+        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(0, dp(50), 1);
+        cp.rightMargin = dp(8);
+        controls.addView(cancel, cp);
+        controls.addView(accept, new LinearLayout.LayoutParams(0, dp(50), 1));
+        body.addView(controls);
+        AlertDialog dialog = new AlertDialog.Builder(this).setView(body).create();
+        dialog.setOnCancelListener(d -> { if (onCancel != null) onCancel.run(); });
+        cancel.setOnClickListener(v -> dialog.cancel());
+        accept.setOnClickListener(v -> {
+            dialog.dismiss();
+            if (!isFinishing() && !isDestroyed()) action.run();
+        });
+        dialog.show();
+        if (dialog.getWindow() != null) {
+            GradientDrawable shape = new GradientDrawable();
+            shape.setColor(panel);
+            shape.setCornerRadius(dp(22));
+            dialog.getWindow().setBackgroundDrawable(shape);
+        }
+    }
+    private Button dialogButton(String caption, boolean emphasized) {
+        Button b = new Button(this);
+        b.setAllCaps(false);
+        b.setText(caption);
+        b.setTextSize(14);
+        b.setTextColor(emphasized ? (dark ? 0xff0c1323 : Color.WHITE) : ink);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(emphasized ? accent : (dark ? 0xff2c3b58 : 0xffe9eef8));
+        bg.setCornerRadius(dp(13));
+        b.setBackground(new RippleDrawable(ColorStateList.valueOf(
+                dark ? 0x55ffffff : 0x22000000), bg, null));
+        b.setMinimumHeight(dp(48));
+        b.setPadding(dp(8), 0, dp(8), 0);
+        return b;
+    }
+
     protected int dp(int px) { return (int) (px * getResources().getDisplayMetrics().density + .5f); }
     private static boolean primaryPage(Class<?> type) {
         return type == MainActivity.class || type == MonitorActivity.class
@@ -328,12 +391,11 @@ abstract class Ui extends Activity {
     }
 
     private void buildNavigation() {
-        Class<?>[] pages = {MainActivity.class, MonitorActivity.class, GuardActivity.class,
-                BackgroundActivity.class, SettingsActivity.class};
-        String[] names = {"概览", "监控", "守护", "保活", "设置"};
+        Class<?>[] pages = {MainActivity.class, MonitorActivity.class,
+                GuardActivity.class, SettingsActivity.class};
+        String[] names = {"概览", "监控", "守护", "设置"};
         int[] icons = {R.drawable.ic_bf_home, R.drawable.ic_bf_fcm,
-                R.drawable.ic_bf_guard, R.drawable.ic_bf_battery, R.drawable.ic_bf_settings};
-        nav.setPadding(dp(6), dp(7), dp(6), dp(7));
+                R.drawable.ic_bf_guard, R.drawable.ic_bf_settings};
         for (int i = 0; i < pages.length; i++) {
             Class<?> target = pages[i];
             boolean selected = target.isInstance(this);
@@ -347,7 +409,7 @@ abstract class Ui extends Activity {
             item.setContentDescription(names[i] + (selected ? "，当前页面" : ""));
             if (selected) {
                 GradientDrawable pill = new GradientDrawable();
-                pill.setCornerRadius(dp(14));
+                pill.setCornerRadius(dp(22));
                 pill.setColor(dark ? 0xff2b3b61 : 0xffe5ecff);
                 item.setBackground(pill);
             } else {
@@ -355,11 +417,11 @@ abstract class Ui extends Activity {
             }
             ImageView image = symbol(icons[i], selected ? accent : muted, 22);
             item.addView(image, new LinearLayout.LayoutParams(dp(22), dp(22)));
-            TextView label = text(names[i], 11, selected, selected ? accent : muted);
+            TextView label = text(names[i], 13, selected, selected ? accent : muted);
             label.setGravity(Gravity.CENTER);
             label.setPadding(0, dp(4), 0, 0);
             item.addView(label);
-            LinearLayout.LayoutParams itemParams = new LinearLayout.LayoutParams(0, dp(58), 1);
+            LinearLayout.LayoutParams itemParams = new LinearLayout.LayoutParams(0, dp(56), 1);
             itemParams.leftMargin = dp(2);
             itemParams.rightMargin = dp(2);
             nav.addView(item, itemParams);

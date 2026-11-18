@@ -82,7 +82,7 @@ public final class MonitorActivity extends Ui {
         manualResult.setTextIsSelectable(true);
         control.addView(manualResult);
         manualResult.setVisibility(View.GONE);
-        LinearLayout extra = disclosure(control, "详细连接证据与统计", false);
+        LinearLayout extra = disclosure(control, "连接详情", false);
         technical = text("暂无详细数据", 13, false, ink);
         technical.setTextIsSelectable(true);
         extra.addView(technical);
@@ -91,19 +91,19 @@ public final class MonitorActivity extends Ui {
         events = text("暂无记录", 13, false, ink);
         events.setTextIsSelectable(true);
         timeline.addView(events);
-        LinearLayout history = disclosure(timeline, "查看更多历史事件", false);
+        LinearLayout history = disclosure(timeline, "历史事件", false);
         eventsFull = text("暂无历史记录", 13, false, ink);
         eventsFull.setTextIsSelectable(true);
         history.addView(eventsFull);
-        LinearLayout recovery = disclosure(timeline, "自动恢复与检查异常记录", false);
+        LinearLayout recovery = disclosure(timeline, "恢复与异常记录", false);
         recoveryEvents = text("暂无恢复记录", 13, false, ink);
         recoveryEvents.setTextIsSelectable(true);
         recovery.addView(recoveryEvents);
-        LinearLayout runtime = disclosure(timeline, "BerryFCM 熄屏巡检与唤醒记录", false);
+        LinearLayout runtime = disclosure(timeline, "熄屏巡检与唤醒记录", false);
         runtimeEvents = text("暂无巡检记录", 13, false, ink);
         runtimeEvents.setTextIsSelectable(true);
         runtime.addView(runtimeEvents);
-        LinearLayout environment = disclosure(timeline, "网络与休眠状态变化", false);
+        LinearLayout environment = disclosure(timeline, "网络与休眠记录", false);
         environmentEvents = text("暂无环境记录", 13, false, ink);
         environmentEvents.setTextIsSelectable(true);
         environment.addView(environmentEvents);
@@ -209,7 +209,11 @@ public final class MonitorActivity extends Ui {
                 + "\n上次观察在线：" + time(j.optLong("fcm_last_seen", 0))
                 + "\n最近一次历史断开：" + time(j.optLong("fcm_disconnect_since", 0))
                 + "\n最近恢复观测：" + time(j.optLong("fcm_last_restore", 0))
-                + "\nBerryFCM CPU 唤醒锁：" + (FcmMonitorService.isCpuWakeLockHeld() ? "已持有" : "未持有")
+                + "\n熄屏巡检方式：" + (AppPrefs.WAKE_CONTINUOUS.equals(prefs.wakeMode())
+                    ? "持续唤醒" : "智能省电")
+                + "\nCPU 唤醒锁：" + (FcmMonitorService.isCpuWakeLockHeld() ? "当前持有" : "未持有")
+                + "\n累计持续持锁：" + MonitorStatus.duration(FcmMonitorService.continuousWakeMs(this) / 1000)
+                + "\n累计任务持锁：" + MonitorStatus.duration(FcmMonitorService.transactionWakeMs(this) / 1000)
                 + "\n历史已发送的恢复请求：" + j.optInt("fcm_attempts", 0) + " 次"
                 + "\n连续恢复尝试次数：" + j.optInt("fcm_retry_streak", 0) + " 次"
                 + "\n历史上次恢复请求结果：" + recoveryLabel(j.optString("fcm_last_result", "none"))
