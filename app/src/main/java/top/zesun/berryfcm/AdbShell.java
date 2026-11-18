@@ -13,9 +13,10 @@ final class AdbShell implements PrivilegeShell {
         this.mode = mode;
         this.host = host;
         this.port = port;
-        adb = AdbConnectionManager.get(context);
+        adb = AppPrefs.WIRELESS.equals(mode) ? null : AdbConnectionManager.get(context);
     }
     @Override public String execute(String command) throws Exception {
+        if (AppPrefs.WIRELESS.equals(mode)) return PrivKitShell.execute(context, command);
         return adb.executeOnce(context, mode, host, port, command);
     }
     // executeOnce releases the transport even when a command fails.

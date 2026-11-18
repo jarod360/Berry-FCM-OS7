@@ -20,8 +20,21 @@ if grep -q 'adbConnected' "$src/FcmMonitorService.java"; then
   echo 'Cached ADB transport would bypass mode changes' >&2
   exit 1
 fi
-# ADB pairing identity persists, but each execution closes its transport.
+# In wireless mode ADB launches Priv Kit; all ordinary commands use its Binder.
 need 'adb.executeOnce(this, mode, prefs.host(), prefs.staticPort(), command)' "$src/FcmMonitorService.java"
+need 'PrivKitShell.execute(this, command)' "$src/FcmMonitorService.java"
+need 'PrivKitShell.execute(context, command)' "$src/AdbShell.java"
+need 'PrivKitShell.start(context)' "$src/PrivilegeAccess.java"
+need 'KIT.getNativeStarterCommand()' "$src/PrivKitShell.java"
+need 'KIT.startCommand(request, 45000L, continuation)' "$src/PrivKitShell.java"
+need 'io.github.priv-kit:priv-core:0.20.0' "$root/app/build.gradle"
+need 'autoAttempted' "$src/PrivKitShell.java"
+need 'RECOVERY_COOLDOWN_MS' "$src/PrivKitShell.java"
+need 'getLifecycleBinder().isBinderAlive()' "$src/PrivKitShell.java"
+need 'PrivKitShell.allowStart()' "$src/AdbPairingService.java"
+# The only direct ADB call in PrivKitShell must be the native starter.
+test "$(grep -c 'executeOnce(' "$src/PrivKitShell.java")" -eq 1
+need 'AppPrefs.WIRELESS, "127.0.0.1", 0, launch' "$src/PrivKitShell.java"
 need 'synchronized String executeOnce' "$src/AdbConnectionManager.java"
 need 'finally { disconnectSession(); }' "$src/AdbConnectionManager.java"
 # Check the command transaction itself, not only the pairing cleanup.
@@ -143,7 +156,7 @@ for old in AccessibilityOps RestoreService RestoreTileService; do
   test ! -e "$src/$old.java" || { echo "Obsolete accessibility component: $old" >&2; exit 1; }
   if grep -q "$old" "$manifest"; then echo "Obsolete manifest component: $old" >&2; exit 1; fi
 done
-if grep -q 'WRITE_SECURE_SETTINGS\|BIND_ACCESSIBILITY_SERVICE' "$manifest"; then
+if grep -q 'BIND_ACCESSIBILITY_SERVICE' "$manifest" || grep 'WRITE_SECURE_SETTINGS' "$manifest" | grep -vq 'tools:node="remove"'; then
   echo 'Unnecessary accessibility settings permission in manifest' >&2; exit 1
 fi
 

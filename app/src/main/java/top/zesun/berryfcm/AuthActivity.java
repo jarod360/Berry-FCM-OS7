@@ -114,9 +114,9 @@ public final class AuthActivity extends Ui {
 
     private void wireless() {
         if (prefs.adbPaired()) {
-            step("已保存配对身份", "配对身份保留。后台按需连接、执行后断开；执行期间系统可能短暂显示无线调试通知。");
-            button(instructions, AppPrefs.WIRELESS.equals(prefs.mode()) ? "启动 / 立即检查 FCM 监控" : "使用已配对的无线连接", () -> {
-                if (!AppPrefs.WIRELESS.equals(prefs.mode())) {
+            step("已保存配对身份", "配对身份保留。独立服务启动后，后台通过 Binder 执行，不再周期性连接无线 ADB。");
+            button(instructions, PrivKitShell.isConnected() && AppPrefs.WIRELESS.equals(prefs.mode()) ? "启动 / 检查 FCM 监控" : "启动独立服务", () -> {
+                if (!AppPrefs.WIRELESS.equals(prefs.mode()) || !PrivKitShell.isConnected()) {
                     checkShell();
                     return;
                 }
@@ -139,7 +139,7 @@ public final class AuthActivity extends Ui {
         stepIn(parent, "2 · 在通知栏输入六位码",
                 "停留在系统配对码页面，下拉通知栏输入六位码。BerryFCM 会自动搜索配对端口。");
         stepIn(parent, "3 · 自动运行",
-                "配对成功后自动连接并开启 FCM 采样，不必返回再点授权或连接。");
+                "配对成功后自动启动独立服务，并开启 FCM 采样，不必再次授权。");
         LinearLayout fallback = disclosure(parent, "端口无法发现？手动输入", false);
         stepFallback(fallback);
         button(fallback, "只打开无线调试设置", this::openWirelessDebugging, false);
@@ -336,11 +336,14 @@ public final class AuthActivity extends Ui {
             try {
                 String identity = PrivilegeAccess.probe(this, candidate, host, port);
                 prefs.activateMode(candidate, host, port, identity);
+                if (!AppPrefs.WIRELESS.equals(candidate)) PrivKitShell.stop();
                 if (AppPrefs.WIRELESS.equals(candidate) || AppPrefs.SHIZUKU.equals(candidate)) prefs.monitorEnabled(true);
                 runOnUiThread(() -> {
                     checking = false;
                     FcmMonitorService.resumeIfNeeded(this);
+                    if (AppPrefs.WIRELESS.equals(candidate)) FcmMonitorService.checkNow(this);
                     renderStatus();
+                    renderInstructions();
                 });
             } catch (Exception ex) {
                 String message = ex.getMessage() == null ? "连接失败" : ex.getMessage();
@@ -372,11 +375,11 @@ public final class AuthActivity extends Ui {
                     ? "使用独立 Binder 服务；不需要 BerryFCM 持续连接无线调试。实际采样结果以监控页为准。"
                     : "需先启动 Shizuku 并完成一次应用授权；原配对身份保留。");
         } else if (AppPrefs.WIRELESS.equals(selected) && prefs.adbPaired()) {
-            status.setText("配对已完成");
+            status.setText(PrivKitShell.isConnected() ? "独立服务已连接" : "配对已完成 · 服务未连接");
             String monitorError = FcmMonitorService.lastError(this);
             detail.setText(prefs.monitorEnabled()
                     ? monitorError.isEmpty()
-                        ? "后台监控已开启，ADB 按需连接并在命令结束后断开。具体采样结果请到监控页查看。"
+                        ? PrivKitShell.status() + "\n日常采样通过 Binder 执行；服务停止时可启动服务，无需重新配对。"
                         : "最近采样异常：" + monitorError + "\n可到监控页检查，无需重新配对。"
                     : "配对身份仍保留，监控尚未启用。点击下方按钮启动即可。");
         } else if (prefs.shellRecentlyVerified()) {

@@ -20,6 +20,10 @@ final class PrivilegeAccess {
                 return identity;
             }
         }
+        if (AppPrefs.WIRELESS.equals(mode)) {
+            PrivKitShell.start(context);
+            return PrivKitShell.execute(context, "id");
+        }
         AdbConnectionManager adb = AdbConnectionManager.get(context);
         return adb.executeOnce(context, mode, host, port, "id");
     }

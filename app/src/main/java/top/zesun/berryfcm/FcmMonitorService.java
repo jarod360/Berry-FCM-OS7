@@ -539,8 +539,13 @@ public final class FcmMonitorService extends Service {
         if (!AppPrefs.WIRELESS.equals(mode) && !AppPrefs.STATIC.equals(mode))
             throw new IllegalStateException("请先在授权中心选择 Root 或 ADB");
         try {
-            if (adb == null) adb = AdbConnectionManager.get(this);
-            String result = adb.executeOnce(this, mode, prefs.host(), prefs.staticPort(), command);
+            String result;
+            if (AppPrefs.WIRELESS.equals(mode)) {
+                result = PrivKitShell.execute(this, command);
+            } else {
+                if (adb == null) adb = AdbConnectionManager.get(this);
+                result = adb.executeOnce(this, mode, prefs.host(), prefs.staticPort(), command);
+            }
             if (mode.equals(prefs.mode())) prefs.shellVerified("uid=2000(shell)");
             return result;
         } catch (Exception error) {
