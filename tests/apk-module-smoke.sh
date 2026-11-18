@@ -329,3 +329,11 @@ need 'prefs.authTab(mode)' "$src/AuthActivity.java"
 
 need 'PrivKitShell.pair(this, selectedPort, code)' "$src/AdbPairingService.java"
 need 'return;' "$src/AdbPairingService.java"
+
+# ADB startup crash regression: 0/0 => nullable port for NSD (no Integer.intValue NPE)
+need 'AdbConnectPort.select(manual, tls)' "$src/PrivKitShell.java"
+need 'ShizukuShell.isRunning()' "$src/PrivilegeAccess.java"
+tmp_adb_port="$(mktemp -d)"
+javac -d "$tmp_adb_port" "$src/AdbConnectPort.java" "$root/tests/AdbConnectPortSmoke.java"
+java -cp "$tmp_adb_port" top.zesun.berryfcm.AdbConnectPortSmoke
+rm -rf "$tmp_adb_port"
