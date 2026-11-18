@@ -263,7 +263,7 @@ jobs:
             .status == "completed" and (.conclusion == "success" or .conclusion == "failure")
             and (.path | split("@")[0]) == ".github/workflows/build-apk.yml"
             and .head_repository.full_name == $repo
-            and (.head_branch == "main" or .head_branch == "build/native-fcm-batch")
+            and (.head_branch == "main" or .head_branch == "build/native-fcm-batch" or .head_branch == "build/issues-1-2-ci-20261119")
           ' run.json >/dev/null
           # A failed publishing job does not invalidate a successful build.
           # Require the original build job and every mandatory gate to pass.
