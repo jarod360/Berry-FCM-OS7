@@ -235,8 +235,14 @@ awk '/android:name="\.FcmTileService"/ {tile=1; next} tile && /android:enabled="
 if grep -n 'FcmTileService.setOffered' "$src/AuthActivity.java" "$src/AdbPairingService.java" "$src/FcmMonitorService.java" "$src/PrivKitShell.java" "$src/BerryFcmApp.java" "$src/BootReceiver.java"; then
   echo 'Only an explicit user action may expose the Quick Settings tile' >&2; exit 1
 fi
-need 'FcmTileService.setOffered(this, true)' "$src/SettingsActivity.java"
+need 'FcmTileService.setOffered(this, true)' "$src/BackgroundActivity.java"
 need 'Tile.STATE_UNAVAILABLE' "$src/FcmTileService.java"
 need 'canRunInBackground(context)' "$src/FcmMonitorService.java"
 need 'canRunInBackground(this)' "$src/FcmMonitorService.java"
 need 'STOP_FOREGROUND_REMOVE' "$src/FcmMonitorService.java"
+
+need 'private void addTile()' "$src/BackgroundActivity.java"
+need 'BackgroundSettings.backgroundRestriction(this)' "$src/BackgroundActivity.java"
+need 'BackgroundSettings.originAutoStartStatus(this)' "$src/BackgroundActivity.java"
+need 'onTileAdded()' "$src/FcmTileService.java"
+need 'onTileRemoved()' "$src/FcmTileService.java"

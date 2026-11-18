@@ -161,6 +161,64 @@ final class BackgroundSettings {
                 + java.util.regex.Pattern.quote(uid) + "(?![0-9])").matcher(text).find();
     }
 
+    static String backgroundRestriction(Activity activity) {
+        if (android.os.Build.VERSION.SDK_INT < 28) return "系统不支持读取";
+        android.app.ActivityManager am = activity.getSystemService(android.app.ActivityManager.class);
+        if (am == null) return "无法读取";
+        return am.isBackgroundRestricted() ? "已限制" : "未限制（不代表厂商高耗电已开启）";
+    }
+
+    // Private Vivo AppOps differs by ROM. Only use the candidate code if
+    // the ROM itself exposes a matching operation name. Exceptions/default
+    // modes are unknown, never a false claim that the toggle is disabled.
+    static String originAutoStartStatus(Activity activity) {
+        String maker = (android.os.Build.MANUFACTURER + " " + android.os.Build.BRAND)
+                .toLowerCase(java.util.Locale.ROOT);
+        if (!maker.contains("vivo") && !maker.contains("iqoo")) return "需在系统设置确认";
+        try {
+            android.app.AppOpsManager ops = activity.getSystemService(android.app.AppOpsManager.class);
+            if (ops == null) return "需在系统设置确认";
+            int op = 10002;
+            Object name = android.app.AppOpsManager.class.getMethod("opToName", int.class).invoke(null, op);
+            String normalized = String.valueOf(name).toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z]", "");
+            if (!normalized.contains("autostart")) return "系统未提供可信读取接口";
+            int mode = (Integer) android.app.AppOpsManager.class.getMethod("checkOpNoThrow",
+                    int.class, int.class, String.class).invoke(ops, op, android.os.Process.myUid(), activity.getPackageName());
+            if (mode == android.app.AppOpsManager.MODE_ALLOWED) return "AppOps 已放行（厂商开关待实机核对）";
+            if (mode == android.app.AppOpsManager.MODE_IGNORED || mode == android.app.AppOpsManager.MODE_ERRORED)
+                return "AppOps 已限制（厂商开关待实机核对）";
+        } catch (ReflectiveOperationException | RuntimeException ignored) { }
+        return "无法自动读取，请在系统设置确认";
+    }
+
+    static String monitorNotificationStatus(Activity activity, boolean quiet) {
+        android.app.NotificationManager manager = activity.getSystemService(android.app.NotificationManager.class);
+        if (manager == null) return "无法读取";
+        if (!manager.areNotificationsEnabled()) return "系统通知已关闭";
+        android.app.NotificationChannel channel = manager.getNotificationChannel(
+                quiet ? "berry_fcm_monitor_quiet" : "berry_fcm_monitor_active");
+        if (channel == null) return "尚未创建";
+        return channel.getImportance() == android.app.NotificationManager.IMPORTANCE_NONE ? "已关闭" : "已开启";
+    }
+    static void notifications(Activity activity) {
+        try { activity.startActivity(new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, activity.getPackageName())); }
+        catch (RuntimeException ex) { details(activity); }
+    }
+    static void monitorNotifications(Activity activity, boolean quiet) {
+        String channel = quiet ? "berry_fcm_monitor_quiet" : "berry_fcm_monitor_active";
+        android.app.NotificationManager manager = activity.getSystemService(android.app.NotificationManager.class);
+        if (manager == null || manager.getNotificationChannel(channel) == null) { notifications(activity); return; }
+        try { activity.startActivity(new Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, activity.getPackageName())
+                .putExtra(Settings.EXTRA_CHANNEL_ID, channel)); }
+        catch (RuntimeException ex) { notifications(activity); }
+    }
+    static void powerSettings(Activity activity) {
+        try { activity.startActivity(new Intent(Intent.ACTION_POWER_USAGE_SUMMARY)); }
+        catch (RuntimeException ex) { details(activity); }
+    }
+
     static boolean batteryExempt(Activity activity) {
         PowerManager service = activity.getSystemService(PowerManager.class);
         return service != null && service.isIgnoringBatteryOptimizations(activity.getPackageName());

@@ -1,9 +1,5 @@
 package top.zesun.berryfcm;
 
-import android.app.StatusBarManager;
-import android.content.ComponentName;
-import android.graphics.drawable.Icon;
-import android.os.Build;
 import android.os.Bundle;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
@@ -39,14 +35,9 @@ public final class SettingsActivity extends Ui {
         });
         style.addView(theme);
 
-        LinearLayout quick = card("快捷设置", "默认不提供磁贴。完成授权后，可自行添加到系统快捷栏。");
-        button(quick, "添加 FCM 快捷磁贴", this::addTile, false);
-        if (FcmTileService.offered(this)) button(quick, "移除 FCM 快捷磁贴", () -> {
-            FcmTileService.setOffered(this, false);
-            recreate();
-        }, false);
-        line(quick, "授权与连接", "更换 Root / ADB 方式或重新配对", () -> go(AuthActivity.class));
-        line(quick, "自动恢复", "恢复的是 FCM 后台监控和选中的应用守护，不管理其他软件的无障碍服务。", null);
+        LinearLayout quick = card("权限与后台", null);
+        line(quick, "后台保活", "系统权限、通知、快捷磁贴与后台任务", () -> go(BackgroundActivity.class));
+        line(quick, "授权与连接", "更换 Root / ADB / Shizuku 方式", () -> go(AuthActivity.class));
 
         LinearLayout about = card("版本与更新", "在线更新只检查 GitHub Releases，不读取 Actions 测试包。");
         button(about, "检查新版本", () -> go(UpdateActivity.class), true);
@@ -61,37 +52,5 @@ public final class SettingsActivity extends Ui {
     private void openUrl(String url) {
         startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW,
                 android.net.Uri.parse(url)));
-    }
-    private void addTile() {
-        if (!PrivilegeAccess.readyForUserAction(this)) {
-            error("请先完成授权，再添加磁贴");
-            go(AuthActivity.class);
-            return;
-        }
-        boolean alreadyOffered = FcmTileService.offered(this);
-        FcmTileService.setOffered(this, true);
-        if (Build.VERSION.SDK_INT < 33) {
-            error("请在系统下拉快捷栏的编辑页面手动添加 BerryFCM");
-            recreate();
-            return;
-        }
-        StatusBarManager status = getSystemService(StatusBarManager.class);
-        if (status == null) { error("请在系统下拉快捷栏的编辑页面手动添加 BerryFCM"); recreate(); return; }
-        try { status.requestAddTileService(
-                new ComponentName(this, FcmTileService.class),
-                "BerryFCM 监控",
-                Icon.createWithResource(this, R.drawable.ic_bf_fcm),
-                getMainExecutor(),
-                result -> {
-                    boolean added = result == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED
-                            || result == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ALREADY_ADDED;
-                    if (!added && !alreadyOffered) FcmTileService.setOffered(this, false);
-                    error(added ? "磁贴已添加" : "未添加磁贴");
-                    recreate();
-                });
-        } catch (RuntimeException ex) {
-            if (!alreadyOffered) FcmTileService.setOffered(this, false);
-            error("无法打开系统磁贴添加窗口");
-        }
     }
 }

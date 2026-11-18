@@ -18,7 +18,16 @@ public final class FcmTileService extends TileService {
                 new ComponentName(context, FcmTileService.class))
                 == PackageManager.COMPONENT_ENABLED_STATE_ENABLED;
     }
+    static void noteAdded(Context context, boolean added) {
+        context.getSharedPreferences("berry_tile", Context.MODE_PRIVATE).edit().putBoolean("added", added).apply();
+    }
+    static String displayStatus(Context context) {
+        if (!offered(context)) return "未启用";
+        return context.getSharedPreferences("berry_tile", Context.MODE_PRIVATE).getBoolean("added", false)
+                ? "已添加（系统确认）" : "未确认添加";
+    }
     static void setOffered(Context context, boolean enabled) {
+        if (!enabled) noteAdded(context, false);
         context.getPackageManager().setComponentEnabledSetting(
                 new ComponentName(context, FcmTileService.class),
                 enabled ? PackageManager.COMPONENT_ENABLED_STATE_ENABLED
@@ -26,6 +35,14 @@ public final class FcmTileService extends TileService {
                 PackageManager.DONT_KILL_APP);
     }
 
+    @Override public void onTileAdded() {
+        super.onTileAdded();
+        noteAdded(this, true);
+    }
+    @Override public void onTileRemoved() {
+        super.onTileRemoved();
+        noteAdded(this, false);
+    }
     @Override public void onStartListening() {
         super.onStartListening();
         refreshTile();

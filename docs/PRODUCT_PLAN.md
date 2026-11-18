@@ -464,3 +464,7 @@ alpha.46（#44228259741）已通过 API 37.0 SDK 安装、依赖解析、原生�
 - 监控前台服务入口、系统重启/更新恢复及执行前均检查授权资格；首次配对交换、历史开关不足以启动。已实际验证过 UID 2000 的用户在无线调试已开且未被拒绝时保留有限自动恢复能力，通知明确暂未监控；没有授权/资格时停止服务并移除前台通知，保留用户的任务偏好。配对通知只在主动配对期间展示，成功或失败结果不属于监控。正常 monitor 通知显示原生 FCM 状态或检查中，不以历史采样冒充实时连接。Android 前台服务通知仍遵循系统规定。
 - 参考 Android 官方 Quick Settings 指南：https://developer.android.com/develop/ui/views/quicksettings-tiles 。没有触发 APK 构建，待集中回归及统一编译。
 **用户再次定案：**即使 ADB/Root/Shizuku 已授权、服务启动成功、FCM 正在监控，也不得自动添加或显示快捷磁贴。默认禁用磁贴组件；仅“设置 → 添加 FCM 快捷磁贴”的显式操作可启用，系统确认添加后才进入快捷栏。移除磁贴独立于后台监控、守护和恢复。系统要求的前台服务通知不等于磁贴，不能承诺由应用绕过系统通知规则。增加静态回归约束，禁止授权、监控、开机路径启用磁贴。未触发 APK 构建。
+
+### 后台权限统一入口与状态回读（用户最新要求）
+- 磁贴、通知、系统电池优化、OriginOS 自启动/关联启动/高耗电/最近任务锁定统一归入后台保活页面；设置页仅保留导航入口。磁贴默认关闭，主动添加后读取系统添加/移除回调；不随服务启动添加。监控通知类别和总体通知权限分别读取，返回页面重新刷新。标准 Android 电池豁免、后台限制用系统 API 回读；不能将 Android 未限制等同于 OriginOS 允许高耗电。
+- 参考 Oolong (https://github.com/HuanCheng65/Oolong/blob/ba4b1a074781679240c03dd837eb4a9be8649f1b/app/src/main/java/oolong/client/utils/BackgroundSettings.kt) 的 On/Off/Unknown 和厂商设置跳转，Smart-Edge (https://github.com/Imtiaz-Official/Smart-Edge/blob/04cbca29b4776985b9e0eee84161d5c23ee1e89e/app/src/main/java/com/imi/smartedge/sidebar/panel/Extensions.kt) 的 Vivo 私有 AppOps 10002 候选。仅当 ROM 自身返回明确 autoStart 操作名才尝试只读模式，且标注厂商开关需实机核对，异常/未知不标为关闭。未发现经过 OriginOS 7 验证的关联启动、高耗电、最近任务锁定读取接口；当前逐项显示需系统确认，后续必须以目标 ROM 开关前后差分验证读回，不伪造布尔值，不申请无障碍。未触发 APK 编译。
