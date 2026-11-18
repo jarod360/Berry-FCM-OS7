@@ -224,9 +224,9 @@ public final class FcmMonitorService extends Service {
         if (!prefs.monitorEnabled()) return "应用守护已开启";
         long age = sampleAgeSeconds(this);
         JSONObject data = lastSnapshot(this);
-        return MonitorStatus.resolve(true, prefs.monitorEnabled(), isRunning(), age,
-                !currentError(this).isEmpty(), "gms".equals(data.optString("fcm_source")),
-                data.optString("fcm_state")).label;
+        // A persistent foreground-service notification is not a Quick Settings tile.
+        // Keep actual FCM diagnostics in the application, not as an always-on headline.
+        return "后台监控运行中（连接详情请在应用内查看）";
     }
 
     private void refreshNotification() {
