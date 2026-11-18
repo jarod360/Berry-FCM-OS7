@@ -656,7 +656,9 @@ public final class FcmMonitorService extends Service {
                 if (Thread.currentThread().isInterrupted() || !scheduled || !p.guardEnabled()
                         || !key.equals(p.connectionKey())) return;
                 try (TransactionLock lease = new TransactionLock("guard", 60000L)) {
-                    MonitorWatchdog.releaseHandoff();
+                    // If monitoring is also enabled, only its own worker may
+                    // finish the watchdog handoff; guard must not release it early.
+                    if (!p.monitorEnabled()) MonitorWatchdog.releaseHandoff();
                     reports.append(execute(p, mode, command)).append("\n");
                 }
             }

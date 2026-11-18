@@ -65,7 +65,9 @@ final class AppPrefs {
     void staticPort(int value) { p.edit().putInt("static_port", value).apply(); }
 
     String wakeMode() {
-        return WAKE_CONTINUOUS.equals(p.getString("wake_mode", WAKE_SMART))
+        String fallback = p.contains("monitor_enabled") || p.contains("guard_enabled")
+                ? WAKE_CONTINUOUS : WAKE_SMART;
+        return WAKE_CONTINUOUS.equals(p.getString("wake_mode", fallback))
                 ? WAKE_CONTINUOUS : WAKE_SMART;
     }
     void wakeMode(String mode) {

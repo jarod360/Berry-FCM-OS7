@@ -316,7 +316,11 @@ abstract class Ui extends Activity {
         controls.addView(cancel, cp);
         controls.addView(accept, new LinearLayout.LayoutParams(0, dp(50), 1));
         body.addView(controls);
-        AlertDialog dialog = new AlertDialog.Builder(this).setView(body).create();
+        // Keep the action row reachable in landscape or with large system fonts.
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(false);
+        scroll.addView(body);
+        AlertDialog dialog = new AlertDialog.Builder(this).setView(scroll).create();
         dialog.setOnCancelListener(d -> { if (onCancel != null) onCancel.run(); });
         cancel.setOnClickListener(v -> dialog.cancel());
         accept.setOnClickListener(v -> {
@@ -350,8 +354,7 @@ abstract class Ui extends Activity {
     protected int dp(int px) { return (int) (px * getResources().getDisplayMetrics().density + .5f); }
     private static boolean primaryPage(Class<?> type) {
         return type == MainActivity.class || type == MonitorActivity.class
-                || type == GuardActivity.class || type == BackgroundActivity.class
-                || type == SettingsActivity.class;
+                || type == GuardActivity.class || type == SettingsActivity.class;
     }
     protected void go(Class<? extends Activity> page) {
         if (page.isInstance(this) || isFinishing() || isDestroyed()) return;
