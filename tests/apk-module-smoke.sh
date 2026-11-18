@@ -133,6 +133,29 @@ if grep -q 'WRITE_SECURE_SETTINGS\|BIND_ACCESSIBILITY_SERVICE' "$manifest"; then
   echo 'Unnecessary accessibility settings permission in manifest' >&2; exit 1
 fi
 
+# Service lifecycle and transport consistency: a preference is not proof that
+# the monitor is alive; a previous session is not live connection evidence.
+need 'sampleAgeSeconds' "$src/FcmMonitorService.java"
+need 'sample_session' "$src/FcmMonitorService.java"
+need 'sample_elapsed' "$src/FcmMonitorService.java"
+need 'sample_mode' "$src/FcmMonitorService.java"
+need 'registerDefaultNetworkCallback' "$src/FcmMonitorService.java"
+need 'unregisterNetworkCallback' "$src/FcmMonitorService.java"
+need 'ACTION_DEVICE_IDLE_MODE_CHANGED' "$src/FcmMonitorService.java"
+need 'lock.acquire(90000L)' "$src/FcmMonitorService.java"
+need 'lock.release()' "$src/FcmMonitorService.java"
+need 'resumeIfNeeded' "$src/MainActivity.java"
+need 'sampleAgeSeconds' "$src/MonitorActivity.java"
+need 'android.permission.WAKE_LOCK' "$manifest"
+need 'job.get(45, TimeUnit.SECONDS)' "$src/AdbConnectionManager.java"
+need 'process.waitFor(45, TimeUnit.SECONDS)' "$src/RootShell.java"
+need 'PrivilegeAccess.probe' "$src/AuthActivity.java"
+need 'prefs.activateMode' "$src/AuthActivity.java"
+need 'connectionKey' "$src/AppPrefs.java"
+if grep -q 'prefs.mode(mode);' "$src/AuthActivity.java"; then
+  echo 'Browsing authorization tabs must not switch the active transport' >&2; exit 1
+fi
+
 # Exercise the actual plain-Java shell command builder with >10 selected apps.
 classes="${RUNNER_TEMP:-/tmp}/berryfcm-guard-smoke"
 mkdir -p "$classes"

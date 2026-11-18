@@ -183,8 +183,16 @@ parse_mcs() {
       function endpoint(v) {return v ~ /^[A-Za-z0-9.\/:\[\]_-]+$/ ? v : ""}
       {
         sub(/\r$/, ""); line=$0; sub(/^[[:space:]]+/, "",line); sub(/[[:space:]]+$/, "",line)
-        if(line~/^DeviceID:/ || line~/^Direct boot mode /){if(header && state!=""){done=1;next} header=1;next}
-        if(!header || done) next
+        # GMS headings vary. When no native heading exists, accept exact
+        # current-state fields only with corroborating timing/stream metadata.
+        if(line~/^DeviceID:/ || line~/^Direct boot mode /){
+          if(header && state!=""){done=1;next}
+          header=1;next
+        }
+        if(line~/^SERVICE com\.google\.android\.gms\/(\.gcm\.GcmService|com\.google\.android\.gms\.gcm\.GcmService)([[:space:]]|$)/){
+          scoped=1;next
+        }
+        if(done) next
         if(line~/^[0-9][0-9]-[0-9][0-9] [0-9][0-9]:/){done=1;next}
         if(line~/^connected=/){
           v=line;sub(/^connected=/,"",v);n=split(v,a,",port=")
@@ -198,18 +206,21 @@ parse_mcs() {
             if(state!="" && state!="connecting") conflict=1
             state="connecting"; remote=v; port=v;sub(/^.*:/,"",port)
           }
-        } else if(line~/^pending=/){
+        } else if(line~/^pending=/ && line~/,host=/){
+          v=line;sub(/^.*,host=/,"",v)
+          if(endpoint(v)!="" && v~/:[0-9]+$/){
+            if(state!="" && state!="disconnected") conflict=1
+            state="disconnected"; remote=endpoint(v);port=v;sub(/^.*:/,"",port)
+          }
+        } else if(line=="Not connected" && (header || scoped)){
           if(state!="" && state!="disconnected") conflict=1
           state="disconnected"
-          if(line~/,host=/){v=line;sub(/^.*,host=/,"",v);remote=endpoint(v);port=v;sub(/^.*:/,"",port)}
-        } else if(line=="Not connected"){
-          if(state!="" && state!="disconnected") conflict=1
-          state="disconnected"
-        } else if(line=="Connecting" && state==""){state="connecting"}
-        else if(line=="Disabled"){state="unknown";done=1}
-        else if(line~/^connectTime=/){v=line;sub(/^connectTime=/,"",v);ct=sec(v)}
-        else if(line~/^disconnectTime=/){v=line;sub(/^disconnectTime=/,"",v);dt=sec(v)}
+        } else if(line=="Connecting" && state=="" && (header || scoped)){state="connecting"}
+        else if(line=="Disabled" && (header || scoped)){state="unknown";done=1}
+        else if(line~/^connectTime=/){v=line;sub(/^connectTime=/,"",v);ct=sec(v);has_ct=(ct>=0)}
+        else if(line~/^disconnectTime=/){v=line;sub(/^disconnectTime=/,"",v);dt=sec(v);has_dt=(dt>=0)}
         else if(line~/^streamId=/){
+          if(line~/^streamId=[0-9]+\/[0-9]+(,|$)/) has_stream=1
           n=split(line,a,",")
           for(i=1;i<=n;i++)if(a[i]~/^lastConnectionErrorCode=[A-Za-z0-9_]+$/){
             err=a[i];sub(/^lastConnectionErrorCode=/,"",err)
@@ -217,7 +228,16 @@ parse_mcs() {
         }
       }
       END {
-        if(!header || conflict || state==""){print "unknown||||-1|";exit}
+        corroborated=(state=="connected" ? has_ct : has_dt)
+        if(conflict || state=="" || state=="unknown" ||
+          (!header && !corroborated && !has_stream) ||
+          (!header && remote=="" && !corroborated)){
+          print "unknown||||-1|";exit
+        }
+        if((state=="connected" && has_dt && !has_ct) ||
+           (state!="connected" && has_ct && !has_dt)){
+          print "unknown||||-1|";exit
+        }
         if(port!~/^[0-9]+$/ || port+0<1 || port+0>65535)port=""
         duration=-1
         if(state=="connected" && ct!="")duration=ct
