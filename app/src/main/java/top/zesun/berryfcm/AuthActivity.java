@@ -33,6 +33,8 @@ public final class AuthActivity extends Ui {
     private android.widget.Button removeTileButton;
     private String selected;
     private boolean checking, tileRequestPending, auxiliaryReading, auxiliaryAgain;
+    private String checkFailureMode = "";
+    private String checkFailure = "";
     private final ExecutorService permissionWorker = Executors.newSingleThreadExecutor();
     private final Handler ui = new Handler(Looper.getMainLooper());
     private boolean lastPairing, lastReady, lastStarting;
@@ -332,12 +334,15 @@ public final class AuthActivity extends Ui {
         else if (AppPrefs.SHIZUKU.equals(selected)) shizuku();
         else if (AppPrefs.STATIC.equals(selected)) tcp();
         else usb();
-        if (!AppPrefs.WIRELESS.equals(selected) && selected.equals(prefs.shellMode())
-                && !prefs.shellError().isEmpty()) {
-            LinearLayout diagnostic = disclosure(instructions, "失败详情", false);
-            TextView details = text(prefs.shellError(), 12, false, muted);
-            details.setTextIsSelectable(true);
-            diagnostic.addView(details);
+        if (!AppPrefs.WIRELESS.equals(selected)) {
+            String failure = selected.equals(checkFailureMode) ? checkFailure
+                    : selected.equals(prefs.shellMode()) ? prefs.shellError() : "";
+            if (!failure.isEmpty()) {
+                LinearLayout diagnostic = disclosure(instructions, "失败详情", false);
+                TextView details = text(failure, 12, false, muted);
+                details.setTextIsSelectable(true);
+                diagnostic.addView(details);
+            }
         }
     }
 
@@ -643,6 +648,8 @@ public final class AuthActivity extends Ui {
             if (AdbPairingService.isPairingActive() || PrivKitShell.isStarting()) return;
             automaticCheckDone = true;
         }
+        checkFailure = "";
+        checkFailureMode = "";
         checking = true;
         status.setText("正在连接并授权…");
         detail.setText(AppPrefs.WIRELESS.equals(candidate) ? "正在尝试启动服务，请保持无线调试开启。" : "正在检查授权，请按系统提示操作。");
@@ -664,12 +671,15 @@ public final class AuthActivity extends Ui {
                 String message = PrivKitShell.errorChain(ex);
                 runOnUiThread(() -> {
                     checking = false;
+                    checkFailureMode = candidate;
+                    checkFailure = message;
                     if (isDestroyed() || isFinishing()) return;
                     boolean wireless = AppPrefs.WIRELESS.equals(candidate);
                     status.setText(wireless && prefs.pairingRejected() ? "授权已失效，请重新配对" : "连接失败");
                     status.setTextColor(danger);
                     detail.setText(wireless ? "请检查无线调试并重试。详细错误见下方。" : "检查失败，详细错误见下方。");
-                    if (!wireless) prefs.shellFailed(message);
+                    // A failed candidate must not change the still-active
+                    // authorization mode or its verified Shell identity.
                     renderInstructions();
                 });
             }

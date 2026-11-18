@@ -157,19 +157,19 @@ public final class MonitorActivity extends Ui {
                 .append(sample <= 0 ? "暂无" : age < 0 ? "上次运行"
                         : age + " 秒前");
         if (fresh && j.optLong("fcm_native_duration", -1) >= 0) {
-            overview.append("\\n")
+            overview.append("\n")
                     .append("connected".equals(state) ? "已连接：" : "未连接：")
                     .append(MonitorStatus.duration(j.optLong("fcm_native_duration")));
         }
         if (fresh && disconnected) {
-            overview.append("\\n自动恢复：")
+            overview.append("\n自动恢复：")
                     .append(prefs.autoReconnect()
                             ? "ready".equals(gate) ? recoveryDecision(j, retryIn)
                                     : "offline".equals(gate) ? "等待网络"
                                     : "等待网络稳定"
                             : "已关闭");
         }
-        if (!lastError.isEmpty()) overview.append("\\n检查失败，后台重试中");
+        if (!lastError.isEmpty()) overview.append("\n检查失败，后台重试中");
         current.setText(overview.toString());
         if (!ready) current.setText("请先完成授权。以下为历史记录。");
         else if (!prefs.monitorEnabled()) current.setText("监控未开启");
