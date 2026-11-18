@@ -435,3 +435,5 @@ jobs:
             url="$RUN_URL"
           fi
           gh api "repos/$GH_REPO/statuses/$TARGET" -f state="$state" -f context=berryfcm/test-release -f target_url="$url" -f description="Test prerelease: $RESULT"
+
+# Promotion: verified alpha.60 artifact from Actions run 44268379299; no rebuild.
