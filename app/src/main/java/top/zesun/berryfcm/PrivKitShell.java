@@ -118,7 +118,7 @@ final class PrivKitShell {
                     if (isConnected() || !canRecoverExisting(app) || cooldownRemaining(app) > 0) return;
                     start(app, false);
                     String identity = execute(app, "id").trim();
-                    if (!identity.matches("(?s)^uid=2000(?:\\\\D.*)?$"))
+                    if (!identity.matches("(?s)^uid=2000(?:\\D.*)?$"))
                         throw new IOException("独立服务身份不匹配");
                     AppPrefs prefs = new AppPrefs(app);
                     if (AppPrefs.WIRELESS.equals(prefs.mode())) {
