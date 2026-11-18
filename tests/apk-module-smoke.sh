@@ -62,7 +62,7 @@ need 'ENCRYPTION_PADDING_NONE' "$src/AdbConnectionManager.java"
 need 'berry_fcm_adb_identity_v3' "$src/AdbConnectionManager.java"
 need 'group.addView(tab, params)' "$src/AuthActivity.java"
 # Single-tap pairing starts the notification, then opens wireless settings.
-need '开始配对并打开无线调试' "$src/AuthActivity.java"
+need 'button(parent, "开始配对"' "$src/AuthActivity.java"
 need 'openWirelessDebugging()' "$src/AuthActivity.java"
 need 'Settings\$WirelessDebuggingActivity' "$src/AuthActivity.java"
 need 'onRequestPermissionsResult' "$src/AuthActivity.java"
@@ -268,7 +268,7 @@ need 'requireShellIdentity(PrivKitShell.execute(context, "id"), false)' "$src/Pr
 need 'vivoPermissionResult(activity, "AUTO_START")' "$src/BackgroundSettings.java"
 need 'getVPTypeId' "$src/BackgroundSettings.java"
 need 'getPermissionResult' "$src/BackgroundSettings.java"
-need 'cmd appops get top.zesun.berryfcm' "$src/AuthActivity.java"
+# Removed bulk AppOps diagnostic; negative guard at end of file.
 need 'accepted_run_id' "$root/.github/workflows/build-apk.yml"
 need 'gh run download "$RUN_ID"' "$root/.github/workflows/build-apk.yml"
 need 'Promote existing signed APK' "$root/.github/workflows/build-apk.yml"
