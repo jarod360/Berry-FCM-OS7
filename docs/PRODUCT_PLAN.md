@@ -557,3 +557,8 @@ alpha.46（#44228259741）已通过 API 37.0 SDK 安装、依赖解析、原生�
 - 智能模式新安装默认，升级旧用户保留原持续模式，确认后才主动启用持续模式。延续原生 FCM 判据、Shell 权限、回退/冷却；事务锁最长120秒、单 Guard 命令60秒、系统闹钟交接90秒、一次异常确认窗口90秒。不能宣称固定60秒可唤醒。
 - 四项胶囊导航（概览/监控/守护/设置）、保活作为次级页面和双入口、统一模态、文字层次及深浅色；PNG/小图标需做 OriginOS 实机对比，不修改既有授权、通知、磁贴和 GMS 策略。
 - 发包前严格要求：修改文件清单与 diff、权限/API、状态/会话、Shell 超时/并行、WakeLock finally/异常释放、升级数据迁移、系统广播真实回执、深浅主题/底部 Insets、图标有效性、专项静态测试、完整 Gradle + 固定签名 + 验签。随后分别 A/B 实机验证功耗和恢复时间，编译成功不代表用户体验已达标。
+
+### 2026-11-19 Issue #1/#2 alpha.94 测试交付确认
+- **已发行测试预发布，不是稳定版**：`v0.1.0-alpha.94`，源代码构建 CI [#94](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44419769428)、原 APK 晋升 [#95](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44420397868) 均成功；[测试 APK Release](https://github.com/jarod360/Berry-FCM-OS7/releases/tag/v0.1.0-alpha.94)。本期静态检查、编译和签名均通过。
+- **Release 一致性**：采用 CI 原签名制品而非重新编译。构建源 `45550adc213f1de7606d3f0dfefe0ef6df4e773e`；标签快照 `087bc8febf9d3b51329227bfb454e156b272d507` 仅 CI 工作流一文件不同，且两个 workflow 与 main 一致。SHA-256 `13f8ca1943e438c83e242581feacea074ff0e1db406a6fa68efcf9402d9ac301`。无变更证书、包名或数据目录。
+- **待验收/保留开放**：Issue #1 UI 需要实际 OriginOS 图标、尺寸与系统缓存核验；Issue #2 智能/持续不同省电、温度、系统挂起、Binder 失败与实测断联闭环须对照。PR #3 保持草稿，main 和 KSU 不改。

@@ -423,3 +423,11 @@ Removed the full `cmd appops get top.zesun.berryfcm` dump incorrectly labeled as
 - **静态审计**：在原 `tests/apk-module-smoke.sh` 增加模式迁移、锁寿命、异常窗口、闹钟交接、授权确认、页面链接、Manifest/快捷键检查；不借 Gradle 编译报错替代逻辑审查。**尚未运行完整 Android 编译和目标设备实测**。
 - **保留用户跨夜证据**：19日03:14原生断开、03:15 UID2000 请求与原生重连，05:00–06:23 Doze 约16秒检查、约4分钟闹钟延迟。此证据不证明广播导致重连或设备物理深睡仍16秒；日志为滚动缓冲，非无损整夜每一条采样。
 - **后续验收**：前置脚本/源码审查 → 一次完整固定签名 CI 编译 → 同一制品测试包；再同网络做智能省电与持续唤醒 A/B，测每小时电量、温度、P95/最长巡检空档、持续断联恢复、杀进程/UID2000 Binder 停止后的恢复、通知/图标和主题/覆盖安装。CI 成功不等于手机验收。
+
+### 2026-11-19 Issue #1/#2 已签名测试版本（修订上述“未发布”状态）
+- 最新开发分支和 PR：`dev/issues-1-2-wake-ui-20261119`，审查 PR [#3](https://github.com/jarod360/Berry-FCM-OS7/pull/3)，以 alpha.89 构建源码为基线，**仍待真机 A/B 与视觉验收，不自动合并 main**。
+- 修正后的 [CI #94](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44419769428) 完整成功：原生 GMS Shell 回归、APK 跨文件/权限与 WakeLock 静态检查、Java/Android 37 编译、启动图标资源检查、合并权限、固定签名及单签名验签、上传制品。对应构建源码 `45550adc213f1de7606d3f0dfefe0ef6df4e773e`。CI 分支与开发分支在当时核对的 82 个文件中只差 `.github/workflows/build-apk.yml`。
+- [晋升 #95](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44420397868) 跳过构建，直接重用上一个已验证的签名 APK。GitHub 测试 [Release v0.1.0-alpha.94](https://github.com/jarod360/Berry-FCM-OS7/releases/tag/v0.1.0-alpha.94) 已核实为 `prerelease=true`、`draft=false`，Release ID `450679392`，文件大小 `8275639` bytes，两份兼容文件名的 SHA-256 均为 `13f8ca1943e438c83e242581feacea074ff0e1db406a6fa68efcf9402d9ac301`。
+- 发布 Tag 指向源快照 `087bc8febf9d3b51329227bfb454e156b272d507`，它比原始构建提交只多一个 CI 工作流修正提交，应用/测试源码完全一致；两份 workflow 与 main 相同。旧签名四项 Secret 保持不变，无新增 PAT；原 alpha.89 发布包和 KernelSU 均未改。
+- 修正：关闭 FCM 但继续守护时，立即释放有界的 GMS 异常确认锁；`tests/apk-module-smoke.sh` 增加该组合断言。说明本期 alpha.94 才包含此安全修复；先前 alpha.91 构建不用于测试发布。
+- 下阶段 **必须实机观察**：原地在线升级/授权身份保留；模式切换确认和取消，强制停止或 Binder 断开，15 秒巡检间隔分布、异常确认窗口/冷却、两种模式至少各两轮 1–2 小时的耗电和温度；通知中心图标与快捷磁贴、深浅主题和小屏字体。物理 CPU 深睡、60 秒内恢复和广播实际效果尚未有新版本的证据。不要将编译成功视为验收成功。
