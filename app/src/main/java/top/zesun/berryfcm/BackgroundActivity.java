@@ -66,7 +66,8 @@ public final class BackgroundActivity extends Ui {
                         "仍然开启", () -> applyWakeMode(selected), this::syncWakeChoice);
             } else applyWakeMode(selected);
         });
-        power.addView(text("智能省电依靠实际调度事件触发检查；无事件且 CPU 挂起时可能延迟数分钟。"
+        power.addView(text("持续唤醒仅在 FCM 监控开启时生效，守护单独运行不会持续持锁。"
+                + "\n智能省电依靠实际调度事件触发检查；无事件且 CPU 挂起时可能延迟数分钟。"
                 + "\n从 alpha.89 升级会保留原有持续唤醒，便于对照测试。", 12, false, muted));
 
         LinearLayout android = card("后台任务状态", "这些开关不能保证系统永远不会结束后台任务。");
@@ -151,6 +152,7 @@ public final class BackgroundActivity extends Ui {
                 + "\n熄屏方式：" + (AppPrefs.WAKE_CONTINUOUS.equals(prefs.wakeMode()) ? "持续唤醒" : "智能省电")
                 + "\nCPU 唤醒锁：" + (FcmMonitorService.isCpuWakeLockHeld() ? "当前持有" : "未持有")
                 + "\n累计持续持锁：" + MonitorStatus.duration(FcmMonitorService.continuousWakeMs(this) / 1000)
+                + "\n累计确认窗口持锁：" + MonitorStatus.duration(FcmMonitorService.confirmationWakeMs(this) / 1000)
                 + "\n累计事务持锁：" + MonitorStatus.duration(FcmMonitorService.transactionWakeMs(this) / 1000));
     }
 

@@ -213,6 +213,7 @@ public final class MonitorActivity extends Ui {
                     ? "持续唤醒" : "智能省电")
                 + "\nCPU 唤醒锁：" + (FcmMonitorService.isCpuWakeLockHeld() ? "当前持有" : "未持有")
                 + "\n累计持续持锁：" + MonitorStatus.duration(FcmMonitorService.continuousWakeMs(this) / 1000)
+                + "\n累计确认窗口持锁：" + MonitorStatus.duration(FcmMonitorService.confirmationWakeMs(this) / 1000)
                 + "\n累计任务持锁：" + MonitorStatus.duration(FcmMonitorService.transactionWakeMs(this) / 1000)
                 + "\n历史已发送的恢复请求：" + j.optInt("fcm_attempts", 0) + " 次"
                 + "\n连续恢复尝试次数：" + j.optInt("fcm_retry_streak", 0) + " 次"

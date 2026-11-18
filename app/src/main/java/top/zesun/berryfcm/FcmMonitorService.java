@@ -64,6 +64,9 @@ public final class FcmMonitorService extends Service {
     private static volatile boolean wakeLockHeld;
     private static volatile FcmMonitorService live;
     private long continuousSince = -1;
+    private PowerManager.WakeLock confirmationLock;
+    private long confirmationSince = -1;
+    private boolean confirmationUsed;
     private final java.util.concurrent.atomic.AtomicLong transactionTotalMs = new java.util.concurrent.atomic.AtomicLong();
     private static final java.util.Set<PowerManager.WakeLock> transactions =
             java.util.Collections.newSetFromMap(
@@ -80,6 +83,8 @@ public final class FcmMonitorService extends Service {
     static boolean isRunning() { return !activeSession.isEmpty(); }
     static boolean isCpuWakeLockHeld() {
         if (wakeLockHeld) return true;
+        FcmMonitorService active = live;
+        if (active != null && active.confirmationLock != null && active.confirmationLock.isHeld()) return true;
         for (PowerManager.WakeLock lock : transactions) if (lock.isHeld()) return true;
         return false;
     }
@@ -91,6 +96,16 @@ public final class FcmMonitorService extends Service {
             value += Math.max(0, SystemClock.elapsedRealtime() - instance.continuousSince);
         return value;
     }
+    static long confirmationWakeMs(Context context) {
+        SharedPreferences state = context.getSharedPreferences(SNAPSHOT, MODE_PRIVATE);
+        long value = state.getLong("wake_confirmation_ms", 0);
+        FcmMonitorService instance = live;
+        if (instance != null && instance.confirmationSince >= 0
+                && instance.confirmationLock != null && instance.confirmationLock.isHeld())
+            value += Math.min(90000L,
+                    Math.max(0, SystemClock.elapsedRealtime() - instance.confirmationSince));
+        return value;
+    }
     static long transactionWakeMs(Context context) {
         FcmMonitorService instance = live;
         return instance != null ? instance.transactionTotalMs.get()
@@ -100,6 +115,8 @@ public final class FcmMonitorService extends Service {
         FcmMonitorService instance = live;
         if (instance != null) {
             AppPrefs prefs = new AppPrefs(context);
+            instance.releaseConfirmationWakeLock();
+            instance.confirmationUsed = false;
             instance.updatePersistentWakeLock(prefs.monitorEnabled());
             logRuntime(context, "wake_mode_changed", prefs.wakeMode()
                     + "; lock_held=" + isCpuWakeLockHeld());
@@ -404,6 +421,63 @@ public final class FcmMonitorService extends Service {
         }
     }
 
+    /** One finite 90-second confirmation window per observed outage, never renewed
+     * until a fresh native connected observation has been recorded. */
+    private synchronized void updateConfirmationWindow(JSONObject sample) {
+        String state = sample.optString("fcm_state", "unknown");
+        if ("connected".equals(state) && "gms".equals(sample.optString("fcm_source"))) {
+            releaseConfirmationWakeLock();
+            confirmationUsed = false;
+            return;
+        }
+        boolean abnormal = "gms".equals(sample.optString("fcm_source"))
+                && ("disconnected".equals(state) || "connecting".equals(state));
+        if (!abnormal || !AppPrefs.WAKE_SMART.equals(new AppPrefs(this).wakeMode())) {
+            releaseConfirmationWakeLock();
+            return;
+        }
+        if (confirmationUsed) {
+            if (confirmationSince >= 0
+                    && SystemClock.elapsedRealtime() - confirmationSince >= 90000L)
+                releaseConfirmationWakeLock();
+            return;
+        }
+        confirmationUsed = true;
+        try {
+            PowerManager power = getSystemService(PowerManager.class);
+            if (power == null) throw new IllegalStateException("PowerManager unavailable");
+            confirmationLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,
+                    "BerryFCM:outage-confirmation");
+            confirmationLock.setReferenceCounted(false);
+            confirmationLock.acquire(90000L);
+            confirmationSince = SystemClock.elapsedRealtime();
+            logRuntime(this, "wake_confirmation_started", "state=" + state + "; max_ms=90000");
+        } catch (RuntimeException error) {
+            confirmationLock = null;
+            confirmationSince = -1;
+            logRuntime(this, "wake_lock_failed", "confirmation: " + safeError(error));
+        }
+    }
+    private synchronized void releaseConfirmationWakeLock() {
+        if (confirmationLock == null) return;
+        long elapsed = confirmationSince < 0 ? 0 : Math.min(90000L,
+                Math.max(0, SystemClock.elapsedRealtime() - confirmationSince));
+        try {
+            if (confirmationLock.isHeld()) confirmationLock.release();
+        } catch (RuntimeException error) {
+            logRuntime(this, "wake_lock_release_error", "confirmation: " + safeError(error));
+        } finally {
+            confirmationLock = null;
+            confirmationSince = -1;
+            if (elapsed > 0) {
+                SharedPreferences state = getSharedPreferences(SNAPSHOT, MODE_PRIVATE);
+                state.edit().putLong("wake_confirmation_ms",
+                        state.getLong("wake_confirmation_ms", 0) + elapsed).apply();
+                logRuntime(this, "wake_confirmation_finished", "held_ms=" + elapsed);
+            }
+        }
+    }
+
     /** A bounded lease protects an already dispatched task; it cannot wake a sleeping CPU. */
     private final class TransactionLock implements AutoCloseable {
         private PowerManager.WakeLock lock;
@@ -437,8 +511,10 @@ public final class FcmMonitorService extends Service {
                 transactions.remove(lock);
                 long elapsed = Math.max(0, SystemClock.elapsedRealtime() - started);
                 long total = transactionTotalMs.addAndGet(Math.min(elapsed, timeout));
-                getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
-                        .putLong("wake_transaction_ms", total).apply();
+                // An old worker must never overwrite a newer service session's counter.
+                if (live == FcmMonitorService.this)
+                    getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
+                            .putLong("wake_transaction_ms", total).apply();
                 if (elapsed > 15000 || expired)
                     logRuntime(FcmMonitorService.this, "wake_transaction",
                             "purpose=" + purpose + "; elapsed_ms=" + elapsed + "; timeout=" + expired);
@@ -459,6 +535,7 @@ public final class FcmMonitorService extends Service {
         if (periodic != null) periodic.cancel(false);
         if (guardPeriodic != null) guardPeriodic.cancel(false);
         releasePersistentWakeLock();
+        releaseConfirmationWakeLock();
         MonitorWatchdog.releaseHandoff();
         stopForeground(STOP_FOREGROUND_REMOVE);
     }
@@ -620,6 +697,7 @@ public final class FcmMonitorService extends Service {
                 String recovery = result.substring(recoveryStart + "\nBERRY_RECOVERY_BEGIN".length()).trim();
                 if (!scheduled || !session.equals(activeSession) || !p.monitorEnabled()
                         || !key.equals(p.connectionKey())) return;
+                updateConfirmationWindow(parsed);
                 recordEnvironment(parsed);
                 json = parsed.toString();
                 failureStreak = 0;
@@ -932,6 +1010,7 @@ public final class FcmMonitorService extends Service {
         if (periodic != null) periodic.cancel(true);
         if (guardPeriodic != null) guardPeriodic.cancel(true);
         releasePersistentWakeLock();
+        releaseConfirmationWakeLock();
         MonitorWatchdog.releaseHandoff();
         if (live == this) live = null;
         monitorWorker.shutdownNow();
