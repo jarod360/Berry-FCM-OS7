@@ -30,8 +30,8 @@ import org.json.JSONObject;
 /** Foreground monitoring runs independently of activities; all shell writes are serialized. */
 public final class FcmMonitorService extends Service {
     private static final String SNAPSHOT = "berry_fcm_monitor_snapshot";
-    private static final String CHANNEL = "berry_fcm_monitor_active";
-    private static final String QUIET_CHANNEL = "berry_fcm_monitor_quiet";
+    // Preserve the existing silent channel ID across upgrades.
+    private static final String CHANNEL = "berry_fcm_monitor_quiet";
     private static final int NOTIFICATION_ID = 7212;
     private static final String CHECK = "berryfcm.monitor.check";
     private static final String RECONNECT = "berryfcm.monitor.reconnect";
@@ -191,24 +191,19 @@ public final class FcmMonitorService extends Service {
     @Override public void onCreate() {
         super.onCreate();
         NotificationManager manager = getSystemService(NotificationManager.class);
-        NotificationChannel active = new NotificationChannel(CHANNEL,
+        NotificationChannel channel = new NotificationChannel(CHANNEL,
                 "后台监控运行通知", NotificationManager.IMPORTANCE_LOW);
-        active.setDescription("BerryFCM 后台监控运行状态；不是快捷设置磁贴。");
-        manager.createNotificationChannel(active);
-        NotificationChannel quiet = new NotificationChannel(QUIET_CHANNEL,
-                "后台监控运行通知（无声）", NotificationManager.IMPORTANCE_LOW);
-        quiet.setDescription("静音显示后台监控运行状态；不停止监控。");
-        quiet.setSound(null, null);
-        manager.createNotificationChannel(quiet);
+        channel.setDescription("前台服务的运行通知，可在系统中管理。与快捷磁贴无关。");
+        channel.setSound(null, null);
+        manager.createNotificationChannel(channel);
         startForeground(NOTIFICATION_ID, notification());
         registerResumeTriggers();
     }
     private Notification notification() {
-        String channel = new AppPrefs(this).quietMonitor() ? QUIET_CHANNEL : CHANNEL;
         PendingIntent open = PendingIntent.getActivity(this, 0,
                 new Intent(this, MainActivity.class),
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        return new Notification.Builder(this, channel)
+        return new Notification.Builder(this, CHANNEL)
                 .setSmallIcon(R.drawable.ic_bf_fcm)
                 .setContentTitle("BerryFCM")
                 .setContentText(notificationText())
