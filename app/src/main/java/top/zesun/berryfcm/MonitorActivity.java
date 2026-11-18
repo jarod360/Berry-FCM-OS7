@@ -193,7 +193,7 @@ public final class MonitorActivity extends Ui {
                 || !lastError.isEmpty() ? "以下是历史证据，不代表当前连接。\n" : "")
                 + "原始状态：" + state
                 + "\n状态来源：" + (nativeState ? "Google GMS 原生 MCS" : nativeReason)
-                + "\nTCP 辅助证据：" + j.optString("fcm_tcp_hint", "无")
+                + "\nTCP 辅助检查：" + tcpHint(j.optString("fcm_tcp_hint", "none"))
                 + "\n服务器：" + j.optString("fcm_transport", "无")
                 + "  " + j.optString("fcm_remote", "")
                 + (env == null ? "" : "\n检查环境（本应用）：" + env.optString("network", "unknown")
@@ -201,9 +201,9 @@ public final class MonitorActivity extends Ui {
                     + " · Doze " + localValue(env.optString("device_idle"))
                     + "\nGMS Doze 白名单：" + localValue(env.optString("gms_doze_exempt")))
                 + "\n历史最后一次关闭错误（不代表现在断开）：" + j.optString("fcm_last_close_code", "无")
-                + "\n原生连接成功事件：" + j.optInt("fcm_native_connected_events", 0) + " 条"
+                + "\n保留的历史连接成功事件：" + j.optInt("fcm_native_connected_events", 0) + " 条"
                 + "\n上次观察在线：" + time(j.optLong("fcm_last_seen", 0))
-                + "\n上次观察断开：" + time(j.optLong("fcm_disconnect_since", 0))
+                + "\n最近一次历史断开：" + time(j.optLong("fcm_disconnect_since", 0))
                 + "\n最近恢复观测：" + time(j.optLong("fcm_last_restore", 0))
                 + "\n历史已发送的恢复请求：" + j.optInt("fcm_attempts", 0) + " 次"
                 + "\n连续恢复尝试次数：" + j.optInt("fcm_retry_streak", 0) + " 次"
@@ -214,6 +214,15 @@ public final class MonitorActivity extends Ui {
         eventsFull.setText(eventText(lines, 24));
         recoveryEvents.setText(eventText(FcmMonitorService.lastRecoveryEvents(this).split("\\n"), 24));
         environmentEvents.setText(eventText(FcmMonitorService.lastEnvironmentEvents(this).split("\\n"), 24));
+    }
+
+    private static String tcpHint(String value) {
+        switch (value) {
+            case "established": return "发现相关 TCP 连接";
+            case "connecting": return "发现正在建立的 TCP 连接";
+            case "absent": return "未发现匹配的 TCP 连接";
+            case "none": case "unknown": default: return "未取得独立证据（以 GMS 原生状态为准）";
+        }
     }
 
     private static String localValue(String value) {
