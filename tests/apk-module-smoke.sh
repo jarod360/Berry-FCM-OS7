@@ -105,7 +105,7 @@ if grep -q 'if (!prefs.shellRecentlyVerified()) state =' "$src/MonitorActivity.j
   exit 1
 fi
 
-need 'adbPaired' "$src/MonitorActivity.java"
+need 'authorizationReady()' "$src/MonitorActivity.java"
 need 'adbPaired' "$src/GuardActivity.java"
 need 'adbPaired' "$src/BackgroundActivity.java"
 need 'shellVerified' "$src/PrivilegeAccess.java"
@@ -200,6 +200,7 @@ need 'gate.ready(generation, found)' "$src/AdbPairingService.java"
 need 'PrivKitShell.pair(this, manual ? selectedPort : null, code)' "$src/AdbPairingService.java"
 need 'if (!authorizationReady())' "$src/MainActivity.java"
 need 'monitorButton.setText("立即检查")' "$src/MainActivity.java"
+need 'if (!authorizationReady()) { go(AuthActivity.class); return; }' "$src/MonitorActivity.java"
 need 'if (authorizationReady()) FcmMonitorService.resumeIfNeeded(this)' "$src/MainActivity.java"
 if grep -Eq '立即采样|等待独立服务|localPortListening' "$src/MainActivity.java" "$src/AdbPairingService.java"; then
   echo 'Home must gate monitoring by authorization; pairing must not recheck loopback'; exit 1
