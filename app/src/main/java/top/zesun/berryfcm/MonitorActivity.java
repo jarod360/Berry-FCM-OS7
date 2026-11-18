@@ -288,7 +288,7 @@ public final class MonitorActivity extends Ui {
                     : parts[1].equals("check_started") ? "FCM 巡检开始"
                     : parts[1].equals("check_finished") ? "FCM 巡检完成"
                     : parts[1].equals("wake_lock_acquired") ? "CPU 唤醒锁获得"
-                    : parts[1].equals("shell_queue_delay") ? "Shell 排队等待"
+                    : parts[1].equals("shell_duration") ? "Shell 执行耗时"
                     : parts[1].equals("sample_failed") ? "后台采样失败"
                     : parts[1].equals("sample_gap") ? "检查中断"
                     : parts[1].equals("environment") ? "检查环境变化（非 GMS 路由证据）" : parts[1];

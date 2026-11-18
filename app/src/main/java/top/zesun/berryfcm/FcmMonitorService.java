@@ -25,10 +25,9 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.locks.ReentrantLock;
 import org.json.JSONObject;
 
-/** Foreground monitoring runs independently of activities; all shell writes are serialized. */
+/** Foreground monitoring runs independently of activities; only MCS state writes are serialized. */
 public final class FcmMonitorService extends Service {
     private static final String SNAPSHOT = "berry_fcm_monitor_snapshot";
     // Preserve the existing silent channel ID across upgrades.
@@ -39,7 +38,6 @@ public final class FcmMonitorService extends Service {
     private static final String REFRESH_DISPLAY = "berryfcm.monitor.display";
     private final ScheduledExecutorService monitorWorker = Executors.newSingleThreadScheduledExecutor();
     private final ScheduledExecutorService guardWorker = Executors.newSingleThreadScheduledExecutor();
-    private final ReentrantLock commandLock = new ReentrantLock(true);
     private volatile boolean scheduled;
     private boolean installed;
     private static volatile String activeSession = "";
@@ -66,7 +64,7 @@ public final class FcmMonitorService extends Service {
     private static volatile boolean wakeLockHeld;
     private final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
     private int newestStartId;
-    private AdbConnectionManager adb;
+    private volatile AdbConnectionManager adb;
     private long lastGuardAt;
     private Network observedNetwork;
     private String lastNotificationText = "";
@@ -754,11 +752,9 @@ public final class FcmMonitorService extends Service {
     }
 
     private String execute(AppPrefs prefs, String mode, String command) throws Exception {
-        long lockStart = SystemClock.elapsedRealtime();
-        commandLock.lockInterruptibly();
-        long lockDelay = SystemClock.elapsedRealtime() - lockStart;
-        if (lockDelay > 2000)
-            logRuntime(this, "shell_queue_delay", "wait_ms=" + lockDelay + "; mode=" + mode);
+        // Monitor and guard use independent Shell commands. The legacy static
+        // ADB transport remains serialized by AdbConnectionManager.executeOnce.
+        long started = SystemClock.elapsedRealtime();
         try {
         if (AppPrefs.ROOT.equals(mode)) {
             try (PrivilegeShell shell = new RootShell(this)) {
@@ -778,7 +774,10 @@ public final class FcmMonitorService extends Service {
                 if (mode.equals(prefs.mode())) prefs.shellVerified(uid == 0 ? "uid=0(root)" : "uid=2000(shell)");
                 return result;
             } catch (Exception error) {
-                if (mode.equals(prefs.mode())) prefs.shellFailed(error.getMessage());
+                // A failed command is not proof that the Shizuku authorization
+                // was revoked. Do not overwrite a parallel successful probe.
+                if (mode.equals(prefs.mode()) && (!ShizukuShell.isRunning() || ShizukuShell.authorizedUid() < 0))
+                    prefs.shellFailed(error.getMessage());
                 throw error;
             }
         }
@@ -795,11 +794,17 @@ public final class FcmMonitorService extends Service {
             if (mode.equals(prefs.mode())) prefs.shellVerified("uid=2000(shell)");
             return result;
         } catch (Exception error) {
-            if (mode.equals(prefs.mode())) prefs.shellFailed(error.getMessage());
+            // Guard and FCM commands may now overlap; a command-level error
+            // must not invalidate a still-live UID 2000 Binder.
+            if (mode.equals(prefs.mode()) && (!AppPrefs.WIRELESS.equals(mode)
+                    || !PrivKitShell.isConnected()))
+                prefs.shellFailed(error.getMessage());
             throw error;
         }
         } finally {
-            commandLock.unlock();
+            long duration = SystemClock.elapsedRealtime() - started;
+            if (duration > 2000)
+                logRuntime(this, "shell_duration", "mode=" + mode + "; duration_ms=" + duration);
         }
     }
     @Override public void onDestroy() {

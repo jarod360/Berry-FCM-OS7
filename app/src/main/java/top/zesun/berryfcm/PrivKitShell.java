@@ -347,7 +347,9 @@ final class PrivKitShell {
         return out.toString();
     }
 
-    static synchronized String execute(Context context, String command) throws Exception {
+    // Synchronize server initialization and recovery, not command execution.
+    // Priv Kit's privileged command executor can run up to four commands.
+    private static synchronized void ensureCommandServer(Context context) throws Exception {
         if (new AppPrefs(context).servicePaused(AppPrefs.WIRELESS))
             throw new IOException("无线 ADB 服务已被用户手动停止");
         if (!isConnected() || !KIT.pingServer()) {
@@ -367,6 +369,14 @@ final class PrivKitShell {
             start(context, false);
         }
         autoAttempted = false;
+    }
+
+    static String execute(Context context, String command) throws Exception {
+        ensureCommandServer(context);
+        // A user may stop the service immediately after validation. Never
+        // knowingly submit another command once manual stop is requested.
+        if (new AppPrefs(context).servicePaused(AppPrefs.WIRELESS))
+            throw new IOException("无线 ADB 服务已被用户手动停止");
         PrivilegeCommand request = new PrivilegeCommand(
                 Arrays.asList("/system/bin/sh", "-c", "(" + command + ") 2>&1"),
                 Collections.emptyMap(), null);
