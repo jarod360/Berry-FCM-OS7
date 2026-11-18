@@ -36,7 +36,7 @@ transaction="$(sed -n '/synchronized String executeOnce(/,/synchronized String s
 printf '%s\n' "$transaction" | grep -q 'finally {'
 printf '%s\n' "$transaction" | grep -q 'disconnectSession();'
 need 'return adb.executeOnce' "$src/AdbShell.java"
-need 'return adb.executeOnce' "$src/PrivilegeAccess.java"
+need 'requireShellIdentity(adb.executeOnce' "$src/PrivilegeAccess.java"
 need 'Shizuku.bindUserService' "$src/ShizukuShell.java"
 need 'Binder.getCallingUid() != ownerUid' "$src/BerryShellUserService.java"
 need 'Shizuku.requestPermission' "$src/AuthActivity.java"
