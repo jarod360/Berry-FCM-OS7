@@ -16,6 +16,22 @@ final class PrivilegeAccess {
                 && prefs.mode().equals(prefs.shellMode()) && prefs.shellError().isEmpty()
                 && !prefs.shellIdentity().isEmpty();
     }
+    // A first pairing exchange is not authorization. Allow background startup
+    // only with a live service or a previously verified transport that can
+    // legitimately recover. This preserves recovery for established users.
+    // Do not gate this on battery optimization, OEM autostart/associated launch,
+    // high power, recents lock, notifications or Quick Settings tile consent.
+    static boolean canRunInBackground(Context context) {
+        AppPrefs prefs = new AppPrefs(context);
+        if (readyForUserAction(context)) return true;
+        return AppPrefs.WIRELESS.equals(prefs.mode())
+                && prefs.adbPaired() && !prefs.pairingRejected()
+                && AppPrefs.WIRELESS.equals(prefs.shellMode())
+                && prefs.shellIdentity().matches("(?s)^uid=2000(?:\\D.*)?$")
+                && !AdbPairingService.isPairingActive()
+                && PrivKitShell.wirelessDebuggingState(context) == 1;
+    }
+
     static String probe(Context context, String mode, String host, int port) throws Exception {
         if (AppPrefs.ROOT.equals(mode)) {
             try (PrivilegeShell shell = new RootShell(context)) {
@@ -34,10 +50,18 @@ final class PrivilegeAccess {
         }
         if (AppPrefs.WIRELESS.equals(mode)) {
             PrivKitShell.start(context);
-            return PrivKitShell.execute(context, "id");
+            return requireShellIdentity(PrivKitShell.execute(context, "id"), false);
         }
+        if (!AppPrefs.STATIC.equals(mode)) throw new IllegalStateException("不支持的授权方式");
         AdbConnectionManager adb = AdbConnectionManager.get(context);
-        return adb.executeOnce(context, mode, host, port, "id");
+        return requireShellIdentity(adb.executeOnce(context, mode, host, port, "id"), false);
+    }
+
+    private static String requireShellIdentity(String result, boolean root) {
+        String identity = result == null ? "" : result.trim();
+        if (!identity.matches(root ? "(?s)^uid=0(?:\\D.*)?$" : "(?s)^uid=2000(?:\\D.*)?$"))
+            throw new IllegalStateException("Shell 身份回读不匹配，未切换授权");
+        return identity;
     }
 
     static PrivilegeShell open(Context context) throws Exception {
@@ -45,10 +69,15 @@ final class PrivilegeAccess {
         String mode = prefs.mode();
         if (AppPrefs.ROOT.equals(mode)) {
             RootShell shell = new RootShell(context);
-            String identity = shell.execute("id").trim();
-            if (!identity.contains("uid=0")) throw new IllegalStateException("Root 未授权");
-            prefs.shellVerified(identity);
-            return shell;
+            try {
+                String identity = requireShellIdentity(shell.execute("id"), true);
+                prefs.shellVerified(identity);
+                return shell;
+            } catch (Exception error) {
+                shell.close();
+                prefs.shellFailed(error.getMessage());
+                throw error;
+            }
         }
         if (AppPrefs.SHIZUKU.equals(mode)) {
             ShizukuShell shell = new ShizukuShell(context);
@@ -66,10 +95,11 @@ final class PrivilegeAccess {
         if (AppPrefs.WIRELESS.equals(mode) || AppPrefs.STATIC.equals(mode)) {
             AdbShell shell = new AdbShell(context, mode, prefs.host(), prefs.staticPort());
             try {
-                String identity = shell.execute("id").trim();
+                String identity = requireShellIdentity(shell.execute("id"), false);
                 if (mode.equals(prefs.mode())) prefs.shellVerified(identity);
                 return shell;
             } catch (Exception error) {
+                shell.close();
                 if (mode.equals(prefs.mode())) prefs.shellFailed(error.getMessage());
                 throw error;
             }

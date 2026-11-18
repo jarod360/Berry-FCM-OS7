@@ -283,3 +283,43 @@ alpha.46（#44228259741）已通过 API 37.0 SDK 安装、依赖解析、原生�
 - 新源码提交 [55434d1](https://github.com/jarod360/Berry-FCM-OS7/commit/55434d18785f62461656ccd59bb084561de0c467)：各入口统一实际授权条件；守护结果改为准确的强制停止语义，保存检查时间；后台策略读取必须成功并排除权限失败后才写入，Doze 使用完整包名匹配。回滚记录先于 GMS 策略变更写入。未新增权限，尚未确认新 CI。
 - 上一独立构建提交 [8b42663](https://github.com/jarod360/Berry-FCM-OS7/commit/8b426632f40bf761bd4c437412e56868ea033d4e) 已推送；此交接更新时尚未取得该批完成结果。历史 alpha.47 已有签名/Artifact 证据，alpha.49 的实机失败由用户反馈记录，不能混同最新版成功证据。
 - 下一动作：将本轮完整代码同步到 build/native-fcm-batch，核对实际工作流和最新 Artifact；继续解决编译/回归失败及非阻塞模块，之后才提供实测包。未获设备通过不发布 Release，不修改 main/KSU。
+
+**构建分支推进记录（本轮最后核对）**：代码批次对应 [8ba62c0](https://github.com/jarod360/Berry-FCM-OS7/commit/8ba62c04652597da23a158d59fd1ad40da317039)，已推送 `build/native-fcm-batch`；该提交与开发代码基线 1c878df 仅存在构建 workflow 触发配置差异。已实际查询历史 [#44228547705](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44228547705)：build 成功、签名与验签成功、Artifact alpha.47（14394306272）未过期，发布任务跳过。当前新提交尚无可确认的完成结果，不能推荐旧 alpha.47 作为已修复的授权版本。此后开发分支只追加文档记录，不因此重复触发构建。
+
+
+### 最新执行约束：停止碎片化 APK 构建，集中完成研发
+
+用户明确要求整体代码与功能基本完成后再统一编译，不再每次修改少量代码就触发 APK 构建或要求反复安装。即日起只在 dev/native-fcm-state 集中提交完整逻辑、回归用例及双文档，不更新 build/native-fcm-batch，不合并 main，不发布 Release。开发阶段可做源码检查、独立逻辑回归；集中完成授权、FCM、守护、保活、诊断、更新相关代码审查与修复后，才进行一次完整 Gradle 编译、固定签名与制品验签。构建错误需要针对性处理，不将新测试包的数量当作研发进度。
+
+本批源码 [835e945](https://github.com/jarod360/Berry-FCM-OS7/commit/835e9458919c2adadf3a31f07fd40e193e38cdb9)：复核 Priv Kit v0.20.0 官方启动文档及 Android 局域网权限文档（https://developer.android.com/privacy-and-security/local-network-permission）。当前 targetSdk=35，Android 17 的 ACCESS_LOCAL_NETWORK 强制运行时授权只适用于 targetSdk>=37，先不增加多余授权，不把这项变化判为现有故障根因。配对通知渠道禁用时明确跳转对应设置；自动发现失败约 15 秒后才提供通知栏端口:配对码的显式备用入口，正常仅输入六位码（手动端口仍受上游本机 loopback 支持限制）；防旧通知/重复回复，新增门控回归用例；保存实际启动日志到本地应用私有存储；Binder 延迟回传时首页恢复用户之前开启的任务。没有获得真机成功证据，不标为已解决 ADB。当前仅源码提交，未触发完整 APK 构建。下一步重点对照上游启动阶段、状态切换和真实失败诊断，继续非阻塞模块。此前已推送的构建分支保留，停发新增测试构建。
+
+
+### 下拉快捷磁贴与前台通知（本轮集中开发）
+- 用户指出未授权时下拉仍显示 BerryFCM。区分系统快捷磁贴、配对通知和监控前台服务通知。快捷磁贴组件默认禁用，仅授权成功后由用户在设置中主动添加，提供移除入口；系统管理磁贴位置，已主动添加的磁贴在临时失去授权时显示不可用。取消添加恢复之前的组件状态。去掉 active tile 模式以在打开快捷栏时刷新状态。
+- 监控前台服务入口、系统重启/更新恢复及执行前均检查授权资格；首次配对交换、历史开关不足以启动。已实际验证过 UID 2000 的用户在无线调试已开且未被拒绝时保留有限自动恢复能力，通知明确暂未监控；没有授权/资格时停止服务并移除前台通知，保留用户的任务偏好。配对通知只在主动配对期间展示，成功或失败结果不属于监控。正常 monitor 通知显示原生 FCM 状态或检查中，不以历史采样冒充实时连接。Android 前台服务通知仍遵循系统规定。
+- 参考 Android 官方 Quick Settings 指南：https://developer.android.com/develop/ui/views/quicksettings-tiles 。没有触发 APK 构建，待集中回归及统一编译。
+**用户再次定案：**即使 ADB/Root/Shizuku 已授权、服务启动成功、FCM 正在监控，也不得自动添加或显示快捷磁贴。默认禁用磁贴组件；仅“设置 → 添加 FCM 快捷磁贴”的显式操作可启用，系统确认添加后才进入快捷栏。移除磁贴独立于后台监控、守护和恢复。系统要求的前台服务通知不等于磁贴，不能承诺由应用绕过系统通知规则。增加静态回归约束，禁止授权、监控、开机路径启用磁贴。未触发 APK 构建。
+
+### 后台权限统一入口与状态回读（用户最新要求）
+- 磁贴、通知、系统电池优化、OriginOS 自启动/关联启动/高耗电/最近任务锁定统一归入后台保活页面；设置页仅保留导航入口。磁贴默认关闭，主动添加后读取系统添加/移除回调；不随服务启动添加。监控通知类别和总体通知权限分别读取，返回页面重新刷新。标准 Android 电池豁免、后台限制用系统 API 回读；不能将 Android 未限制等同于 OriginOS 允许高耗电。
+- 参考 Oolong (https://github.com/HuanCheng65/Oolong/blob/ba4b1a074781679240c03dd837eb4a9be8649f1b/app/src/main/java/oolong/client/utils/BackgroundSettings.kt) 的 On/Off/Unknown 和厂商设置跳转，Smart-Edge (https://github.com/Imtiaz-Official/Smart-Edge/blob/04cbca29b4776985b9e0eee84161d5c23ee1e89e/app/src/main/java/com/imi/smartedge/sidebar/panel/Extensions.kt) 的 Vivo 私有 AppOps 10002 候选。仅当 ROM 自身返回明确 autoStart 操作名才尝试只读模式，且标注厂商开关需实机核对，异常/未知不标为关闭。未发现经过 OriginOS 7 验证的关联启动、高耗电、最近任务锁定读取接口；当前逐项显示需系统确认，后续必须以目标 ROM 开关前后差分验证读回，不伪造布尔值，不申请无障碍。未触发 APK 编译。
+
+### 授权管理与辅助后台权限的最终分工（覆盖前面页面布局说明）
+用户明确：自启动、关联启动、允许后台高耗电、锁定后台等全部在授权管理给出点击跳转，返回后检查真实状态。它们仅辅助系统稳定性，不作为 ADB/Root/Shizuku 已授权后的监控/守护门槛；通知或快捷磁贴未开启也不得停任务，更不自动添加磁贴。后台保活页面只管理用户任务开关、运行状态、已有高级策略及授权管理导航。没有核心授权才禁止执行特权命令；无线调试关闭但现有 UID 2000 Binder 仍活着时继续运行。
+- 授权页直接列出辅助权限和显示选项，返回时立即读取系统状态。自启动沿用 ROM 名称校验的 AppOps 候选，关联启动、高耗电、最近任务锁定仍需目标设备差分验证，不冒充已授权。参考 HelloDaemon、YCAppTool、Smart-Edge 的 Vivo 高耗电页面入口，以及 Legado 的 PurviewTabActivity 权限管理入口；全部按可打开性逐级降级，不声称厂商页面必然直达。最近任务在用户确认且具备现有核心权限后仅发送 APP_SWITCH，锁定由用户亲自操作；未授权时给手动操作提示。隐藏卡片和锁定是不同选项。
+- 低干扰显示仅刷新现有前台通知，不再借由显示开关启动/停止监控；不变更任务开关。回归约束检查监控/授权资格/开机恢复不引用辅助权限，避免后续引入硬门槛。当前源码提交，不编译。后续须验证 OriginOS 7 的真实权限状态映射。
+
+### 应用内在线升级（集中研发）
+现有更新器读取 GitHub Releases（包括命名匹配的 prerelease），Actions Artifact 不属于发布源；此前确认的构建发布任务跳过。用户不应手动下载 APK 再寻找文件安装。本批改为点击“立即更新”后，由系统下载管理器下载、展示进度、在更新页可见时自动校验包名、版本、SHA256（Release 提供时）和固定签名，自动打开系统安装器；首次安装来源权限由用户授予，返回自动继续。下载中离开页面，返回继续；失败可重试，不静默安装、不卸载旧版、不引入新权限。参考 GKD UpdateStatus 的独立检查/下载/安装状态管理。发布仍以实机验收后允许的固定签名 Release 为准，未发布新版本之前无法在线获取该版本。当前仅源码修改，不触发 APK 构建；在线升级实际覆盖安装尚未验证。
+
+## 集中开发最新唯一执行清单（覆盖旧阶段/发布说明）
+用户要求汇总最近全部问题，集中解决，不再碎片编译。当前仍非单纯验收阶段。P0：真实自动 ADB 配对/发现、启动 UID2000 Binder、保留有效配对、失败日志、平时不连接 ADB；P1：原生 FCM 状态、断联/深睡恢复、守护与保活不依赖辅助权限；P1：授权管理中自启动/关联启动/高耗电/锁定/电池/通知/磁贴逐项真实回读及跳转，磁贴仅显式添加；P1：在线更新发现、应用内下载、签名与版本校验、覆盖安装。最终完成 APK 真机验收后再回移 KSU。
+本轮实际修改：
+- 检查无线和静态 ADB 的实际 id 输出后才保存模式，拒绝假授权；启动结果异常但已收到有效 Binder 时接续该 Binder，不重复开 ADB。旧错误提示在恢复时清除。此前自动发现、启动及配对失败仍须目标机器验证，不声明已经解决。
+- 原厂框架线索来自 https://github.com/imwangwang/vivo-apps/blob/6aff38cfa6133250fc58a2fdc5f6452c676440aa/main/java/com/vivo/services/security/client/VivoPermissionType.java 与同目录 VivoPermissionManager/VivoPermissionInfo：通过现有 ROM 自身类型名 AUTO_START、getVPTypeId、getAppPermission(self)、getPermissionResult、GRANTED/DENIED 常量读取自启动；不硬编码私有 ID，不修改权限，隐藏接口拒绝时仍为未知。另参考 https://github.com/Lokside/vivo-guardian/blob/579030d4a6d413bfe5a80424fa16e1b92300661d/docs/TECHNICAL.md，OriginOS 7 的最近任务锁定涉及 UserLockedAppFilter/LockedAppManager，但没有公开已验证的读取接口。新增只读本 APP AppOps 诊断以便开关前后比对；关联启动/高耗电/后台锁定的真实自动回读仍待目标 ROM 证据，不能用通用 Android 状态或访问页面记录冒充。
+- 应用内更新：开始查更新时清旧下载候选。发布工作流由原“再次编译并发布”改为人工选择已成功构建的 accepted_run_id，跳过 build，校验原运行来源/状态、从该运行下载同一固定签名 Artifact、验签/包名/版本号后创建对应源提交的 prerelease。无需为同一份 APK 重新编译，禁止自动发布。以后可明确选择通过完整 CI 的测试 prerelease 供应用内升级，稳定发布仍须验收；不发布当前未验证代码。旧包原来没有新 Release 因而找不到更新，不能假定新源码已经在用户手机生效。
+- 集中验收顺序：本地/轻量静态与脚本回归（不生成 APK）；完整批次一次 CI；选通过的同一产物受控发布测试 prerelease；当前旧固定签名 APK 在线升级；首次配对、真实 UID/Binder、无线调试关闭后仍监控、系统撤销与服务死亡；自启动/关联/高耗电/锁定各自开关前后真实差分；磁贴和通知独立；锁屏/断网/重连及应用守护；回移 KSU 与最终发布。
+本轮只更新 dev/native-fcm-state；不触发 APK 构建，不推 build 分支、不合并 main、不发布 Release。尚无最新版 Android 编译或真实手机通过证据。
+
+### 集中测试包准入修正（2026-11-18）
+用户同意自检到可验证时发布测试 APK，供现有版本应用内在线升级；不要求等所有真机功能验证后才发布测试 prerelease，不得当稳定正式版。检查原厂 Priv Kit v0.20.0 manifest 与 NSD 实现：无 NEARBY_WIFI_DEVICES 依赖，移除本项目额外的强制附近 Wi-Fi 权限请求（保留上游自己的标准声明，targetSdk35）。授权配对通知回复复用已在前台的服务，不以过期回复创建新的前台服务；结束提示 15 秒后消失，可点击授权页。首次成功自动监控，但已有明确关闭偏好不因重新授权被重置。厂商自启动读取转后台线程；辅助权限继续未知时据实显示。守护目标以每批最多5个执行，避免25个应用的最坏情况超45秒单命令超时，检查未安装的目标不执行 unstop。在实际容器 JDK 中执行仓库原始 PairingGateSmoke、LaunchCooldownSmoke、GuardOpsSmoke，通过并比对六个源文件 Git blob SHA；更新的守护分批用例随完整 CI 执行。此前累计静态匹配不是完整CI证据。待一次集中 SDK/Gradle/脚本/模块/固定签名/验签后，才以同一个通过产物发布测试 Release；主分支与KSU不改。厂商关联启动、高耗电、锁定回读尚未有证据，仍需真机协同核对。

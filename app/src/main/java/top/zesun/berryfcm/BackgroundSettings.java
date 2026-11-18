@@ -161,6 +161,104 @@ final class BackgroundSettings {
                 + java.util.regex.Pattern.quote(uid) + "(?![0-9])").matcher(text).find();
     }
 
+    static String backgroundRestriction(Activity activity) {
+        if (android.os.Build.VERSION.SDK_INT < 28) return "系统不支持读取";
+        android.app.ActivityManager am = activity.getSystemService(android.app.ActivityManager.class);
+        if (am == null) return "无法读取";
+        return am.isBackgroundRestricted() ? "已限制" : "未限制（不代表厂商高耗电已开启）";
+    }
+
+    // Private Vivo AppOps differs by ROM. Only use the candidate code if
+    // the ROM itself exposes a matching operation name. Exceptions/default
+    // modes are unknown, never a false claim that the toggle is disabled.
+    static String originAutoStartStatus(Activity activity) {
+        String maker = (android.os.Build.MANUFACTURER + " " + android.os.Build.BRAND)
+                .toLowerCase(java.util.Locale.ROOT);
+        if (!maker.contains("vivo") && !maker.contains("iqoo")) return "需在系统设置确认";
+        String direct = vivoPermissionResult(activity, "AUTO_START");
+        if (direct != null) return direct;
+        try {
+            android.app.AppOpsManager ops = activity.getSystemService(android.app.AppOpsManager.class);
+            if (ops == null) return "需在系统设置确认";
+            int op = 10002;
+            Object name = android.app.AppOpsManager.class.getMethod("opToName", int.class).invoke(null, op);
+            String normalized = String.valueOf(name).toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z]", "");
+            if (!normalized.contains("autostart")) return "系统未提供可信读取接口";
+            int mode = (Integer) android.app.AppOpsManager.class.getMethod("checkOpNoThrow",
+                    int.class, int.class, String.class).invoke(ops, op, android.os.Process.myUid(), activity.getPackageName());
+            if (mode == android.app.AppOpsManager.MODE_ALLOWED) return "AppOps 已放行（厂商开关待实机核对）";
+            if (mode == android.app.AppOpsManager.MODE_IGNORED || mode == android.app.AppOpsManager.MODE_ERRORED)
+                return "AppOps 已限制（厂商开关待实机核对）";
+        } catch (ReflectiveOperationException | RuntimeException ignored) { }
+        return "无法自动读取，请在系统设置确认";
+    }
+
+    // Vivo framework permission service: query only this app, resolve the
+    // actual ROM enum and constants. Hidden API or permission exceptions are
+    // normal compatibility failures, never treated as denied or granted.
+    private static String vivoPermissionResult(Activity activity, String typeName) {
+        try {
+            String prefix = "com.vivo.services.security.client.";
+            Class<?> type = Class.forName(prefix + "VivoPermissionType");
+            Object permission = type.getField(typeName).get(null);
+            int typeId = (Integer) type.getMethod("getVPTypeId").invoke(permission);
+            Class<?> manager = Class.forName(prefix + "VivoPermissionManager");
+            Object service = manager.getMethod("getInstance").invoke(null);
+            if (service == null) return null;
+            Class<?> iface = Class.forName("vivo.app.security.AbsVivoPermissionManager");
+            Object info = iface.getMethod("getAppPermission", String.class)
+                    .invoke(service, activity.getPackageName());
+            if (info == null) return null;
+            Class<?> result = Class.forName(prefix + "VivoPermissionInfo");
+            int value = (Integer) result.getMethod("getPermissionResult", int.class).invoke(info, typeId);
+            if (value == result.getField("GRANTED").getInt(null)) return "已开启（Vivo 权限服务）";
+            if (value == result.getField("DENIED").getInt(null)) return "未开启（Vivo 权限服务）";
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) { }
+        return null;
+    }
+
+    static String monitorNotificationStatus(Activity activity, boolean quiet) {
+        android.app.NotificationManager manager = activity.getSystemService(android.app.NotificationManager.class);
+        if (manager == null) return "无法读取";
+        if (!manager.areNotificationsEnabled()) return "系统通知已关闭";
+        android.app.NotificationChannel channel = manager.getNotificationChannel(
+                quiet ? "berry_fcm_monitor_quiet" : "berry_fcm_monitor_active");
+        if (channel == null) return "尚未创建";
+        return channel.getImportance() == android.app.NotificationManager.IMPORTANCE_NONE ? "已关闭" : "已开启";
+    }
+    static void notifications(Activity activity) {
+        try { activity.startActivity(new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, activity.getPackageName())); }
+        catch (RuntimeException ex) { details(activity); }
+    }
+    static void monitorNotifications(Activity activity, boolean quiet) {
+        String channel = quiet ? "berry_fcm_monitor_quiet" : "berry_fcm_monitor_active";
+        android.app.NotificationManager manager = activity.getSystemService(android.app.NotificationManager.class);
+        if (manager == null || manager.getNotificationChannel(channel) == null) { notifications(activity); return; }
+        try { activity.startActivity(new Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, activity.getPackageName())
+                .putExtra(Settings.EXTRA_CHANNEL_ID, channel)); }
+        catch (RuntimeException ex) { notifications(activity); }
+    }
+    private static boolean openComponent(Activity activity, String pkg, String cls) {
+        try { activity.startActivity(new Intent().setClassName(pkg, cls)); return true; }
+        catch (RuntimeException ex) { return false; }
+    }
+    static void powerSettings(Activity activity) {
+        // Vivo/iQOO power management entry points used by existing open-source apps.
+        if (openComponent(activity, "com.vivo.abeui", "com.vivo.abeui.highpower.ExcessivePowerManagerActivity")
+                || openComponent(activity, "com.vivo.abe", "com.vivo.applicationbehaviorengine.ui.ExcessivePowerManagerActivity")
+                || openComponent(activity, "com.vivo.abe", "com.vivo.abe.unifiedpower.HighPowerConsumptionActivity")) return;
+        try { activity.startActivity(new Intent("android.intent.action.POWER_USAGE_SUMMARY")); }
+        catch (RuntimeException ex) { details(activity); }
+    }
+    static void associatedStart(Activity activity) {
+        if (openComponent(activity, "com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.PurviewTabActivity")
+                || openComponent(activity, "com.iqoo.secure", "com.iqoo.secure.safeguard.PurviewTabActivity")) return;
+        // Some ROM versions expose both controls in the same startup-management screen.
+        autostart(activity);
+    }
+
     static boolean batteryExempt(Activity activity) {
         PowerManager service = activity.getSystemService(PowerManager.class);
         return service != null && service.isIgnoringBatteryOptimizations(activity.getPackageName());
@@ -182,6 +280,7 @@ final class BackgroundSettings {
                     "com.vivo.permissionmanager.activity.BgStartUpManagerActivity");
             activity.startActivity(intent);
         } catch (RuntimeException ignored) {
+            if (openComponent(activity, "com.iqoo.secure", "com.iqoo.secure.ui.phoneoptimize.BgStartUpManager")) return;
             try { activity.startActivity(new Intent("com.iqoo.secure.BGSTARTUPMANAGER")); }
             catch (RuntimeException ignoredAgain) { details(activity); }
         }

@@ -29,6 +29,7 @@ final class PrivKitShell {
     private static final Privilege KIT = Privilege.INSTANCE;
     private static final String ADB_NAME = "BerryFCM";
     private static volatile String startupTrace = "";
+    private static final String TRACE_KEY = "last_startup_trace";
     private static boolean autoAttempted;
     private static final long RECOVERY_COOLDOWN_MS = 300000L;
     private static final String START_PREFS = "berry_privkit_start";
@@ -107,6 +108,7 @@ final class PrivKitShell {
     static synchronized void pair(Context context, Integer port, String code) throws Exception {
         PrivilegeAdbManager adb = manager();
         startupTrace = "";
+        startPrefs(context).edit().remove(TRACE_KEY).remove("last_error").apply();
         PrivilegeAdbPairingResult result = BuildersKt.<PrivilegeAdbPairingResult>runBlocking(
                 EmptyCoroutineContext.INSTANCE, (scope, continuation) -> {
                     try { return adb.pair(code, port, 15000L, continuation); }
@@ -176,6 +178,8 @@ final class PrivKitShell {
             throw new IllegalStateException("独立服务必须在后台启动");
         if (isConnected() && KIT.pingServer()) {
             autoAttempted = false;
+            status = "独立服务运行中";
+            startPrefs(context).edit().remove("last_error").apply();
             return;
         }
         if (!explicit && (AdbPairingService.isPairingActive() || !new AppPrefs(context).adbPaired()))
@@ -220,10 +224,15 @@ final class PrivKitShell {
                 } catch (InterruptedException interrupted) {
                     throw interrupted;
                 } catch (Exception failure) {
-                    try { verifyPairing(context, port); }
-                    catch (InterruptedException interrupted) { throw interrupted; }
-                    catch (Exception checkFailure) { startupTrace += "\n认证检查：" + errorChain(checkFailure); }
-                    throw failure;
+                    if (isConnected() && KIT.pingServer()) {
+                        result = KIT.getServerState().getValue();
+                        startupTrace += "\n启动响应异常，但已收到存活的 UID 2000 Binder";
+                    } else {
+                        try { verifyPairing(context, port); }
+                        catch (InterruptedException interrupted) { throw interrupted; }
+                        catch (Exception checkFailure) { startupTrace += "\n认证检查：" + errorChain(checkFailure); }
+                        throw failure;
+                    }
                 }
                 if (result == null || result.getUid() != 2000)
                     throw new IOException("独立服务未返回 UID 2000");
@@ -236,7 +245,7 @@ final class PrivKitShell {
             }
             autoAttempted = false;
             status = "独立服务运行中";
-            startPrefs(context).edit().remove("last_error").apply();
+            startPrefs(context).edit().remove("last_error").putString(TRACE_KEY, startupTrace).apply();
         } catch (InterruptedException ex) {
             if (launched) startPrefs(context).edit().putString("last_result", "interrupted").apply();
             Thread.currentThread().interrupt();
@@ -247,7 +256,8 @@ final class PrivKitShell {
             status = new AppPrefs(context).pairingRejected()
                     ? "ADB 授权已失效，请重新配对" : "服务启动失败";
             startupTrace += "\n启动失败："+ errorChain(ex) + "\n";
-            startPrefs(context).edit().putString("last_error", errorChain(ex)).apply();
+            startPrefs(context).edit().putString("last_error", errorChain(ex))
+                    .putString(TRACE_KEY, startupTrace).apply();
             throw ex;
         } finally {
             starting = false;
@@ -320,7 +330,7 @@ final class PrivKitShell {
                 + "\n最近启动请求时间（epoch ms）：" + stamp
                 + "\n自动启动冷却剩余（秒）：" + ((cooldownRemaining(context) + 999) / 1000)
                 + "\n最近启动失败原因：" + lastStartupError(context)
-                + "\n最近独立服务启动日志：\n" + startupTrace
+                + "\n最近独立服务启动日志：\n" + (startupTrace.isEmpty() ? p.getString(TRACE_KEY, "") : startupTrace)
                 + "\n说明：启动尝试计数不是成功连接次数；日常 Binder 命令不增加此计数。";
     }
 

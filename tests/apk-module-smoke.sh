@@ -36,7 +36,7 @@ transaction="$(sed -n '/synchronized String executeOnce(/,/synchronized String s
 printf '%s\n' "$transaction" | grep -q 'finally {'
 printf '%s\n' "$transaction" | grep -q 'disconnectSession();'
 need 'return adb.executeOnce' "$src/AdbShell.java"
-need 'return adb.executeOnce' "$src/PrivilegeAccess.java"
+need 'requireShellIdentity(adb.executeOnce' "$src/PrivilegeAccess.java"
 need 'Shizuku.bindUserService' "$src/ShizukuShell.java"
 need 'Binder.getCallingUid() != ownerUid' "$src/BerryShellUserService.java"
 need 'Shizuku.requestPermission' "$src/AuthActivity.java"
@@ -46,7 +46,7 @@ test -s "$root/app/src/main/aidl/top/zesun/berryfcm/IBerryShell.aidl"
 need 'shellInvalidate' "$src/AppPrefs.java"
 need 'R.drawable.ic_bf_auth' "$src/AdbPairingService.java"
 need 'R.drawable.ic_bf_fcm' "$src/FcmMonitorService.java"
-need 'R.drawable.ic_bf_fcm' "$src/SettingsActivity.java"
+need 'R.drawable.ic_bf_fcm' "$src/AuthActivity.java"
 need '@drawable/ic_bf_fcm' "$manifest"
 need 'setOnApplyWindowInsetsListener' "$src/Ui.java"
 need 'setTheme(R.style.AppThemeDark)' "$src/Ui.java"
@@ -66,7 +66,7 @@ need '开始配对并打开无线调试' "$src/AuthActivity.java"
 need 'openWirelessDebugging()' "$src/AuthActivity.java"
 need 'Settings\$WirelessDebuggingActivity' "$src/AuthActivity.java"
 need 'onRequestPermissionsResult' "$src/AuthActivity.java"
-need 'prefs.monitorEnabled(true)' "$src/AdbPairingService.java"
+need 'prefs.enableMonitorOnFirstAuthorization()' "$src/AdbPairingService.java"
 need 'FcmMonitorService.start(this)' "$src/AdbPairingService.java"
 need 'lastAttemptAt' "$src/FcmMonitorService.java"
 need 'authorizationReady()' "$src/MainActivity.java"
@@ -76,7 +76,7 @@ need 'View.generateViewId()' "$src/SettingsActivity.java"
 # Pair once, do not gate monitoring on a two-minute manual Shell probe.
 need 'boolean adbPaired()' "$src/AppPrefs.java"
 need 'void markAdbPaired()' "$src/AppPrefs.java"
-need 'prefs.monitorEnabled(true)' "$src/AdbPairingService.java"
+need 'prefs.enableMonitorOnFirstAuthorization()' "$src/AdbPairingService.java"
 need 'FcmMonitorService.start(this)' "$src/AdbPairingService.java"
 need 'lastStartAt' "$src/FcmMonitorService.java"
 need 'lastAttemptAt' "$src/MonitorActivity.java"
@@ -127,8 +127,8 @@ done
 test -s "$root/app/src/main/res/drawable/ic_berry_fcm.xml"
 test -s "$root/app/src/main/res/drawable/ic_berry_fcm_mono.xml"
 need 'QUERY_ALL_PACKAGES' "$manifest"
-need 'GuardOps.command' "$src/GuardActivity.java"
-need 'GuardOps.command' "$src/FcmMonitorService.java"
+need 'GuardOps.commandBatches' "$src/GuardActivity.java"
+need 'GuardOps.commandBatches' "$src/FcmMonitorService.java"
 need 'watchNinetySeconds' "$src/GuardActivity.java"
 need 'heartbeatCommand' "$src/GuardOps.java"
 need 'gmsBackgroundNetwork' "$src/BackgroundSettings.java"
@@ -141,7 +141,7 @@ need 'BackgroundSettings.restoreSelf(this, shell)' "$src/BackgroundActivity.java
 need 'self_op_previous_' "$src/BackgroundSettings.java"
 need 'readAppOp' "$src/BackgroundSettings.java"
 need '恢复未通过回读' "$src/BackgroundSettings.java"
-need 'areNotificationsEnabled' "$src/BackgroundActivity.java"
+need 'areNotificationsEnabled' "$src/AuthActivity.java"
 need 'AppTask' "$src/RecentTasks.java"
 need 'gh release create' "$root/.github/workflows/build-apk.yml"
 
@@ -201,6 +201,10 @@ need 'adb.checkPairing(port, 15000L, continuation)' "$src/PrivKitShell.java"
 need 'KIT.startAdb(options, 20000L, ADB_NAME' "$src/PrivKitShell.java"
 need 'PrivKitShell.discoverPairingPort()' "$src/AdbPairingService.java"
 need 'gate.submit(generation, port)' "$src/AdbPairingService.java"
+need 'gate.submitManual(generation, entered)' "$src/AdbPairingService.java"
+need 'MANUAL_FALLBACK_DELAY_MS' "$src/AdbPairingService.java"
+need 'last_startup_trace' "$src/PrivKitShell.java"
+need 'getNotificationChannel' "$src/AuthActivity.java"
 need 'gate.ready(generation, found)' "$src/AdbPairingService.java"
 need 'PrivKitShell.pair(this, manual ? selectedPort : null, code)' "$src/AdbPairingService.java"
 need 'if (!authorizationReady())' "$src/MainActivity.java"
@@ -223,3 +227,55 @@ if grep -Eq 'autoConnectLocal|pairLocal|connectTls' "$src/AdbConnectionManager.j
 fi
 javac -d "$classes" "$src/PairingGate.java" "$root/tests/PairingGateSmoke.java"
 java -cp "$classes" top.zesun.berryfcm.PairingGateSmoke
+
+# No unsolicited tile or persistent first-run unauthorized monitoring.
+# Check the specific tile component, not an unrelated disabled component.
+awk '/android:name="\.FcmTileService"/ {tile=1; next} tile && /android:enabled="false"/ {ok=1; exit} tile && /<service|<intent-filter/ {exit} END {exit !ok}' "$manifest"
+# Neither authorization success nor service startup may opt in to the tile.
+if grep -n 'FcmTileService.setOffered' "$src/AdbPairingService.java" "$src/FcmMonitorService.java" "$src/PrivKitShell.java" "$src/BerryFcmApp.java" "$src/BootReceiver.java"; then
+  echo 'Only an explicit user action may expose the Quick Settings tile' >&2; exit 1
+fi
+need 'FcmTileService.setOffered(this, true)' "$src/AuthActivity.java"
+need 'Tile.STATE_UNAVAILABLE' "$src/FcmTileService.java"
+need 'canRunInBackground(context)' "$src/FcmMonitorService.java"
+need 'canRunInBackground(this)' "$src/FcmMonitorService.java"
+need 'STOP_FOREGROUND_REMOVE' "$src/FcmMonitorService.java"
+
+need 'private void addTile()' "$src/AuthActivity.java"
+need 'BackgroundSettings.backgroundRestriction(this)' "$src/AuthActivity.java"
+need 'BackgroundSettings.originAutoStartStatus(this)' "$src/AuthActivity.java"
+need 'onTileAdded()' "$src/FcmTileService.java"
+need 'onTileRemoved()' "$src/FcmTileService.java"
+
+# Auxiliary permissions are advisory; core monitor and guard cannot depend on them.
+need 'createAuxiliaryPermissions()' "$src/AuthActivity.java"
+need 'refreshAuxiliaryPermissions()' "$src/AuthActivity.java"
+need 'BackgroundSettings.associatedStart(this)' "$src/AuthActivity.java"
+need 'BackgroundSettings.powerSettings(this)' "$src/AuthActivity.java"
+need 'FcmMonitorService.refreshDisplay(this)' "$src/AuthActivity.java"
+if grep -nE 'BackgroundSettings\.(batteryExempt|originAutoStartStatus|backgroundRestriction|monitorNotificationStatus)|FcmTileService\.(offered|displayStatus)|areNotificationsEnabled' "$src/PrivilegeAccess.java" "$src/FcmMonitorService.java" "$src/BootReceiver.java"; then
+  echo 'Optional system permissions must not block background task execution' >&2; exit 1
+fi
+
+need '立即更新' "$src/UpdateActivity.java"
+need 'pollDownload()' "$src/UpdateActivity.java"
+need 'waiting_install_permission' "$src/UpdateActivity.java"
+need 'if (!resumed) return' "$src/UpdateActivity.java"
+need 'code != expectedVersion' "$src/UpdateActivity.java"
+
+# Concentrated regression: identity, optional vendor permission evidence and release promotion.
+need 'requireShellIdentity(PrivKitShell.execute(context, "id"), false)' "$src/PrivilegeAccess.java"
+need 'vivoPermissionResult(activity, "AUTO_START")' "$src/BackgroundSettings.java"
+need 'getVPTypeId' "$src/BackgroundSettings.java"
+need 'getPermissionResult' "$src/BackgroundSettings.java"
+need 'cmd appops get top.zesun.berryfcm' "$src/AuthActivity.java"
+need 'accepted_run_id' "$root/.github/workflows/build-apk.yml"
+need 'gh run download "$RUN_ID"' "$root/.github/workflows/build-apk.yml"
+need 'Promote existing signed APK' "$root/.github/workflows/build-apk.yml"
+
+need 'PendingIntent.getService(this, 10, reply' "$src/AdbPairingService.java"
+need 'setTimeoutAfter(15000L)' "$src/AdbPairingService.java"
+need 'enableMonitorOnFirstAuthorization()' "$src/AppPrefs.java"
+if grep -q 'Manifest.permission.NEARBY_WIFI_DEVICES' "$src/AuthActivity.java"; then
+  echo 'Do not require nearby WiFi permission for Priv Kit NSD' >&2; exit 1
+fi

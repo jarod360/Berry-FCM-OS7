@@ -35,6 +35,7 @@ public final class FcmMonitorService extends Service {
     private static final int NOTIFICATION_ID = 7212;
     private static final String CHECK = "berryfcm.monitor.check";
     private static final String RECONNECT = "berryfcm.monitor.reconnect";
+    private static final String REFRESH_DISPLAY = "berryfcm.monitor.display";
     private final ScheduledExecutorService worker = Executors.newSingleThreadScheduledExecutor();
     private volatile boolean scheduled;
     private boolean installed;
@@ -55,6 +56,7 @@ public final class FcmMonitorService extends Service {
     private AdbConnectionManager adb;
     private long lastGuardAt;
     private Network observedNetwork;
+    private String lastNotificationText = "";
     private long networkChangedAt;
 
     static boolean start(Context context) { return start(context, null); }
@@ -65,6 +67,7 @@ public final class FcmMonitorService extends Service {
     static void resumeIfNeeded(Context context) {
         AppPrefs prefs = new AppPrefs(context);
         if (!prefs.monitorEnabled() && !prefs.guardEnabled()) return;
+        if (!PrivilegeAccess.canRunInBackground(context)) return;
         long now = SystemClock.elapsedRealtime();
         long age = sampleAgeSeconds(context);
         if (isRunning() && (!prefs.monitorEnabled() || (age >= 0 && age <= 90))) return;
@@ -92,11 +95,23 @@ public final class FcmMonitorService extends Service {
         return lastError(context).isEmpty() ? "后台服务运行中" : "采样失败，后台重试中";
     }
     static void checkNow(Context context) { start(context, CHECK); }
+    static void refreshDisplay(Context context) {
+        if (!isRunning()) return;
+        try { context.startService(new Intent(context, FcmMonitorService.class).setAction(REFRESH_DISPLAY)); }
+        catch (RuntimeException ignored) { /* existing notification remains until next refresh */ }
+    }
     static String manualReconnect(Context context) {
-        start(context, RECONNECT);
-        return "已安排后台检查；仅在确认 FCM 尚未连接时请求恢复，结果见恢复记录";
+        return start(context, RECONNECT)
+                ? "已安排后台检查；仅在确认 FCM 尚未连接时请求恢复，结果见恢复记录"
+                : "未安排重连，请检查监控开关和核心授权";
     }
     private static boolean start(Context context, String action) {
+        AppPrefs prefs = new AppPrefs(context);
+        if ((!prefs.monitorEnabled() && !prefs.guardEnabled())
+                || !PrivilegeAccess.canRunInBackground(context)) {
+            stop(context);
+            return false;
+        }
         Intent intent = new Intent(context, FcmMonitorService.class);
         if (action != null) intent.setAction(action);
         try {
@@ -165,20 +180,57 @@ public final class FcmMonitorService extends Service {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         return new Notification.Builder(this, channel)
                 .setSmallIcon(R.drawable.ic_bf_fcm)
-                .setContentTitle("BerryFCM 后台守护")
-                .setContentText("用户已启用的 FCM 监测与应用守护")
+                .setContentTitle("BerryFCM")
+                .setContentText(notificationText())
+                .setOnlyAlertOnce(true)
                 .setContentIntent(open)
                 .setCategory(Notification.CATEGORY_SERVICE)
                 .setOngoing(true).build();
     }
 
+    private String notificationText() {
+        if (!PrivilegeAccess.readyForUserAction(this)) return "正在恢复授权服务，暂未监控";
+        AppPrefs prefs = new AppPrefs(this);
+        if (!prefs.monitorEnabled()) return "应用守护已开启";
+        long age = sampleAgeSeconds(this);
+        if (age < 0 || age > 90 || !lastError(this).isEmpty()) return "正在检查 FCM 连接";
+        JSONObject data = lastSnapshot(this);
+        if (!"gms".equals(data.optString("fcm_source"))) return "暂时无法确认 FCM 状态";
+        switch (data.optString("fcm_state")) {
+            case "connected": return "FCM 已连接";
+            case "connecting": return "FCM 正在重连";
+            case "disconnected": return "FCM 连接已断开";
+            default: return "FCM 状态未知";
+        }
+    }
+
+    private void refreshNotification() {
+        if (!scheduled) return;
+        String text = notificationText();
+        if (text.equals(lastNotificationText)) return;
+        lastNotificationText = text;
+        getSystemService(NotificationManager.class).notify(NOTIFICATION_ID, notification());
+    }
+
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         AppPrefs prefs = new AppPrefs(this);
-        if (!prefs.monitorEnabled() && !prefs.guardEnabled()) {
+        if (intent != null && REFRESH_DISPLAY.equals(intent.getAction())) {
+            if (scheduled) {
+                startForeground(NOTIFICATION_ID, notification());
+                lastNotificationText = notificationText();
+                return START_STICKY;
+            }
+            stopForeground(STOP_FOREGROUND_REMOVE);
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+        if ((!prefs.monitorEnabled() && !prefs.guardEnabled()) || !PrivilegeAccess.canRunInBackground(this)) {
+            stopForeground(STOP_FOREGROUND_REMOVE);
             stopSelf();
             return START_NOT_STICKY;
         }
         startForeground(NOTIFICATION_ID, notification());
+        lastNotificationText = notificationText();
         boolean firstStart = !scheduled;
         if (firstStart) {
             activeSession = session;
@@ -269,6 +321,7 @@ public final class FcmMonitorService extends Service {
         catch (RuntimeException error) { recordFailure(error); }
         finally {
             if (lock != null && lock.isHeld()) lock.release();
+            if (PrivilegeAccess.canRunInBackground(this)) refreshNotification();
         }
     }
 
@@ -296,7 +349,8 @@ public final class FcmMonitorService extends Service {
     }
     private void runOnce(boolean requested) {
         AppPrefs p = new AppPrefs(this);
-        if (!p.monitorEnabled() && !p.guardEnabled()) {
+        if ((!p.monitorEnabled() && !p.guardEnabled()) || !PrivilegeAccess.canRunInBackground(this)) {
+            stopForeground(STOP_FOREGROUND_REMOVE);
             stopSelf();
             return;
         }
@@ -351,7 +405,13 @@ public final class FcmMonitorService extends Service {
                 || now - lastGuardAt >= TimeUnit.MINUTES.toMillis(5))) {
             lastGuardAt = now;
             try {
-                String report = execute(p, p.mode(), GuardOps.command(p.guardTargets(), true));
+                StringBuilder reports = new StringBuilder();
+                String mode = p.mode();
+                for (String command : GuardOps.commandBatches(p.guardTargets(), true)) {
+                    if (!p.guardEnabled() || !mode.equals(p.mode())) break;
+                    reports.append(execute(p, mode, command)).append("\n");
+                }
+                String report = reports.toString().trim();
                 if (report.contains("|restored")) {
                     report += "\n已修复应用，已请求 GMS 心跳（非连接成功证明）：\n"
                             + execute(p, p.mode(), GuardOps.heartbeatCommand());
@@ -360,7 +420,8 @@ public final class FcmMonitorService extends Service {
                         .putString("report", report).putLong("last_run", System.currentTimeMillis()).apply();
             } catch (Exception error) {
                 getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE).edit()
-                        .putString("report", "守护检查未执行：" + safeError(error)).apply();
+                        .putString("report", "守护检查未执行：" + safeError(error))
+                        .putLong("last_run", System.currentTimeMillis()).apply();
             }
         }
     }
@@ -567,6 +628,7 @@ public final class FcmMonitorService extends Service {
             catch (RuntimeException ignored) { }
         }
         worker.shutdownNow();
+        stopForeground(STOP_FOREGROUND_REMOVE);
         super.onDestroy();
     }
     @Override public IBinder onBind(Intent intent) { return null; }
