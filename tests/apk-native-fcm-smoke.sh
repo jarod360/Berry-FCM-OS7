@@ -38,6 +38,12 @@ if [ -n "${MCS_AM_CONNECTED_FIXTURE:-}" ]; then
     cp "$MCS_AM_CONNECTED_FIXTURE" "$MCS_FIXTURE"
 fi
 MOCK
+cat > "$TMP/bin/id" <<'MOCK'
+#!/bin/sh
+if [ "$*" = "-u" ]; then
+    if [ "${BERRY_FCM_ADB_SHELL:-0}" = 1 ]; then echo 2000; else echo 0; fi
+else /usr/bin/id "$@"; fi
+MOCK
 cat > "$TMP/bin/date" <<'MOCK'
 #!/bin/sh
 if [ "$*" = '+%s' ]; then cat "$MCS_CLOCK"; else /bin/date "$@"; fi
@@ -227,6 +233,7 @@ j="$(run snapshot)"; assert_json "$j" fcm_native_duration=-1
 assert_json "$j" fcm_recovery_decision=waiting_duration
 settime 14015
 run monitor; requests 1
+test "$(cat "$MCS_AM_LOG")" = 'broadcast --user 0 -a com.google.android.intent.action.MCS_HEARTBEAT -p com.google.android.gms'
 j="$(run snapshot)"; assert_json "$j" fcm_last_result=requested
 assert_json "$j" fcm_recovery_decision=requested
 assert_json "$j" fcm_observed_down_seconds=15
@@ -245,7 +252,7 @@ run monitor; requests 1
 settime 14440
 run monitor; requests 2
 j="$(run snapshot)"; assert_json "$j" fcm_recovery_decision=requested
-# A newly observed online result during confirmation cancels GCM_RECONNECT.
+# A newly observed online result during confirmation cancels the heartbeat request.
 settime 14740
 export MCS_NEXT_FIXTURE="$TMP/next-dump"
 printf '%s\n' 'DeviceID: [fixture]' 'connected=mtalk.google.com/142.250.157.188,port=5228' 'connectTime=00:02/00:00' > "$MCS_NEXT_FIXTURE"
@@ -271,6 +278,17 @@ j="$(run snapshot)"; assert_json "$j" fcm_recovery_decision=gms_stopped_unknown
 unset MCS_STOPPED
 echo 'PASS: untimed FCM down, third-party shell, suspend restoration, reconnect timer reset, interrupted confirmation and stopped GMS'
 
+
+# Non-root command result alone does not prove delivery or restoration.
+# Second eligible attempt during an ongoing outage uses the alternate exported action.
+settime 15760
+run monitor; requests 4
+test "$(tail -n 1 "$MCS_AM_LOG")" = 'broadcast --user 0 -a com.google.android.gms.gcm.ACTION_HEARTBEAT_NOW -p com.google.android.gms'
+! grep -q GCM_RECONNECT "$MCS_AM_LOG"
+j="$(run snapshot)"
+assert_json "$j" fcm_last_result=requested
+assert_json "$j" fcm_state=connecting
+echo 'PASS: UID2000 only selects exported heartbeat actions, no private GCM_RECONNECT, no false restoration'
 # Root-mode regression: exactly the command proved effective on the device.
 # Do not infer success from am exit/result alone: require the next native read.
 unset BERRY_FCM_ADB_SHELL
