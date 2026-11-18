@@ -392,3 +392,31 @@ need 'setColor(android.graphics.Color.WHITE)' "$src/AdbPairingService.java"
 if grep -q 'readAutoStartPermission\|厂商权限检测诊断\|监控通知低干扰模式' "$src/AuthActivity.java"; then
   echo 'Misleading OEM status or excessive notification UI remains' >&2; exit 1
 fi
+
+# Reject launcher images that aapt can package but Android cannot decode at runtime.
+# Verify PNG checksum, compressed pixels, and a visible blue foreground.
+python3 - "$root/app/src/main/res/drawable-nodpi/berry_launcher_selected.png" <<'PY_ICON'
+import struct, sys, zlib
+data = open(sys.argv[1], "rb").read()
+assert data[:8] == b"\x89PNG\r\n\x1a\n", "launcher image must be PNG"
+pos, image_data, dimensions, ended = 8, bytearray(), None, False
+while pos + 12 <= len(data):
+    size = struct.unpack(">I", data[pos:pos + 4])[0]
+    name = data[pos + 4:pos + 8]
+    payload = data[pos + 8:pos + 8 + size]
+    check = struct.unpack(">I", data[pos + 8 + size:pos + 12 + size])[0]
+    assert zlib.crc32(name + payload) & 0xffffffff == check, "invalid PNG chunk CRC"
+    if name == b"IHDR":
+        dimensions = struct.unpack(">II", payload[:8])
+    if name == b"IDAT":
+        image_data.extend(payload)
+    pos += size + 12
+    if name == b"IEND":
+        ended = True
+        break
+assert ended and pos == len(data), "truncated PNG"
+assert dimensions == (192, 192), "unexpected launcher dimensions"
+assert len(zlib.decompress(image_data)) > 192 * 192, "empty launcher image"
+assert len(data) > 2500, "launcher artwork missing"
+print("PASS: launcher PNG decoded (192x192, valid chunks and pixels)")
+PY_ICON
