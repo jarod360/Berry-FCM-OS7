@@ -268,9 +268,11 @@ run monitor; requests 2
 settime 15100
 run monitor; requests 3
 # A full minute of unchanged Connecting state is enough for the first request.
+j="$(run snapshot)"; assert_json "$j" fcm_recovery_decision=requested
 settime 15160
 run monitor; requests 3
-j="$(run snapshot)"; assert_json "$j" fcm_recovery_decision=requested
+# Once requested, the retry cooldown prevents repeating the heartbeat.
+j="$(run snapshot)"; assert_json "$j" fcm_recovery_decision=cooldown
 # Explicit stopped state must not be overridden, even with down evidence.
 settime 15460
 export MCS_STOPPED=true
