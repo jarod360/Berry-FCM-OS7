@@ -385,3 +385,13 @@ alpha.46（#44228259741）已通过 API 37.0 SDK 安装、依赖解析、原生�
 ### OriginOS 7 真机对照：广播未投递（2026-11-18）
 
 alpha.54 Shizuku UserService 实际 UID2000；前台 FcmMonitorService 正常，原生 GMS 状态为 Not connected。14:47:54 自动及 14:50:36 手动 GCM_RECONNECT 均写 requested，但系统广播摘要 enqueue=当时时间、dispatch=1970-01-01、finish=enqueue，无实际分发证据。14:55:02 Termux Root UID0 发同一 action，系统记录 DELIVERED 到 GMS UID10200，3ms 内投递，14:55:04 原生 connected=mtalk.google.com/108.177.98.188,port=5228，随后持续连接。确认当时网络可达，不能把 am result=0 当作接收成功。Shell 未分发的具体原因尚待检查动态接收器 requiredPermission/exported 及系统 Permission Denial/skip 日志；不能认定所有 Android 均需 Root，也不应绕过接收器安全边界。当前设备可通过现有 Root 模式（用户明确授权）验证闭环。另有 12841 秒及 136 秒采样间隔和 Vivo freeze 记录，应单独处理。当前未构建或发布新 APK。
+
+
+### 2026-11-18 15:29 手机真实非 Root ADB 对照
+
+Termux 本机无线 ADB 配对通过，id=2000(shell)，SELinux u:r:shell:s0，GMS 当前连接 mtalk:5228（初始 connectTime 18:50）。
+- 15:29:12.499 GCM_RECONNECT：caller uid=2000，SKIPPED，Exported Denial，receiver not specifying RECEIVER_EXPORTED。result=0 不代表投递。
+- 15:29:17.689 MCS_HEARTBEAT：caller uid=2000，DELIVERED，GMS UID10200。
+- 15:29:22.850 ACTION_HEARTBEAT_NOW：caller uid=2000，DELIVERED，同一 BroadcastFilter 4558867。
+
+三条请求前后 GMS 一直已连接；仅证实后两条投递，不证实断联恢复。后续须在真实断联下独立验证、读取原生连接，不使用 Root。开发分支 54b9e849 按真实 UID 分流：2000 首次 MCS_HEARTBEAT、后续交替 ACTION_HEARTBEAT_NOW；0 保留可选恢复。测试 cd1301bf 覆盖两条 Shell 指令、停止使用私有重连广播和避免虚假成功。验证分支 ea745402 已提交检查，不发布。非 Root 实机恢复结论仍待验证。

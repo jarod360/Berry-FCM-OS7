@@ -252,7 +252,13 @@ need 'createAuxiliaryPermissions()' "$src/AuthActivity.java"
 need 'refreshAuxiliaryPermissions()' "$src/AuthActivity.java"
 need 'BackgroundSettings.associatedStart(this)' "$src/AuthActivity.java"
 need 'BackgroundSettings.powerSettings(this)' "$src/AuthActivity.java"
-need 'FcmMonitorService.refreshDisplay(this)' "$src/AuthActivity.java"
+need 'BackgroundSettings.monitorNotifications(this)' "$src/AuthActivity.java"
+need 'FcmMonitorService.monitorChannelId(activity)' "$src/BackgroundSettings.java"
+need 'sampleElapsed >= checkStarted' "$src/FcmMonitorService.java"
+need 'reconnectQueued.set(false)' "$src/FcmMonitorService.java"
+if grep -qE 'prefs\.quietMonitor\(enabled\)|FcmMonitorService\.refreshDisplay' "$src/AuthActivity.java"; then
+    echo 'Monitoring notification settings must not switch channels or start foreground service'; exit 1
+fi
 if grep -nE 'BackgroundSettings\.(batteryExempt|originAutoStartStatus|backgroundRestriction|monitorNotificationStatus)|FcmTileService\.(offered|displayStatus)|areNotificationsEnabled' "$src/PrivilegeAccess.java" "$src/FcmMonitorService.java" "$src/BootReceiver.java"; then
   echo 'Optional system permissions must not block background task execution' >&2; exit 1
 fi
@@ -291,6 +297,10 @@ need 'finally { syncingSwitches = previous; }' "$src/Ui.java"
 need 'watchFuture.cancel(true)' "$src/GuardActivity.java"
 need 'runSafe(manual)' "$src/FcmMonitorService.java"
 need 'guardKey.equals(p.connectionKey())' "$src/FcmMonitorService.java"
+need 'manualReconnectInternal(requestedKey, requestedMode)' "$src/FcmMonitorService.java"
+need 'guardTargets.equals(lastGuardTargets)' "$src/FcmMonitorService.java"
+need 'verifyGuardSelection(key, targets)' "$src/GuardActivity.java"
+need 'FcmMonitorService.resumeIfNeeded(this)' "$src/GuardActivity.java"
 need 'tileRequestPending' "$src/AuthActivity.java"
 need 'permissionWorker.shutdownNow()' "$src/AuthActivity.java"
 status_classes="$(mktemp -d)"

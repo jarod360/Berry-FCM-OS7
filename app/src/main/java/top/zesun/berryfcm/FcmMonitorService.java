@@ -35,7 +35,6 @@ public final class FcmMonitorService extends Service {
     private static final int NOTIFICATION_ID = 7212;
     private static final String CHECK = "berryfcm.monitor.check";
     private static final String RECONNECT = "berryfcm.monitor.reconnect";
-    private static final String REFRESH_DISPLAY = "berryfcm.monitor.display";
     private final ScheduledExecutorService worker = Executors.newSingleThreadScheduledExecutor();
     private volatile boolean scheduled;
     private boolean installed;
@@ -59,6 +58,8 @@ public final class FcmMonitorService extends Service {
     private int newestStartId;
     private AdbConnectionManager adb;
     private long lastGuardAt;
+    private String lastGuardKey = "";
+    private java.util.Set<String> lastGuardTargets = java.util.Collections.emptySet();
     private Network observedNetwork;
     private String lastNotificationText = "";
     private long networkChangedAt;
@@ -101,10 +102,23 @@ public final class FcmMonitorService extends Service {
         return "后台服务运行中";
     }
     static void checkNow(Context context) { start(context, CHECK); }
-    static void refreshDisplay(Context context) {
-        if (!isRunning()) return;
-        try { context.startService(new Intent(context, FcmMonitorService.class).setAction(REFRESH_DISPLAY)); }
-        catch (RuntimeException ignored) { /* existing notification remains until next refresh */ }
+    // Preserve the previously selected notification channel across upgrades.
+    // Never switch to a different channel to evade a user's notification setting.
+    static String monitorChannelId(Context context) {
+        return new AppPrefs(context).quietMonitor() ? QUIET_CHANNEL : CHANNEL;
+    }
+
+    static void ensureMonitorChannel(Context context) {
+        NotificationManager manager = context.getSystemService(NotificationManager.class);
+        if (manager == null) return;
+        String id = monitorChannelId(context);
+        if (manager.getNotificationChannel(id) == null) {
+            NotificationChannel channel = new NotificationChannel(id,
+                    QUIET_CHANNEL.equals(id) ? "FCM 静音监测" : "FCM 后台监测",
+                    NotificationManager.IMPORTANCE_LOW);
+            channel.setSound(null, null);
+            manager.createNotificationChannel(channel);
+        }
     }
     static String manualReconnect(Context context) {
         return start(context, RECONNECT)
@@ -190,19 +204,12 @@ public final class FcmMonitorService extends Service {
 
     @Override public void onCreate() {
         super.onCreate();
-        NotificationManager manager = getSystemService(NotificationManager.class);
-        NotificationChannel active = new NotificationChannel(CHANNEL,
-                "FCM 后台监测", NotificationManager.IMPORTANCE_LOW);
-        manager.createNotificationChannel(active);
-        NotificationChannel quiet = new NotificationChannel(QUIET_CHANNEL,
-                "FCM 静音监测", NotificationManager.IMPORTANCE_LOW);
-        quiet.setSound(null, null);
-        manager.createNotificationChannel(quiet);
+        ensureMonitorChannel(this);
         startForeground(NOTIFICATION_ID, notification());
         registerResumeTriggers();
     }
     private Notification notification() {
-        String channel = new AppPrefs(this).quietMonitor() ? QUIET_CHANNEL : CHANNEL;
+        String channel = monitorChannelId(this);
         PendingIntent open = PendingIntent.getActivity(this, 0,
                 new Intent(this, MainActivity.class),
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
@@ -238,15 +245,6 @@ public final class FcmMonitorService extends Service {
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         newestStartId = startId;
         AppPrefs prefs = new AppPrefs(this);
-        if (intent != null && REFRESH_DISPLAY.equals(intent.getAction())) {
-            if (scheduled) {
-                startForeground(NOTIFICATION_ID, notification());
-                lastNotificationText = notificationText();
-                return START_STICKY;
-            }
-            stopIfIneligible(startId);
-            return START_NOT_STICKY;
-        }
         if ((!prefs.monitorEnabled() && !prefs.guardEnabled()) || !PrivilegeAccess.canRunInBackground(this)) {
             stopIfIneligible(startId);
             return START_NOT_STICKY;
@@ -268,11 +266,23 @@ public final class FcmMonitorService extends Service {
         String action = intent == null ? null : intent.getAction();
         if (CHECK.equals(action) && !firstStart) queueCheck(true);
         if (RECONNECT.equals(action) && reconnectQueued.compareAndSet(false, true)) {
-            saveManualResult(prefs.connectionKey(), "正在读取 GMS 并检查重连条件…");
-            worker.execute(() -> {
-                try { manualReconnectInternal(); }
-                finally { reconnectQueued.set(false); }
-            });
+            final String requestedKey = prefs.connectionKey();
+            final String requestedMode = prefs.mode();
+            saveManualResult(requestedKey, "正在读取 GMS 并检查重连条件…");
+            try {
+                worker.execute(() -> {
+                    try { manualReconnectInternal(requestedKey, requestedMode); }
+                    finally {
+                        String pending = manualReconnectResult(this);
+                        if (pending.startsWith("正在读取"))
+                            saveManualResult(requestedKey, "本次重连已结束，未确认执行结果");
+                        reconnectQueued.set(false);
+                    }
+                });
+            } catch (RejectedExecutionException error) {
+                reconnectQueued.set(false);
+                saveManualResult(requestedKey, "未执行：后台服务正在停止");
+            }
         }
         return START_STICKY;
     }
@@ -449,23 +459,33 @@ public final class FcmMonitorService extends Service {
             }
         }
         long now = SystemClock.elapsedRealtime();
-        if (p.guardEnabled() && (lastGuardAt == 0 || now < lastGuardAt
-                || now - lastGuardAt >= TimeUnit.MINUTES.toMillis(5))) {
+        String guardKey = p.connectionKey();
+        java.util.Set<String> guardTargets = p.guardTargets();
+        if (!p.guardEnabled()) {
+            lastGuardAt = 0;
+        } else if (!guardKey.equals(lastGuardKey) || !guardTargets.equals(lastGuardTargets)
+                || lastGuardAt == 0 || now < lastGuardAt
+                || now - lastGuardAt >= TimeUnit.MINUTES.toMillis(5)) {
             lastGuardAt = now;
+            lastGuardKey = guardKey;
+            lastGuardTargets = new java.util.HashSet<>(guardTargets);
             try {
                 StringBuilder reports = new StringBuilder();
                 String mode = p.mode();
-                String guardKey = p.connectionKey();
-                for (String command : GuardOps.commandBatches(p.guardTargets(), true)) {
-                    if (!scheduled || !p.guardEnabled() || !guardKey.equals(p.connectionKey())) return;
+                for (String command : GuardOps.commandBatches(guardTargets, true)) {
+                    if (!scheduled || !p.guardEnabled() || !guardKey.equals(p.connectionKey())
+                            || !guardTargets.equals(p.guardTargets())) return;
                     reports.append(execute(p, mode, command)).append("\n");
                 }
-                if (!scheduled || !p.guardEnabled() || !guardKey.equals(p.connectionKey())) return;
+                if (!scheduled || !p.guardEnabled() || !guardKey.equals(p.connectionKey())
+                        || !guardTargets.equals(p.guardTargets())) return;
                 String report = reports.toString().trim();
                 if (report.contains("|restored")) {
                     report += "\n已修复应用，已请求 GMS 心跳（非连接成功证明）：\n"
                             + execute(p, mode, GuardOps.heartbeatCommand());
                 }
+                if (!scheduled || !p.guardEnabled() || !guardKey.equals(p.connectionKey())
+                        || !guardTargets.equals(p.guardTargets())) return;
                 getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE).edit()
                         .putString("report", report).putLong("last_run", System.currentTimeMillis()).apply();
             } catch (Exception error) {
@@ -478,19 +498,24 @@ public final class FcmMonitorService extends Service {
         }
     }
 
-    private void manualReconnectInternal() {
+    private void manualReconnectInternal(String key, String mode) {
         AppPrefs p = new AppPrefs(this);
         if (!scheduled || !session.equals(activeSession) || !p.monitorEnabled()
-                || !PrivilegeAccess.canRunInBackground(this)) return;
-        String mode = p.mode();
-        String key = p.connectionKey();
+                || !key.equals(p.connectionKey()) || !mode.equals(p.mode())
+                || !PrivilegeAccess.canRunInBackground(this)) {
+            saveManualResult(key, "未执行：监控已关闭或核心授权暂不可用");
+            return;
+        }
         try {
             if (!installed || !key.equals(installedMode)) {
                 installScript(p, mode);
                 installed = true;
                 installedMode = key;
             }
-            if (!scheduled || !p.monitorEnabled() || !key.equals(p.connectionKey())) return;
+            if (!scheduled || !p.monitorEnabled() || !key.equals(p.connectionKey())) {
+                saveManualResult(key, "未执行：监控或授权方式已变化");
+                return;
+            }
             String prefix = monitorPrefix(p, mode);
             String result = execute(p, mode, prefix + "reconnect >/dev/null || exit 9; "
                     + "echo BERRY_MANUAL_RESULT; " + prefix + "snapshot");
@@ -500,7 +525,7 @@ public final class FcmMonitorService extends Service {
             String decision = reply.optString("fcm_recovery_decision");
             String message;
             switch (decision) {
-                case "requested": message = "广播已返回，尚未确认 FCM 恢复"; break;
+                case "requested": message = "广播命令已返回，未确认投递或 FCM 恢复"; break;
                 case "request_failed": message = "广播请求失败，请查看恢复记录中的 UID 和错误"; break;
                 case "cooldown": message = "未发送广播：距上次请求不足60秒"; break;
                 case "gms_stopped_unknown": message = "未发送广播：GMS 停止状态未通过检查"; break;
@@ -511,9 +536,11 @@ public final class FcmMonitorService extends Service {
             }
             saveManualResult(key, message);
             if (key.equals(p.connectionKey())) {
+                long checkStarted = SystemClock.elapsedRealtime();
                 runSafe(true);
                 JSONObject latest = lastSnapshot(this);
-                if (key.equals(p.connectionKey()) && "gms".equals(latest.optString("fcm_source"))
+                long sampleElapsed = getSharedPreferences(SNAPSHOT, MODE_PRIVATE).getLong("sample_elapsed", -1);
+                if (sampleElapsed >= checkStarted && key.equals(p.connectionKey()) && "gms".equals(latest.optString("fcm_source"))
                         && "connected".equals(latest.optString("fcm_state"))
                         && sampleAgeSeconds(this) >= 0 && sampleAgeSeconds(this) <= 90
                         && currentError(this).isEmpty()) {

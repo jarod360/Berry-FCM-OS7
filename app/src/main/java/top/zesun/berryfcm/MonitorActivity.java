@@ -214,11 +214,13 @@ public final class MonitorActivity extends Ui {
     private String recoveryDecision(JSONObject j, int retryIn) {
         switch (j.optString("fcm_recovery_decision", "")) {
             case "gms_stopped_unknown": return "GMS 停止状态未通过检查，未发送请求";
-            case "requested": return "已请求 GMS 重连，等待原生确认";
+            case "requested": return "命令已返回，等待原生连接确认";
             case "request_failed": return "重连请求失败，见恢复记录";
             case "confirmation_changed": return "第二次检查状态变化，暂不干预";
-            case "cooldown": return "请求冷却约 " + retryIn + " 秒";
+            case "cooldown": return "等待下次恢复 · 约 " + retryIn + " 秒";
             case "waiting_confirmation": return "等待第二次原生检查";
+            case "disabled": return "自动恢复已关闭";
+            case "network_gate": return "等待网络恢复或切换稳定";
             case "waiting_duration":
                 long seconds = j.optLong("fcm_observed_down_seconds", -1);
                 return "尚未达到恢复条件" + (seconds < 0 ? "" : "（本轮已观察 " + seconds + " 秒）");
@@ -227,7 +229,7 @@ public final class MonitorActivity extends Ui {
     }
     private String recoveryLabel(String value) {
         switch (value) {
-            case "requested": return "请求已提交，尚未确认恢复";
+            case "requested": return "命令已返回，未确认投递或恢复";
             case "failed": return "请求未确认";
             case "restored": return "请求后观察到原生恢复（不证明因果）";
             default: return "尚无请求";
@@ -247,7 +249,7 @@ public final class MonitorActivity extends Ui {
                     : parts[1].equals("gms_failed") ? "连接失败"
                     : parts[1].equals("gms_network_attempt") ? "网络连接尝试"
                     : parts[1].equals("gms_heartbeat_delay") ? "心跳调度延迟"
-                    : parts[1].equals("reconnect_requested") ? "已请求恢复"
+                    : parts[1].equals("reconnect_requested") ? "恢复命令已返回"
                     : parts[1].equals("reconnect_failed") ? "恢复请求失败"
                     : parts[1].equals("recovery_confirmed") ? "休眠后确认仍未连接"
                     : parts[1].equals("connection_down") ? "确认 FCM 已断开"

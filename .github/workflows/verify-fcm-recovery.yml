@@ -1,4 +1,4 @@
-name: Verify recovery and compile (no release)
+name: Verify consolidated monitor and UI changes (no release)
 on:
   push:
     branches: [verify/fcm-recovery]

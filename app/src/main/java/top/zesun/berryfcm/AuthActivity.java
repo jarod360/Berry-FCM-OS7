@@ -157,21 +157,10 @@ public final class AuthActivity extends Ui {
         }, false);
 
         LinearLayout display = card("通知与快捷磁贴", "独立显示选项，不控制后台监控和守护。");
-        monitorNotificationRow = permissionRow(display, "监控通知类别", () -> BackgroundSettings.monitorNotifications(this, prefs.quietMonitor()));
-        android.widget.Switch quiet = new android.widget.Switch(this);
-        quiet.setText("监控通知低干扰模式");
-        quiet.setTextColor(ink);
-        quiet.setMinHeight(dp(48));
-        quiet.setChecked(prefs.quietMonitor());
-        display.addView(quiet);
-        quiet.setOnCheckedChangeListener((v, enabled) -> {
-            if (bindingSwitches()) return;
-            prefs.quietMonitor(enabled);
-            // Update an already running foreground notification, never start or
-            // stop a task merely because the notification preference changed.
-            FcmMonitorService.refreshDisplay(this);
-            refreshAuxiliaryPermissions();
-        });
+        monitorNotificationRow = permissionRow(display, "显示监控通知", () -> BackgroundSettings.monitorNotifications(this));
+        TextView notificationHint = text("点击进入系统通知设置，关闭当前监控通知类别即可减少通知栏显示。不会停止监控，也不影响配对通知。系统仍可能在活动应用中列出前台服务。", 12, false, muted);
+        notificationHint.setPadding(dp(2), 0, dp(2), dp(8));
+        display.addView(notificationHint);
         tileRow = permissionRow(display, "FCM 快捷磁贴", this::addTile);
         removeTileButton = button(display, "移除 FCM 快捷磁贴", () -> {
             if (tileRequestPending) { error("请先完成系统的磁贴添加确认"); return; }
@@ -210,7 +199,7 @@ public final class AuthActivity extends Ui {
         android.app.NotificationManager manager = getSystemService(android.app.NotificationManager.class);
         permissionText(notificationRow, "通知权限", manager == null ? "无法读取" :
                 manager.areNotificationsEnabled() ? "已开启" : "未开启");
-        permissionText(monitorNotificationRow, "监控通知类别", BackgroundSettings.monitorNotificationStatus(this, prefs.quietMonitor()));
+        permissionText(monitorNotificationRow, "显示监控通知", BackgroundSettings.monitorNotificationStatus(this));
         permissionText(tileRow, "FCM 快捷磁贴", FcmTileService.displayStatus(this));
         removeTileButton.setVisibility(FcmTileService.offered(this) ? View.VISIBLE : View.GONE);
     }
@@ -712,7 +701,7 @@ public final class AuthActivity extends Ui {
                 status.setText("授权已失效");
                 status.setTextColor(danger);
                 detail.setText("系统已拒绝原有配对，请重新配对。");
-            } else if (prefs.adbPaired()) {
+            } else if (prefs.adbPaired() || PrivKitShell.hasStoredIdentity(this)) {
                 boolean failed = !PrivKitShell.lastStartupError(this).isEmpty();
                 status.setText(failed ? "服务启动失败" : "服务未启动");
                 detail.setText(failed ? "请重试启动服务，具体原因见下方“查看失败原因”。" : "已有配对记录，请先启动服务。");

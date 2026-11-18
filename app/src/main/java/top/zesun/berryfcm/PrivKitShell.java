@@ -322,7 +322,7 @@ final class PrivKitShell {
         if (!isConnected() || !KIT.pingServer()) {
             // No per-sample ADB fallback, even if the starter is incompatible.
             AppPrefs prefs = new AppPrefs(context);
-            if (AdbPairingService.isPairingActive() || !prefs.adbPaired() || prefs.pairingRejected())
+            if (AdbPairingService.isPairingActive() || (!prefs.adbPaired() && !hasStoredIdentity(context)) || prefs.pairingRejected())
                 throw new IOException("请先完成 ADB 授权");
             if (wirelessDebuggingState(context) == 0)
                 throw new IOException("服务未运行，请开启无线调试后启动服务");

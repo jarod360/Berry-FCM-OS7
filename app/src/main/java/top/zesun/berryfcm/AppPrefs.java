@@ -55,8 +55,8 @@ final class AppPrefs {
     void guardEnabled(boolean value) { p.edit().putBoolean("guard_enabled", value).apply(); }
     boolean startOnBoot() { return p.getBoolean("start_on_boot", true); }
     void startOnBoot(boolean value) { p.edit().putBoolean("start_on_boot", value).apply(); }
+    // Retain legacy channel choice, including existing user channel blocks.
     boolean quietMonitor() { return p.getBoolean("quiet_monitor", true); }
-    void quietMonitor(boolean value) { p.edit().putBoolean("quiet_monitor", value).apply(); }
     boolean hideRecents() { return p.getBoolean("hide_recents", false); }
     void hideRecents(boolean value) { p.edit().putBoolean("hide_recents", value).apply(); }
     boolean showSystemApps() { return p.getBoolean("show_system_apps", false); }
