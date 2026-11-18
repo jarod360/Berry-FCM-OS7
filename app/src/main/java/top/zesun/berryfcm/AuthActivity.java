@@ -75,7 +75,7 @@ public final class AuthActivity extends Ui {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        selected = prefs.authTab();
+        selected = prefs.mode();
         Shizuku.addRequestPermissionResultListener(shizukuPermission);
         title("授权管理", "选择方式，管理启停");
 
@@ -101,6 +101,13 @@ public final class AuthActivity extends Ui {
         stateToggle.setBackground(toggleSurface);
         stateToggle.setOnClickListener(v -> {
             if (checking || PrivKitShell.isStarting() || AdbPairingService.isPairingActive()) return;
+            // The header controls the active transport, not the browsed tab.
+            if (!selected.equals(prefs.mode())) {
+                selected = prefs.mode();
+                prefs.authTab(selected);
+                renderTabs();
+                renderInstructions();
+            }
             if (isSelectedRunning()) stopSelectedService();
             else startSelectedService();
         });
@@ -132,7 +139,7 @@ public final class AuthActivity extends Ui {
         }, false);
 
         LinearLayout chooser = card(null, null);
-        LinearLayout choices = disclosure(chooser, "授权方式与使用说明", false);
+        LinearLayout choices = disclosure(chooser, "更换授权方式 · 配对与高级设置", false);
         tabs = new LinearLayout(this);
         tabs.setOrientation(LinearLayout.VERTICAL);
         choices.addView(tabs);
@@ -195,7 +202,7 @@ public final class AuthActivity extends Ui {
         monitorTip.setPadding(0, dp(6), 0, dp(6));
         display.addView(monitorTip);
         android.widget.Switch quiet = new android.widget.Switch(this);
-        quiet.setText("运行通知静音");
+        quiet.setText("通知不响铃（不影响监控）");
         quiet.setTextColor(ink);
         quiet.setMinHeight(dp(48));
         quiet.setChecked(prefs.quietMonitor());
@@ -208,7 +215,7 @@ public final class AuthActivity extends Ui {
             FcmMonitorService.refreshDisplay(this);
             refreshAuxiliaryPermissions();
         });
-        TextView quietTip = text("仅切换通知提醒方式，监控和保活不会停止。", 12, false, muted);
+        TextView quietTip = text("只是后台运行通知的提醒方式，不是 FCM 工作模式。运行通知和快捷磁贴互不相关。", 12, false, muted);
         display.addView(quietTip);
         tileRow = permissionRow(display, "快捷设置开关（非通知）", this::addTile);
         removeTileButton = button(display, "移除 FCM 快捷磁贴", () -> {
@@ -350,6 +357,8 @@ public final class AuthActivity extends Ui {
 
     private void renderInstructions() {
         instructions.removeAllViews();
+        if (!selected.equals(prefs.mode()) && !AppPrefs.EXTERNAL.equals(selected))
+            button(instructions, "切换并启动 " + methodName(selected), this::startSelectedService, true);
         if (AppPrefs.EXTERNAL.equals(selected)) usb();
         else if (AppPrefs.WIRELESS.equals(selected)) wireless();
         else if (AppPrefs.ROOT.equals(selected)) root();
@@ -368,9 +377,14 @@ public final class AuthActivity extends Ui {
     }
 
     private boolean isSelectedRunning() {
-        if (!selected.equals(prefs.mode()) || prefs.servicePaused(selected)) return false;
-        if (AppPrefs.WIRELESS.equals(selected)) return PrivKitShell.isConnected();
-        if (AppPrefs.SHIZUKU.equals(selected)) return ShizukuShell.isRunning();
+        return selected.equals(prefs.mode()) && isModeRunning(selected);
+    }
+
+    private boolean isModeRunning(String mode) {
+        if (prefs.servicePaused(mode) || !mode.equals(prefs.mode())) return false;
+        if (AppPrefs.WIRELESS.equals(mode)) return PrivKitShell.isConnected();
+        if (AppPrefs.SHIZUKU.equals(mode))
+            return ShizukuShell.isRunning() && ShizukuShell.authorizedUid() >= 0;
         return PrivilegeAccess.readyForUserAction(this);
     }
 
@@ -390,10 +404,11 @@ public final class AuthActivity extends Ui {
         }
         boolean paired = (prefs.adbPaired() || PrivKitShell.hasStoredIdentity(this))
                 && !prefs.pairingRejected();
-        if (!paired) button(instructions, "首次配对", () -> beginPair(0), false);
-        LinearLayout help = disclosure(instructions, paired ? "重新配对" : "配对说明", false);
-        wirelessSteps(help);
-        LinearLayout advanced = disclosure(instructions, "手动连接端口", false);
+        if (paired) stepIn(instructions, "曾经配对",
+                "配对身份已保存，不代表当前服务在线。无法连接时先点启动；只有身份被撤销才需要重新配对。");
+        wirelessSteps(instructions);
+        LinearLayout advanced = disclosure(instructions, "高级设置（手动配对或连接端口）", false);
+        stepFallback(advanced);
         connectPortFallback(advanced);
     }
 
@@ -478,8 +493,7 @@ public final class AuthActivity extends Ui {
     private void wirelessSteps(LinearLayout parent) {
         stepIn(parent, "配对", "打开系统的配对码页面，在通知栏输入六位数字。");
         button(parent, "开始配对", () -> beginPair(0), false);
-        LinearLayout fallback = disclosure(parent, "无法自动发现？", false);
-        stepFallback(fallback);
+        // Optional manual pairing and connection ports share one advanced panel.
     }
 
     private void stepIn(LinearLayout parent, String label, String description) {
@@ -749,8 +763,9 @@ public final class AuthActivity extends Ui {
 
     private void renderStatus() {
         if (status == null) return;
-        detail.setText("来源：" + methodName(selected));
-        if (AppPrefs.EXTERNAL.equals(selected)) {
+        String currentMode = prefs.mode();
+        detail.setText("当前来源：" + methodName(currentMode));
+        if (AppPrefs.EXTERNAL.equals(currentMode)) {
             status.setText("不可直接启动");
             status.setTextColor(muted);
             stateToggle.setImageResource(android.R.drawable.ic_media_play);
@@ -760,11 +775,11 @@ public final class AuthActivity extends Ui {
         }
         boolean busy = checking || PrivKitShell.isStarting()
                 || AdbPairingService.isPairingActive();
-        boolean running = isSelectedRunning();
-        String failure = selectedFailure;
-        if (failure.isEmpty() && selected.equals(prefs.mode()) && !prefs.servicePaused(selected)) {
-            if (AppPrefs.WIRELESS.equals(selected)) failure = PrivKitShell.lastStartupError(this);
-            else if (selected.equals(prefs.shellMode())) failure = prefs.shellError();
+        boolean running = isModeRunning(currentMode);
+        String failure = selected.equals(currentMode) ? selectedFailure : "";
+        if (failure.isEmpty() && !prefs.servicePaused(currentMode)) {
+            if (AppPrefs.WIRELESS.equals(currentMode)) failure = PrivKitShell.lastStartupError(this);
+            else if (currentMode.equals(prefs.shellMode())) failure = prefs.shellError();
         }
         String state = busy ? "处理中" : running ? "已启动"
                 : !failure.isEmpty() ? "启动失败" : "已停止";
@@ -775,13 +790,15 @@ public final class AuthActivity extends Ui {
                 ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play);
         stateToggle.setColorFilter(running ? success : accent);
         stateToggle.setEnabled(!busy);
-        stateToggle.setContentDescription((running ? "停止" : "启动") + methodName(selected));
+        stateToggle.setContentDescription((running ? "停止" : "启动") + methodName(currentMode));
         boolean failed = "启动失败".equals(state);
-        failurePanel.setVisibility(failed ? View.VISIBLE : View.GONE);
-        if (failed) {
-            String singleLine = failure.replace('\n', ' ').replace('\r', ' ').trim();
-            errorSummary.setText(singleLine);
-            errorLog.setText(failure + (AppPrefs.WIRELESS.equals(selected)
+        boolean switchFailed = !selected.equals(currentMode) && !selectedFailure.isEmpty();
+        failurePanel.setVisibility(failed || switchFailed ? View.VISIBLE : View.GONE);
+        if (failed || switchFailed) {
+            String displayed = switchFailed
+                    ? "切换至 " + methodName(selected) + " 失败：" + selectedFailure : failure;
+            errorSummary.setText(displayed.replace('\n', ' ').replace('\r', ' ').trim());
+            errorLog.setText(displayed + (AppPrefs.WIRELESS.equals(switchFailed ? selected : currentMode)
                     ? "\n\n" + PrivKitShell.diagnostic(this) : ""));
         }
     }
