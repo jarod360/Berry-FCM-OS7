@@ -103,10 +103,37 @@ final class AppPrefs {
     }
     /** Pairing identity persists; a 120-second Shell probe is not the authorization itself. */
     boolean adbPaired() {
-        return p.getBoolean("adb_paired", pairingStatus().startsWith("配对成功"));
+        return p.getBoolean("privkit_pairing_history", false);
     }
-    void markAdbPaired() { p.edit().putBoolean("adb_paired", true).apply(); }
-    void clearAdbPaired() { p.edit().putBoolean("adb_paired", false).apply(); }
+    // Historical hint only; current auth requires the upstream ADB check.
+    void markAdbPaired() {
+        p.edit().putBoolean("privkit_pairing_history", true)
+                .putString("privkit_pairing_evidence", "accepted").apply();
+    }
+    void markPairingExchange() {
+        p.edit().putBoolean("privkit_pairing_history", true)
+                .putString("privkit_pairing_evidence", "unverified").apply();
+    }
+    void clearAdbPaired() {
+        p.edit().putBoolean("privkit_pairing_history", false)
+                .putString("privkit_pairing_evidence", "unverified").apply();
+    }
+    void rejectAdbIdentity() {
+        p.edit().putBoolean("privkit_pairing_history", false)
+                .putString("privkit_pairing_evidence", "rejected").apply();
+    }
+    boolean pairingRejected() { return "rejected".equals(p.getString("privkit_pairing_evidence", "")); }
+    void pairingUnavailable() {
+        if (!pairingRejected()) p.edit().putString("privkit_pairing_evidence", "unavailable").apply();
+    }
+    String pairingEvidenceLabel() {
+        switch (p.getString("privkit_pairing_evidence", "")) {
+            case "accepted": return "历史 ADB 认证已通过 · 当前待验证";
+            case "rejected": return "系统拒绝当前密钥 · 需要配对";
+            case "unavailable": return "当前无法验证系统配对";
+            default: return adbPaired() ? "配对交换已完成 · 认证待验证" : "当前身份尚未验证";
+        }
+    }
     String pairingStatus() { return p.getString("pairing_status", "尚未配对"); }
     void pairingStatus(String value) { p.edit().putString("pairing_status", value).apply(); }
 }

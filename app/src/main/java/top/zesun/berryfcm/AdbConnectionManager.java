@@ -5,9 +5,6 @@ import android.os.Build;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
 import androidx.annotation.NonNull;
-import kotlin.coroutines.EmptyCoroutineContext;
-import kotlinx.coroutines.BuildersKt;
-import priv.kit.core.Privilege;
 import io.github.muntashirakon.adb.AbsAdbConnectionManager;
 import io.github.muntashirakon.adb.AdbStream;
 import java.io.ByteArrayOutputStream;
@@ -64,12 +61,7 @@ final class AdbConnectionManager extends AbsAdbConnectionManager {
                     .build();
             generator.initialize(spec);
             generator.generateKeyPair();
-            // The new identity must be paired explicitly; do not claim the prior
-            // v1/v2 identity has authenticated the current TLS client.
-            AppPrefs prefs = new AppPrefs(context);
-            prefs.shellFailed("ADB 身份已更新；请重新进行无线配对");
-            prefs.clearAdbPaired();
-            prefs.pairingStatus("TLS 身份已修复，等待重新配对");
+            // This separate identity is for explicit legacy ADB TCP only.
         }
         privateKey = (PrivateKey) store.getKey(KEY_ALIAS, null);
         certificate = store.getCertificate(KEY_ALIAS);
@@ -80,45 +72,6 @@ final class AdbConnectionManager extends AbsAdbConnectionManager {
     @NonNull @Override protected PrivateKey getPrivateKey() { return privateKey; }
     @NonNull @Override protected Certificate getCertificate() { return certificate; }
     @NonNull @Override protected String getDeviceName() { return "BerryFCM"; }
-
-    synchronized boolean pairLocal(int pairingPort, String code) throws Exception {
-        disconnectSession();
-        try { return pair("127.0.0.1", pairingPort, code); }
-        finally { disconnectSession(); }
-    }
-
-    synchronized boolean autoConnectLocal(Context context) throws Exception {
-        if ("wireless".equals(activeTransport) && isConnected()) return true;
-        disconnectSession();
-        setThrowOnUnauthorised(true);
-        AppPrefs prefs = new AppPrefs(context);
-        int port = prefs.wirelessConnectPort();
-        // The port changes whenever adbd restarts; a manual choice is one-shot.
-        if (port != 0) prefs.wirelessConnectPort(0);
-        if (port == 0) {
-            try {
-                // Use the modern Android NSD implementation in the same Priv Kit
-                // version as GKD. Discovery does not use or replace our ADB key.
-                priv.kit.core.adb.PrivilegeAdbManager discovery =
-                        Privilege.INSTANCE.createAdbManager("BerryFCM");
-                port = BuildersKt.<Integer>runBlocking(EmptyCoroutineContext.INSTANCE,
-                        (scope, continuation) -> {
-                            try { return discovery.discoverConnectPort(15000L, continuation); }
-                            catch (priv.kit.core.PrivilegeStartupException error) {
-                                throw new IllegalStateException(error);
-                            }
-                        });
-            } catch (InterruptedException interrupted) {
-                throw interrupted;
-            } catch (Exception failure) {
-                throw new IOException("未发现本机无线 ADB 连接端口；请打开无线调试，或填写无线调试首页的连接端口（不是配对端口）", failure);
-            }
-        }
-        if (port <= 0 || port > 65535) throw new IOException("无线 ADB 连接端口无效");
-        boolean connected = connect("127.0.0.1", port);
-        if (connected) activeTransport = "wireless";
-        return connected;
-    }
 
     synchronized boolean connectStatic(String host, int port) throws Exception {
         if ("static".equals(activeTransport) && port == staticPort
@@ -142,16 +95,12 @@ final class AdbConnectionManager extends AbsAdbConnectionManager {
     synchronized String executeOnce(Context context, String mode, String host, int port,
             String command) throws Exception {
         try {
-            boolean connected = AppPrefs.WIRELESS.equals(mode)
-                    ? autoConnectLocal(context) : connectStatic(host, port);
+            if (!AppPrefs.STATIC.equals(mode)) throw new IOException("无线 ADB 必须使用 Priv Kit");
+            boolean connected = connectStatic(host, port);
             if (!connected) throw new IOException("ADB 暂未连接");
             String identity = shell("id").trim();
             if (!identity.matches("(?s)^uid=2000(?:\\D.*)?$"))
                 throw new IOException("ADB Shell 身份异常");
-            if (AppPrefs.WIRELESS.equals(mode)) {
-                AppPrefs prefs = new AppPrefs(context);
-                prefs.markAdbPaired();
-            }
             return "id".equals(command) ? identity : shell(command);
         } finally {
             disconnectSession();
