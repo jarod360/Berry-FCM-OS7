@@ -277,8 +277,25 @@ jobs:
           gh run download "$RUN_ID" --repo "$GH_REPO" --name "BerryFCM-v0.1.0-alpha.$number" --dir release
           apk="release/BerryFCM-v0.1.0-alpha.$number.apk"
           test -s "$apk"
+          # A release source snapshot is permitted only if it preserves
+          # the built product tree; its sole difference may be CI workflow files.
+          snapshot="$(gh api "repos/$GH_REPO/git/ref/heads/release/alpha.$number" --jq '.object.sha')"
+          [[ "$snapshot" =~ ^[0-9a-f]{40}$ ]]
+          gh api "repos/$GH_REPO/compare/$sha...$snapshot" > comparison.json
+          jq -e --arg original "$sha" '
+            .merge_base_commit.sha == $original and .ahead_by == 1 and .behind_by == 0
+            and (.files | length) == 1
+            and .files[0].filename == ".github/workflows/build-apk.yml"
+          ' comparison.json >/dev/null
+          # The release target must use precisely the default branch's workflows.
+          gh api "repos/$GH_REPO/contents/.github/workflows?ref=main" | jq -S 'map({path,sha}) | sort_by(.path)' > main-workflows.json
+          gh api "repos/$GH_REPO/contents/.github/workflows?ref=$snapshot" | jq -S 'map({path,sha}) | sort_by(.path)' > release-workflows.json
+          diff -u main-workflows.json release-workflows.json
+          echo "Original APK build commit: $sha"
+          echo "Release source snapshot (only CI differs): $snapshot"
           echo "number=$number" >> "$GITHUB_OUTPUT"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "release_sha=$snapshot" >> "$GITHUB_OUTPUT"
           echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
       - name: Verify exact APK package version and fixed certificate
         env:
@@ -298,13 +315,11 @@ jobs:
           grep -F "package: name='top.zesun.berryfcm' versionCode='${BUILD_NUMBER}'" badging.txt
       - name: Create GitHub prerelease from original verified APK
         env:
-          # A target with workflow differences from main requires Workflows:write.
-          # GITHUB_TOKEN cannot receive that permission; use the owner's scoped
-          # release token here only, never during signing or building.
-          GH_TOKEN: ${{ secrets.BERRYFCM_RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           BUILD_NUMBER: ${{ steps.accepted.outputs.number }}
-          TARGET_SHA: ${{ steps.accepted.outputs.sha }}
+          TARGET_SHA: ${{ steps.accepted.outputs.release_sha }}
+          BUILD_SHA: ${{ steps.accepted.outputs.sha }}
           RUN_ID: ${{ steps.accepted.outputs.run_id }}
         run: |
           set -Eeuo pipefail
@@ -314,7 +329,7 @@ jobs:
           cp "$apk" "$legacy"
           gh release create "$tag" "$apk" "$legacy" --target "$TARGET_SHA" --prerelease --latest=false \
             --title "BerryFCM Guardian ${tag}" \
-            --notes "Fixed-signature prerelease from the original successful Actions run $RUN_ID. See docs/HANDOFF.md for device validation. Prerelease is not a stable release."
+            --notes "Fixed-signature test APK from Actions run $RUN_ID, original build commit $BUILD_SHA. Tag points to release source snapshot $TARGET_SHA: identical application and other source files; only the CI workflow matches main. Original APK bytes, signature and version unchanged. Prerelease is not a stable release."
 
       - name: Record promotion result
         if: always()
@@ -386,10 +401,7 @@ jobs:
           grep -F "package: name='top.zesun.berryfcm' versionCode='${BUILD_NUMBER}'" badging.txt
       - name: Create GitHub prerelease from original verified APK
         env:
-          # A target with workflow differences from main requires Workflows:write.
-          # GITHUB_TOKEN cannot receive that permission; use the owner's scoped
-          # release token here only, never during signing or building.
-          GH_TOKEN: ${{ secrets.BERRYFCM_RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           BUILD_NUMBER: ${{ github.run_number }}
           TARGET_SHA: ${{ github.sha }}
