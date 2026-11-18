@@ -558,3 +558,10 @@ alpha.46（#44228259741）已通过 API 37.0 SDK 安装、依赖解析、原生�
 - 发布后仅继续开发分支，不重复发布：fa6d23e 修复手动重连未完成状态和新的采样时间要求；b2bf7c3 去掉重复心跳/未确认的 GcmSenderProxy；f536f02 管理实际系统监控通知类别，延续旧渠道 ID 和用户关闭设置，不再通过切换渠道或启动服务控制显示；51aa212 固定手动任务授权身份，守护列表/连接方式变化后立即在下一轮重新检查，交互和定时守护均检查目标并在解除停止后请求一次心跳；ad1d2b2 和 9fb11ac 隔离通知刷新异常、修复已结束 periodic future 可重新建立、限定主用户 GMS UID 和准确包名。通知和辅助授权不阻断监控。系统活动应用仍可显示 FGS，不能由使用者的通知设置保证系统界面全部隐藏。
 - [#44260473364](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44260473364) 已确认 post-alpha58 第一批 Shell/模块回归通过，查询时 Android 编译仍执行中；之后的通知异常和多用户修复需要针对最新提交的回归。
 - 继续保留未验收事项：内置 ADB 首次配对/发现、重启及撤销配对实际状态、断开无线调试后 Binder 存活、心跳触发真实 FCM 恢复、锁屏休眠实际持续工作、OriginOS 厂商权限差分回读、应用内固定签名覆盖升级。不能把模拟、源码检查、已连接时广播投递或 Root 结果替代非 Root 设备验收。无须等真机才能继续其它开发，但不可声称实机结论已经获得。
+
+### 2026-11-18 16:xx 内置无线 ADB 自动发现专项（尚未编译、未在手机通过）
+- 实机截图：`_adb-tls-connect._tcp: 7`。Android 37 的 `NsdManager.FAILURE_PERMISSION_DENIED=7` 表示服务发现调用被拒绝，尚不能认定 ADB 密钥或 Shell 握手失败。安卓官方文档明确 targetSdk≤36 原则上由 `INTERNET` 隐式放行局域网，因此不能简单归因为一定缺少新权限；当前 APK targetSdk=35。源码入口按 Priv Kit v0.20.0 `PrivilegeUiLocalNetworkPermission.kt`：API≥37 时实际检查 `ACCESS_LOCAL_NETWORK`，拒绝则在启动/配对前主动请求，不改变 targetSdk、不增加新后台服务。
+- 端口发现出现 NSD 拒绝时立即结束本轮监听并记录具体错误，不再把“被拒绝”当成“无服务”而要求手动端口。已有配对身份不被发现失败清除；成功后仍由 `Privilege.startAdb` 内置 mDNS 自动发现连接端口、校验 UID2000 Binder + Shell id。
+- 用户正在尝试的授权标签由 `auth_tab` 保存；与实际生效的 `mode` 分离。无线失败退出再进入保持无线页面，不自动跳到旧 Shizuku 页，也不把 Shizuku 已授权当成 BerryFCM 内置无线 ADB 已成功。
+- 本批 4 处 Java 源码变更提交到 `dev/native-fcm-state`，补静态门槛；无 GitHub Actions APK 构建/签名，也无目标手机授权成功证据。下一步先检查回归、合并需要的修复后统一 CI，再实机核验 NSD 许可状态→配对端口→连接端口→ADB 身份→Binder→`id`。
+- 参考：https://developer.android.com/privacy-and-security/local-network-permission 、https://developer.android.com/reference/android/net/nsd/NsdManager 、https://github.com/priv-kit/priv-kit/blob/v0.20.0/priv-ui/src/androidMain/kotlin/priv/kit/ui/adb/PrivilegeUiLocalNetworkPermission.kt
