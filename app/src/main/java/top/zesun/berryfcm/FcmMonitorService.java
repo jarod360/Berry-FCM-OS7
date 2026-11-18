@@ -7,6 +7,8 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.net.ConnectivityManager;
+import android.net.Network;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.SystemClock;
@@ -18,6 +20,7 @@ import java.nio.file.Files;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.json.JSONObject;
 
 /** Foreground monitoring runs independently of activities; all shell writes are serialized. */
@@ -30,15 +33,19 @@ public final class FcmMonitorService extends Service {
     private static final String RECONNECT = "berryfcm.monitor.reconnect";
     private final ScheduledExecutorService worker = Executors.newSingleThreadScheduledExecutor();
     private boolean scheduled, installed;
+    private final AtomicBoolean checkQueued = new AtomicBoolean();
+    private final AtomicBoolean reconnectQueued = new AtomicBoolean();
     private String installedMode;
     private AdbConnectionManager adb;
     private long lastGuardAt;
+    private Network observedNetwork;
+    private long networkChangedAt;
 
     static void start(Context context) { start(context, null); }
     static void checkNow(Context context) { start(context, CHECK); }
     static String manualReconnect(Context context) {
         start(context, RECONNECT);
-        return "已提交重连请求；请等待后台事件记录，广播完成不代表 FCM 已恢复";
+        return "已安排后台检查；仅在确认 FCM 尚未连接时请求恢复，结果见恢复记录";
     }
     private static void start(Context context, String action) {
         Intent intent = new Intent(context, FcmMonitorService.class);
@@ -62,6 +69,9 @@ public final class FcmMonitorService extends Service {
     }
     static String lastEvents(Context context) {
         return context.getSharedPreferences(SNAPSHOT, MODE_PRIVATE).getString("events", "");
+    }
+    static String lastRecoveryEvents(Context context) {
+        return context.getSharedPreferences(SNAPSHOT, MODE_PRIVATE).getString("recovery_events", "");
     }
     static String lastError(Context context) {
         return context.getSharedPreferences(SNAPSHOT, MODE_PRIVATE).getString("error", "");
@@ -109,18 +119,51 @@ public final class FcmMonitorService extends Service {
             return START_NOT_STICKY;
         }
         startForeground(NOTIFICATION_ID, notification());
-        if (!scheduled) {
+        boolean firstStart = !scheduled;
+        if (firstStart) {
             getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
                     .putLong("service_start_time", System.currentTimeMillis()).apply();
             scheduled = true;
-            worker.scheduleWithFixedDelay(this::runOnce, 0, 15, TimeUnit.SECONDS);
+            worker.scheduleWithFixedDelay(this::runSafe, 0, 15, TimeUnit.SECONDS);
         }
         String action = intent == null ? null : intent.getAction();
-        if (CHECK.equals(action)) worker.execute(this::runOnce);
-        if (RECONNECT.equals(action)) worker.execute(this::manualReconnectInternal);
+        if (CHECK.equals(action) && !firstStart && checkQueued.compareAndSet(false, true)) {
+            worker.execute(() -> {
+                try { runSafe(); }
+                finally { checkQueued.set(false); }
+            });
+        }
+        if (RECONNECT.equals(action) && reconnectQueued.compareAndSet(false, true)) {
+            worker.execute(() -> {
+                try { manualReconnectInternal(); }
+                finally { reconnectQueued.set(false); }
+            });
+        }
         return START_STICKY;
     }
 
+    private void runSafe() {
+        try { runOnce(); }
+        catch (RuntimeException error) {
+            getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
+                    .putString("error", safeError(error))
+                    .putString("attempt_state", "failed").apply();
+            installed = false;
+        }
+    }
+
+    static String describeNativeReason(String value) {
+        switch (value) {
+            case "permission_denied": return "当前 Shell 无权读取 GMS 原生状态";
+            case "timeout": return "GMS 状态读取超时";
+            case "service_unavailable": return "GMS FCM 服务未返回状态";
+            case "gms_stopped": return "Google Play 服务处于已停止状态";
+            case "empty": return "GMS 返回空数据";
+            case "dump_failed": return "GMS 状态读取失败";
+            case "none": return "";
+            default: return "未识别到原生状态";
+        }
+    }
     private void runOnce() {
         AppPrefs p = new AppPrefs(this);
         if (!p.monitorEnabled() && !p.guardEnabled()) {
@@ -138,19 +181,24 @@ public final class FcmMonitorService extends Service {
                     installedMode = mode;
                     installed = true;
                 }
-                String prefix = monitorPrefix(mode);
+                String prefix = monitorPrefix(p, mode);
                 String result = execute(p, mode, prefix + "monitor >/dev/null 2>&1 || exit 9; "
                         + "echo BERRY_JSON_BEGIN; " + prefix + "snapshot; "
-                        + "echo BERRY_EVENTS_BEGIN; " + prefix + "events");
+                        + "echo BERRY_EVENTS_BEGIN; " + prefix + "events; "
+                        + "echo BERRY_RECOVERY_BEGIN; " + prefix + "recovery-events");
                 int jsonStart = result.indexOf("BERRY_JSON_BEGIN\n");
                 int eventsStart = result.indexOf("\nBERRY_EVENTS_BEGIN");
-                if (jsonStart < 0 || eventsStart <= jsonStart)
+                int recoveryStart = result.indexOf("\nBERRY_RECOVERY_BEGIN", eventsStart);
+                if (jsonStart < 0 || eventsStart <= jsonStart || recoveryStart <= eventsStart)
                     throw new IllegalStateException("监测脚本未返回完整状态");
                 String json = result.substring(jsonStart + "BERRY_JSON_BEGIN\n".length(), eventsStart).trim();
-                new JSONObject(json);
-                String events = result.substring(eventsStart + "\nBERRY_EVENTS_BEGIN".length()).trim();
+                JSONObject parsed = new JSONObject(json);
+                if (!parsed.has("fcm_source") || !parsed.has("fcm_native_reason"))
+                    throw new IllegalStateException("监测脚本版本不匹配");
+                String events = result.substring(eventsStart + "\nBERRY_EVENTS_BEGIN".length(), recoveryStart).trim();
+                String recovery = result.substring(recoveryStart + "\nBERRY_RECOVERY_BEGIN".length()).trim();
                 getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
-                        .putString("json", json).putString("events", events)
+                        .putString("json", json).putString("events", events).putString("recovery_events", recovery)
                         .remove("error").putString("attempt_state", "success").apply();
             } catch (Exception error) {
                 getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
@@ -188,7 +236,7 @@ public final class FcmMonitorService extends Service {
                 installed = true;
                 installedMode = mode;
             }
-            execute(p, mode, monitorPrefix(mode) + "reconnect");
+            execute(p, mode, monitorPrefix(p, mode) + "reconnect");
             runOnce();
         } catch (Exception error) {
             getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
@@ -204,9 +252,33 @@ public final class FcmMonitorService extends Service {
     private static String workDir(String mode) {
         return AppPrefs.ROOT.equals(mode) ? "/data/adb/berry_fcm_apk" : "/data/local/tmp/berry_fcm_apk";
     }
-    private static String monitorPrefix(String mode) {
+    // This is the app's default network, not proof of GMS's route or reachability.
+    // It is used only to defer automatic intervention during a network change.
+    private String recoveryGate() {
+        try {
+            ConnectivityManager manager = getSystemService(ConnectivityManager.class);
+            if (manager == null) return "unavailable";
+            Network current = manager.getActiveNetwork();
+            long now = SystemClock.elapsedRealtime();
+            if (current == null) {
+                observedNetwork = null;
+                networkChangedAt = now;
+                return "offline";
+            }
+            if (!current.equals(observedNetwork)) {
+                observedNetwork = current;
+                networkChangedAt = now;
+            }
+            return now - networkChangedAt >= 45000 ? "ready" : "settling";
+        } catch (RuntimeException error) {
+            return "unavailable";
+        }
+    }
+    private String monitorPrefix(AppPrefs prefs, String mode) {
         String dir = workDir(mode);
-        return "BERRY_FCM_DATA=" + dir
+        return "BERRY_FCM_AUTO=" + (prefs.autoReconnect() ? "1" : "0")
+                + " BERRY_AUTO_GATE=" + recoveryGate()
+                + " BERRY_FCM_DATA=" + dir
                 + (AppPrefs.ROOT.equals(mode) ? "" : " BERRY_FCM_ADB_SHELL=1")
                 + " /system/bin/sh " + dir + "/fcm-monitor.sh ";
     }
@@ -221,9 +293,14 @@ public final class FcmMonitorService extends Service {
         }
         String dir = workDir(mode);
         String encoded = Base64.encodeToString(script, Base64.NO_WRAP);
-        execute(prefs, mode, "umask 077; mkdir -p " + dir
-                + " && printf '%s' '" + encoded + "' | base64 -d > " + dir
-                + "/fcm-monitor.sh && chmod 700 " + dir + "/fcm-monitor.sh && echo 1 > " + dir + "/enabled");
+        String temp = dir + "/fcm-monitor.sh.new";
+        String result = execute(prefs, mode, "umask 077; mkdir -p " + dir
+                + " && printf '%s' '" + encoded + "' | base64 -d > " + temp
+                + " && /system/bin/sh -n " + temp + " && chmod 700 " + temp
+                + " && mv -f " + temp + " " + dir + "/fcm-monitor.sh"
+                + " && echo 1 > " + dir + "/enabled && echo BERRY_INSTALL_OK");
+        if (!result.trim().endsWith("BERRY_INSTALL_OK"))
+            throw new IllegalStateException("监测脚本安装未通过确认");
     }
 
     private String execute(AppPrefs prefs, String mode, String command) throws Exception {

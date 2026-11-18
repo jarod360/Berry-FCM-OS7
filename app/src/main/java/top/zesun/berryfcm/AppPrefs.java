@@ -32,6 +32,8 @@ final class AppPrefs {
 
     boolean monitorEnabled() { return p.getBoolean("monitor_enabled", false); }
     void monitorEnabled(boolean value) { p.edit().putBoolean("monitor_enabled", value).apply(); }
+    boolean autoReconnect() { return p.getBoolean("auto_reconnect", true); }
+    void autoReconnect(boolean value) { p.edit().putBoolean("auto_reconnect", value).apply(); }
     boolean guardEnabled() { return p.getBoolean("guard_enabled", false); }
     void guardEnabled(boolean value) { p.edit().putBoolean("guard_enabled", value).apply(); }
     boolean startOnBoot() { return p.getBoolean("start_on_boot", true); }

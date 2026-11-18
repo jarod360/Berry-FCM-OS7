@@ -75,6 +75,7 @@ public final class MainActivity extends Ui {
         String lastError = FcmMonitorService.lastError(this);
         String observed = snapshot.optString("fcm_state", "never_seen");
         boolean nativeState = "gms".equals(snapshot.optString("fcm_source"));
+        String nativeReason = FcmMonitorService.describeNativeReason(snapshot.optString("fcm_native_reason", "unrecognized"));
         long attempt = FcmMonitorService.lastAttemptAt(this);
         String brief = lastError.replace('\n', ' ').replace('\r', ' ');
         if (brief.length() > 110) brief = brief.substring(0, 110) + "…";
@@ -91,10 +92,12 @@ public final class MainActivity extends Ui {
 
         summary.setText("监控 " + (enabled ? "已开启" : "未开启")
                 + " · 应用守护 " + (prefs.guardEnabled() ? "已开启" : "未开启")
-                + "\n最近有效采样：" + (stamp <= 0 ? "暂无" :
+                + "\n最近检测：" + (stamp <= 0 ? "暂无" :
                         age < 0 ? "时间异常" : age + " 秒前")
-                + "\n历史连接关闭事件：" + snapshot.optInt("fcm_native_close_events", 0) + " 条（非独立断联次数）"
-                + (nativeState && age >= 0 && age <= 90 && lastError.isEmpty()
+                + (enabled && age >= 0 && age <= 90 && !nativeState && lastError.isEmpty()
+                    ? "\n原因：" + nativeReason : "")
+                + "\n保留的连接关闭事件：" + snapshot.optInt("fcm_native_close_events", 0) + " 条（非独立断联次数）"
+                + (enabled && nativeState && age >= 0 && age <= 90 && lastError.isEmpty()
                     && snapshot.optLong("fcm_native_duration", -1) >= 0
                     ? "\n" + ("connected".equals(observed) ? "本次已连接：" : "本次未连接：")
                         + snapshot.optLong("fcm_native_duration") + " 秒" : "")

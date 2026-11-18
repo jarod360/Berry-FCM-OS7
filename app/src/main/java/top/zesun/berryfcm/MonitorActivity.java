@@ -16,7 +16,7 @@ import java.util.concurrent.Executors;
 public final class MonitorActivity extends Ui {
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler ui = new Handler(Looper.getMainLooper());
-    private TextView current, technical, events, eventsFull;
+    private TextView current, technical, events, eventsFull, recoveryEvents;
     private final Runnable update = new Runnable() {
         @Override public void run() { render(); ui.postDelayed(this, 10000); }
     };
@@ -40,6 +40,16 @@ public final class MonitorActivity extends Ui {
             prefs.monitorEnabled(value);
             if (value) FcmMonitorService.start(this);
             else if (!prefs.guardEnabled()) FcmMonitorService.stop(this);
+            render();
+        });
+        Switch automatic = new Switch(this);
+        automatic.setText("断联后自动请求恢复");
+        automatic.setTextColor(ink);
+        automatic.setChecked(prefs.autoReconnect());
+        control.addView(automatic);
+        automatic.setOnCheckedChangeListener((button, enabledAuto) -> {
+            prefs.autoReconnect(enabledAuto);
+            if (prefs.monitorEnabled()) FcmMonitorService.checkNow(this);
             render();
         });
         current = text("读取中…", 14, false, ink);
@@ -70,6 +80,10 @@ public final class MonitorActivity extends Ui {
         eventsFull = text("暂无历史记录", 13, false, ink);
         eventsFull.setTextIsSelectable(true);
         history.addView(eventsFull);
+        LinearLayout recovery = disclosure(timeline, "自动恢复与采样异常记录", false);
+        recoveryEvents = text("暂无恢复记录", 13, false, ink);
+        recoveryEvents.setTextIsSelectable(true);
+        recovery.addView(recoveryEvents);
         line(timeline, "网络诊断", "Google 原生诊断和 TCP 可达性", () -> go(DiagnosticsActivity.class));
     }
 
@@ -95,22 +109,32 @@ public final class MonitorActivity extends Ui {
                 : state.equals("waiting") ? "等待首次采样"
                 : state.equals("stale") ? "采样数据已过期"
                 : state.startsWith("unknown") ? "当前状态无法确认" : "暂无连接证据";
+        String nativeReason = FcmMonitorService.describeNativeReason(j.optString("fcm_native_reason", "unrecognized"));
+        String gate = j.optString("fcm_auto_gate", "unavailable");
+        int retryIn = j.optInt("fcm_retry_in", 0);
         String progress = FcmMonitorService.lastError(this).isEmpty()
                 ? "后台将持续采样；如长时间无数据，请检查通知及系统后台策略。"
                 : "后台正在自动重试，无需手动重复配对。";
         current.setText("FCM 状态：" + readable
                 + "\n最近采样：" + (sample <= 0 ? "暂无" : time(sample)
                 + (age < 0 ? "（时间异常）" : "（" + age + " 秒前）"))
-                + "\n历史连接关闭事件：" + j.optInt("fcm_native_close_events", 0) + " 条（不是独立断联次数）"
+                + (prefs.monitorEnabled() && sample > 0 && age >= 0 && age <= 90
+                    && !nativeState && lastError.isEmpty() ? "\n原因：" + nativeReason : "")
+                + "\n保留的连接关闭事件：" + j.optInt("fcm_native_close_events", 0) + " 条（不是独立断联次数）"
                 + (nativeState && !state.startsWith("unknown") && !state.equals("waiting")
                     && !state.equals("stale") && j.optLong("fcm_native_duration", -1) >= 0
                     ? "\n" + (state.equals("connected") ? "已连接：" : "未连接：")
                         + j.optLong("fcm_native_duration") + " 秒" : "")
                 + (attempt > 0 ? "\n上次采样尝试：" + time(attempt / 1000) : "")
+                + (nativeState && ("connecting".equals(state) || "disconnected".equals(state))
+                    ? "\n恢复策略：" + (!prefs.autoReconnect() ? "仅监测" : "settling".equals(gate)
+                        ? "等待网络稳定" : "offline".equals(gate) ? "当前无活动网络"
+                        : "unavailable".equals(gate) ? "网络信息不可读取，自动恢复暂停"
+                        : retryIn > 0 ? "请求冷却约 " + retryIn + " 秒" : "等待持续异常确认") : "")
                 + "\n" + progress
                 + (lastError.isEmpty() ? "" : "\n采样异常：" + lastError));
         technical.setText("原始状态：" + state
-                + "\n状态来源：" + (nativeState ? "Google GMS 原生 MCS" : "原生状态不可读")
+                + "\n状态来源：" + (nativeState ? "Google GMS 原生 MCS" : nativeReason)
                 + "\nTCP 辅助证据：" + j.optString("fcm_tcp_hint", "无")
                 + "\n服务器：" + j.optString("fcm_transport", "无")
                 + "  " + j.optString("fcm_remote", "")
@@ -120,11 +144,21 @@ public final class MonitorActivity extends Ui {
                 + "\n上次观察断联：" + time(j.optLong("fcm_disconnect_since", 0))
                 + "\n最近恢复观测：" + time(j.optLong("fcm_last_restore", 0))
                 + "\n重连请求：" + j.optInt("fcm_attempts", 0) + " 次"
-                + "\n最近请求结果：" + j.optString("fcm_last_result", "无")
+                + "\n最近请求结果：" + recoveryLabel(j.optString("fcm_last_result", "none"))
                 + "\n注意：GMS 原生历史有限，同一时刻的多网络关闭事件不等于多次整体断联。");
         String[] lines = FcmMonitorService.lastEvents(this).split("\n");
         events.setText(eventText(lines, 6));
         eventsFull.setText(eventText(lines, 24));
+        recoveryEvents.setText(eventText(FcmMonitorService.lastRecoveryEvents(this).split("\\n"), 24));
+    }
+
+    private String recoveryLabel(String value) {
+        switch (value) {
+            case "requested": return "请求已提交，等待原生状态确认";
+            case "failed": return "请求未确认";
+            case "restored": return "请求后观察到原生恢复（不证明因果）";
+            default: return "尚无请求";
+        }
     }
 
     private String eventText(String[] lines, int maximum) {
@@ -139,7 +173,12 @@ public final class MonitorActivity extends Ui {
                     : parts[1].equals("gms_connected") ? "连接成功"
                     : parts[1].equals("gms_failed") ? "连接失败"
                     : parts[1].equals("gms_network_attempt") ? "网络连接尝试"
-                    : parts[1].equals("gms_heartbeat_delay") ? "心跳调度延迟" : parts[1];
+                    : parts[1].equals("gms_heartbeat_delay") ? "心跳调度延迟"
+                    : parts[1].equals("reconnect_requested") ? "已请求恢复"
+                    : parts[1].equals("reconnect_failed") ? "恢复请求失败"
+                    : parts[1].equals("connection_restored") ? "原生状态恢复"
+                    : parts[1].equals("reconnect_skipped") ? "恢复请求跳过"
+                    : parts[1].equals("sample_gap") ? "采样中断" : parts[1];
             result.append(stamp).append("  ").append(label).append("\n")
                     .append(parts[2]).append("\n\n");
         }
