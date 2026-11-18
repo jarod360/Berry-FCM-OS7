@@ -25,6 +25,7 @@ final class PrivilegeAccess {
         AppPrefs prefs = new AppPrefs(context);
         if (readyForUserAction(context)) return true;
         return AppPrefs.WIRELESS.equals(prefs.mode())
+                && PrivKitShell.localNetworkAllowed(context)
                 && prefs.adbPaired() && !prefs.pairingRejected()
                 && AppPrefs.WIRELESS.equals(prefs.shellMode())
                 && prefs.shellIdentity().matches("(?s)^uid=2000(?:\\D.*)?$")
