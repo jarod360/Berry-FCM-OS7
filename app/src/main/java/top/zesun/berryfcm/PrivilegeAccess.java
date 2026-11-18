@@ -4,6 +4,18 @@ import android.content.Context;
 
 final class PrivilegeAccess {
     private PrivilegeAccess() {}
+
+    // UI actions must not confuse saved pairing history with live ADB authorization.
+    // Root and explicit legacy TCP have no persistent Binder; their next command
+    // still performs real identity validation on a worker.
+    static boolean readyForUserAction(Context context) {
+        AppPrefs prefs = new AppPrefs(context);
+        if (AppPrefs.WIRELESS.equals(prefs.mode())) return PrivKitShell.isConnected();
+        if (AppPrefs.SHIZUKU.equals(prefs.mode())) return ShizukuShell.authorizedUid() >= 0;
+        return (AppPrefs.ROOT.equals(prefs.mode()) || AppPrefs.STATIC.equals(prefs.mode()))
+                && prefs.mode().equals(prefs.shellMode()) && prefs.shellError().isEmpty()
+                && !prefs.shellIdentity().isEmpty();
+    }
     static String probe(Context context, String mode, String host, int port) throws Exception {
         if (AppPrefs.ROOT.equals(mode)) {
             try (PrivilegeShell shell = new RootShell(context)) {

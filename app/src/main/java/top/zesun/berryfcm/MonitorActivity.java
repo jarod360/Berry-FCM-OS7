@@ -97,9 +97,7 @@ public final class MonitorActivity extends Ui {
     }
 
     private boolean authorizationReady() {
-        if (AppPrefs.WIRELESS.equals(prefs.mode())) return PrivKitShell.isConnected();
-        if (AppPrefs.SHIZUKU.equals(prefs.mode())) return ShizukuShell.authorizedUid() >= 0;
-        return prefs.mode().equals(prefs.shellMode()) && prefs.shellError().isEmpty() && !prefs.shellIdentity().isEmpty();
+        return PrivilegeAccess.readyForUserAction(this);
     }
 
     private void render() {
