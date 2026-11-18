@@ -7,3 +7,6 @@ Berry-FCM-OS7 includes or references the following third-party components:
 The original Berry-FCM KernelSU module LICENSE is retained in the module package.
 
 - Google Material Icons (https://github.com/google/material-design-icons), Apache-2.0. Selected SVG paths are converted to Android VectorDrawable resources for in-app module/navigation icons. The BerryFCM adaptive launcher icon is original to this repository.
+
+- Priv Kit 0.20.0 (https://github.com/priv-kit/priv-kit/tree/v0.20.0), distributed as io.github.priv-kit:priv-core. Its upstream Maven publication declares Apache License 2.0. License: https://www.apache.org/licenses/LICENSE-2.0.txt. Used for an independent authorized Binder command service; the app's existing ADB key is used only for startup.
+- Shizuku API / provider (https://github.com/RikkaApps/Shizuku-API), MIT, optional external authorization mode.

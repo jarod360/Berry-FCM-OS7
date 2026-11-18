@@ -4,6 +4,8 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.widget.Switch;
+import android.widget.Button;
+import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import org.json.JSONObject;
@@ -16,24 +18,34 @@ import java.util.concurrent.Executors;
 public final class MonitorActivity extends Ui {
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler ui = new Handler(Looper.getMainLooper());
-    private TextView current, technical, events, eventsFull;
+    private TextView headline, current, technical, events, eventsFull, recoveryEvents, environmentEvents, manualResult, reconnectHint;
+    private Button checkButton, reconnectButton;
+    private Switch enabled, automatic;
     private final Runnable update = new Runnable() {
         @Override public void run() { render(); ui.postDelayed(this, 10000); }
     };
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        title("FCM 监控", "连接状态、采样记录与断联事件");
-        LinearLayout control = card("当前状态", "约每 15 秒采样一次；过期或读取失败时显示未知。");
-        Switch enabled = new Switch(this);
+        title("FCM 监控", "连接状态、检查记录与断开事件");
+        LinearLayout control = card("当前状态", "在后台检查 FCM 连接是否正常。");
+        headline = text("等待检查", 22, true, muted);
+        control.addView(headline);
+        current = text("读取中…", 14, false, muted);
+        current.setTextIsSelectable(true);
+        current.setPadding(0, dp(8), 0, dp(10));
+        control.addView(current);
+        enabled = new Switch(this);
         enabled.setText("后台持续监控");
         enabled.setTextColor(ink);
+        enabled.setMinHeight(dp(48));
         enabled.setChecked(prefs.monitorEnabled());
         control.addView(enabled);
         enabled.setOnCheckedChangeListener((b, value) -> {
-            if (value && AppPrefs.WIRELESS.equals(prefs.mode()) && !prefs.adbPaired()) {
-                enabled.setChecked(false);
-                error("首次使用需要先完成无线 ADB 配对");
+            if (bindingSwitches()) return;
+            if (value && !authorizationReady()) {
+                syncChecked(enabled, prefs.monitorEnabled());
+                error("请先完成授权");
                 go(AuthActivity.class);
                 return;
             }
@@ -42,27 +54,40 @@ public final class MonitorActivity extends Ui {
             else if (!prefs.guardEnabled()) FcmMonitorService.stop(this);
             render();
         });
-        current = text("读取中…", 14, false, ink);
-        current.setTextIsSelectable(true);
-        current.setPadding(0, dp(12), 0, dp(9));
-        control.addView(current);
-        button(control, "立即采样", () -> {
+        automatic = new Switch(this);
+        automatic.setText("断开后自动请求恢复");
+        automatic.setTextColor(ink);
+        automatic.setMinHeight(dp(48));
+        automatic.setChecked(prefs.autoReconnect());
+        control.addView(automatic);
+        automatic.setOnCheckedChangeListener((button, enabledAuto) -> {
+            if (bindingSwitches()) return;
+            prefs.autoReconnect(enabledAuto);
+            if (prefs.monitorEnabled() && authorizationReady() && FcmMonitorService.isRunning()) FcmMonitorService.checkNow(this);
+            render();
+        });
+        checkButton = button(control, "立即检查", () -> {
+            if (!authorizationReady()) { go(AuthActivity.class); return; }
             // The worker remains inside the same service; do not run an independent
             // shell concurrently or overwrite the single-writer state file.
-            if (!prefs.monitorEnabled()) {
-                error("请先开启后台监控");
-                return;
-            }
+            if (!prefs.monitorEnabled()) prefs.monitorEnabled(true);
+            syncChecked(enabled, prefs.monitorEnabled());
             FcmMonitorService.checkNow(this);
-            error("已请求后台检查，稍后刷新状态");
+            render();
         }, true);
-        button(control, "请求 FCM 重连", this::reconnect, false);
+        reconnectButton = button(control, "尝试恢复断开的连接", this::reconnect, false);
+        reconnectHint = text("", 12, false, muted);
+        control.addView(reconnectHint);
+        manualResult = text("", 13, false, muted);
+        manualResult.setTextIsSelectable(true);
+        control.addView(manualResult);
+        manualResult.setVisibility(View.GONE);
         LinearLayout extra = disclosure(control, "详细连接证据与统计", false);
         technical = text("暂无详细数据", 13, false, ink);
         technical.setTextIsSelectable(true);
         extra.addView(technical);
 
-        LinearLayout timeline = card("最新事件", "显示最近 6 条。短于采样间隔的断连可能漏检。");
+        LinearLayout timeline = card("最新事件", "读取 GMS 原生事件；显示最近 6 条，历史缓冲区有容量限制。");
         events = text("暂无记录", 13, false, ink);
         events.setTextIsSelectable(true);
         timeline.addView(events);
@@ -70,76 +95,214 @@ public final class MonitorActivity extends Ui {
         eventsFull = text("暂无历史记录", 13, false, ink);
         eventsFull.setTextIsSelectable(true);
         history.addView(eventsFull);
+        LinearLayout recovery = disclosure(timeline, "自动恢复与检查异常记录", false);
+        recoveryEvents = text("暂无恢复记录", 13, false, ink);
+        recoveryEvents.setTextIsSelectable(true);
+        recovery.addView(recoveryEvents);
+        LinearLayout environment = disclosure(timeline, "网络与休眠状态变化", false);
+        environmentEvents = text("暂无环境记录", 13, false, ink);
+        environmentEvents.setTextIsSelectable(true);
+        environment.addView(environmentEvents);
         line(timeline, "网络诊断", "Google 原生诊断和 TCP 可达性", () -> go(DiagnosticsActivity.class));
+    }
+
+    private boolean authorizationReady() {
+        return PrivilegeAccess.readyForUserAction(this);
     }
 
     private void render() {
         if (current == null) return;
+        boolean ready = authorizationReady();
+        syncChecked(enabled, prefs.monitorEnabled());
+        syncChecked(automatic, prefs.autoReconnect());
+        checkButton.setText(!ready ? "去授权" : !prefs.monitorEnabled() ? "开启监控" : !FcmMonitorService.isRunning() ? "启动监控" : "立即检查");
+        String manual = FcmMonitorService.manualReconnectResult(this);
+        manualResult.setVisibility(manual.isEmpty() ? View.GONE : View.VISIBLE);
+        manualResult.setText("最近一次手动操作：" + manual);
         JSONObject j = FcmMonitorService.lastSnapshot(this);
         long sample = j.optLong("fcm_sample_time", 0);
-        long age = sample == 0 ? -1 : System.currentTimeMillis() / 1000 - sample;
-        String lastError = FcmMonitorService.lastError(this);
+        long age = FcmMonitorService.sampleAgeSeconds(this);
+        String lastError = FcmMonitorService.currentError(this);
         String state = j.optString("fcm_state", "never_seen");
+        boolean nativeState = "gms".equals(j.optString("fcm_source"));
         long attempt = FcmMonitorService.lastAttemptAt(this);
         long serviceStart = FcmMonitorService.lastStartAt(this);
         if (!prefs.monitorEnabled()) state = "unknown（监控未开启）";
-        else if (!lastError.isEmpty()) state = "unknown（最近一次采样失败）";
-        else if (sample <= 0 && attempt > 0) state = "connecting";
-        else if (sample <= 0 && serviceStart > 0) state = "connecting";
-        else if (age < 0 || age > 90)
-            state = "unknown（采样数据过期）";
-        String readable = state.equals("connected") ? "观察到 FCM Socket"
-                : state.equals("connecting") ? "正在建立连接"
-                : state.equals("disconnected") ? "未观察到连接"
-                : state.equals("stale") ? "采样数据已过期"
-                : state.startsWith("unknown") ? "当前状态无法确认" : "暂无连接证据";
-        String progress = FcmMonitorService.lastError(this).isEmpty()
-                ? "后台将持续采样；如长时间无数据，请检查通知及系统后台策略。"
+        else if (!FcmMonitorService.isRunning()) state = "unknown（后台服务未运行）";
+        else if (AppPrefs.WIRELESS.equals(prefs.mode()) && !PrivKitShell.isConnected())
+            state = "unknown（独立服务未运行）";
+        else if (!lastError.isEmpty()) state = "unknown（最近一次检查失败）";
+        else if (sample <= 0 && (attempt > 0 || serviceStart > 0)) state = "waiting";
+        else if (age < 0) state = "waiting";
+        else if (age > 90) state = "unknown（检查数据过期）";
+        else if (!nativeState) state = "unknown（原生状态不可读）";
+        MonitorStatus.State verdict = MonitorStatus.resolve(ready, prefs.monitorEnabled(),
+                FcmMonitorService.isRunning(), sample > 0 ? age : -1,
+                !lastError.isEmpty(), nativeState, j.optString("fcm_state"));
+        headline.setText(verdict.label);
+        headline.setTextColor(statusColor(verdict));
+        boolean disconnectedNow = verdict == MonitorStatus.State.DISCONNECTED
+                || verdict == MonitorStatus.State.CONNECTING;
+        reconnectButton.setVisibility(disconnectedNow ? View.VISIBLE : View.GONE);
+        reconnectButton.setEnabled(disconnectedNow && !manual.startsWith("正在读取"));
+        reconnectHint.setText(verdict == MonitorStatus.State.CONNECTED
+                ? "当前已连接，无需恢复。只有确认断联后才会显示恢复按钮。"
+                : disconnectedNow
+                ? "仅向 Google 推送请求恢复，不会强制断开；是否发送和结果请看下方记录。"
+                : "尚未确认断开，不发送恢复请求。可先点“立即检查”。");
+        String nativeReason = FcmMonitorService.describeNativeReason(j.optString("fcm_native_reason", "unrecognized"));
+        String gate = j.optString("fcm_auto_gate", "unavailable");
+        int retryIn = j.optInt("fcm_retry_in", 0);
+        String progress = AppPrefs.WIRELESS.equals(prefs.mode()) && !PrivKitShell.isConnected()
+                ? PrivKitShell.status() + "；可以在连接设置中启动服务，无需重新配对。"
+                : FcmMonitorService.currentError(this).isEmpty()
+                ? "后台将持续检查；如长时间无数据，请检查通知及系统后台策略。"
                 : "后台正在自动重试，无需手动重复配对。";
-        current.setText("FCM 状态：" + readable
-                + "\n最近采样：" + (sample <= 0 ? "暂无" : time(sample)
-                + (age < 0 ? "（时间异常）" : "（" + age + " 秒前）"))
-                + "\n累计观察断联：" + j.optInt("fcm_outages", 0) + " 次"
-                + (attempt > 0 ? "\n上次采样尝试：" + time(attempt / 1000) : "")
+        String durationLine = "";
+        if (nativeState && "connected".equals(state))
+            durationLine = "\n" + MonitorStatus.connectedDuration(
+                    j.optLong("fcm_native_duration", -1),
+                    j.optLong("fcm_observed_up_seconds", -1));
+        else if (nativeState && ("connecting".equals(state) || "disconnected".equals(state))
+                && j.optLong("fcm_native_duration", -1) >= 0)
+            durationLine = "\n未连接计时：" + MonitorStatus.duration(j.optLong("fcm_native_duration"));
+        current.setText("最近检查：" + (sample <= 0 ? "暂无" : time(sample)
+                + (age < 0 ? "（上次运行的记录）" : "（" + age + " 秒前）"))
+                + (prefs.monitorEnabled() && sample > 0 && age >= 0 && age <= 90
+                    && !nativeState && lastError.isEmpty() ? "\n原因：" + nativeReason : "")
+                + "\n保留的连接关闭事件：" + j.optInt("fcm_native_close_events", 0) + " 条（不是独立断开次数）"
+                + durationLine
+                + (attempt > 0 ? "\n上次检查尝试：" + time(attempt / 1000) : "")
+                + (nativeState && ("connecting".equals(state) || "disconnected".equals(state))
+                    ? "\n恢复策略：" + (!prefs.autoReconnect() ? "仅监测" : "settling".equals(gate)
+                        ? "等待网络稳定" : "offline".equals(gate) ? "当前无活动网络"
+                        : "unavailable".equals(gate) ? "网络信息不可读取，自动恢复暂停"
+                        : recoveryDecision(j, retryIn)) : "")
+                + (nativeState && ("connecting".equals(state) || "disconnected".equals(state))
+                    ? "\n恢复请求：" + j.optInt("fcm_attempts", 0) + " 次 · "
+                        + recoveryLabel(j.optString("fcm_last_result", "none")) : "")
+                + "\n" + FcmMonitorService.serviceStatus(this)
+                + (FcmMonitorService.nextAttemptIn(this) > 0 ? " · " + FcmMonitorService.nextAttemptIn(this) + " 秒后重试" : "")
                 + "\n" + progress
-                + (lastError.isEmpty() ? "" : "\n采样异常：" + lastError));
-        technical.setText("原始状态：" + state
-                + "\nSocket：" + j.optString("fcm_transport", "无")
+                + (lastError.isEmpty() ? "" : "\n检查异常：" + lastError));
+        if (!ready) current.setText("完成核心授权后才能检查 FCM 连接；下方记录仅供查看历史。");
+        else if (!prefs.monitorEnabled()) current.setText("监控未开启，点击下方按钮开启。");
+        else if (!FcmMonitorService.isRunning()) current.setText("监控未运行，请点击下方按钮启动。");
+        JSONObject env = j.optJSONObject("app_environment");
+        technical.setText((age < 0 || age > 90 || !ready || !prefs.monitorEnabled()
+                || !lastError.isEmpty() ? "以下是历史证据，不代表当前连接。\n" : "")
+                + "原始状态：" + state
+                + "\n状态来源：" + (nativeState ? "Google GMS 原生 MCS" : nativeReason)
+                + "\nTCP 辅助检查：" + tcpHint(j.optString("fcm_tcp_hint", "none"))
+                + "\n服务器：" + j.optString("fcm_transport", "无")
                 + "  " + j.optString("fcm_remote", "")
-                + "\n已观测连接时长：" + j.optLong("fcm_connected_seconds", 0) + " 秒"
-                + "\n连续缺失观测：" + j.optLong("fcm_missing_seconds", 0) + " 秒"
+                + (env == null ? "" : "\n检查环境（本应用）：" + env.optString("network", "unknown")
+                    + " · 屏幕 " + localValue(env.optString("screen"))
+                    + " · Doze " + localValue(env.optString("device_idle"))
+                    + "\nGMS Doze 白名单：" + localValue(env.optString("gms_doze_exempt")))
+                + "\n历史最后一次关闭错误（不代表现在断开）：" + j.optString("fcm_last_close_code", "无")
+                + "\n保留的历史连接成功事件：" + j.optInt("fcm_native_connected_events", 0) + " 条"
                 + "\n上次观察在线：" + time(j.optLong("fcm_last_seen", 0))
-                + "\n上次观察断联：" + time(j.optLong("fcm_disconnect_since", 0))
+                + "\n最近一次历史断开：" + time(j.optLong("fcm_disconnect_since", 0))
                 + "\n最近恢复观测：" + time(j.optLong("fcm_last_restore", 0))
-                + "\nSocket 更换：" + j.optInt("fcm_reconnects", 0) + " 次"
-                + "\n重连请求：" + j.optInt("fcm_attempts", 0) + " 次"
-                + "\n最近请求结果：" + j.optString("fcm_last_result", "无")
-                + "\n注意：采样并非内核精准时间，不代表推送必达。");
+                + "\n历史已发送的恢复请求：" + j.optInt("fcm_attempts", 0) + " 次"
+                + "\n连续恢复尝试次数：" + j.optInt("fcm_retry_streak", 0) + " 次"
+                + "\n历史上次恢复请求结果：" + recoveryLabel(j.optString("fcm_last_result", "none"))
+                + "\n注意：GMS 原生历史有限，同一时刻的多网络关闭事件不等于多次整体断开。");
         String[] lines = FcmMonitorService.lastEvents(this).split("\n");
         events.setText(eventText(lines, 6));
         eventsFull.setText(eventText(lines, 24));
+        recoveryEvents.setText(eventText(FcmMonitorService.lastRecoveryEvents(this).split("\\n"), 24));
+        environmentEvents.setText(eventText(FcmMonitorService.lastEnvironmentEvents(this).split("\\n"), 24));
+    }
+
+    private static String tcpHint(String value) {
+        switch (value) {
+            case "established": return "发现相关 TCP 连接";
+            case "connecting": return "发现正在建立的 TCP 连接";
+            case "absent": return "未发现匹配的 TCP 连接";
+            case "none": case "unknown": default: return "未取得独立证据（以 GMS 原生状态为准）";
+        }
+    }
+
+    private static String localValue(String value) {
+        switch (value) {
+            case "yes": return "是";
+            case "no": return "否";
+            case "on": return "亮屏";
+            case "off": return "熄屏";
+            default: return "未知";
+        }
+    }
+    private String recoveryDecision(JSONObject j, int retryIn) {
+        switch (j.optString("fcm_recovery_decision", "")) {
+            case "gms_stopped_unknown": return "GMS 停止状态未通过检查，未发送请求";
+            case "requested": return "已请求 GMS 重连，等待原生确认";
+            case "request_failed": return "重连请求失败，见恢复记录";
+            case "confirmation_changed": return "第二次检查状态变化，暂不干预";
+            case "cooldown": return "请求冷却约 " + retryIn + " 秒";
+            case "waiting_confirmation": return "等待第二次原生检查";
+            case "waiting_duration":
+                long seconds = j.optLong("fcm_observed_down_seconds", -1);
+                return "尚未达到恢复条件" + (seconds < 0 ? "" : "（本轮已观察 " + seconds + " 秒）");
+            default: return "等待有效恢复决策";
+        }
+    }
+    private String recoveryLabel(String value) {
+        switch (value) {
+            case "requested": return "请求已提交，尚未确认恢复";
+            case "failed": return "请求未确认";
+            case "restored": return "请求后观察到原生恢复（不证明因果）";
+            default: return "尚无请求";
+        }
     }
 
     private String eventText(String[] lines, int maximum) {
         StringBuilder result = new StringBuilder();
-        for (int i = Math.max(0, lines.length - maximum); i < lines.length; i++) {
+        for (int i = lines.length - 1; i >= Math.max(0, lines.length - maximum); i--) {
             String[] parts = lines[i].split("\\|", 3);
             if (parts.length != 3) continue;
             String stamp;
             try { stamp = time(Long.parseLong(parts[0])); }
             catch (NumberFormatException ignored) { stamp = parts[0]; }
-            result.append(stamp).append("  ").append(parts[1]).append("\n")
+            String label = parts[1].equals("gms_close") ? "连接关闭"
+                    : parts[1].equals("gms_connected") ? "连接成功"
+                    : parts[1].equals("gms_failed") ? "连接失败"
+                    : parts[1].equals("gms_network_attempt") ? "网络连接尝试"
+                    : parts[1].equals("gms_heartbeat_delay") ? "心跳调度延迟"
+                    : parts[1].equals("reconnect_requested") ? "已请求恢复"
+                    : parts[1].equals("reconnect_failed") ? "恢复请求失败"
+                    : parts[1].equals("recovery_confirmed") ? "休眠后确认仍未连接"
+                    : parts[1].equals("connection_down") ? "确认 FCM 已断开"
+                    : parts[1].equals("connection_restored") ? "原生状态恢复"
+                    : parts[1].equals("reconnect_skipped") ? "恢复请求跳过"
+                    : parts[1].equals("sample_gap") ? "检查中断"
+                    : parts[1].equals("environment") ? "检查环境变化（非 GMS 路由证据）" : parts[1];
+            result.append(stamp).append("  ").append(label).append("\n")
                     .append(parts[2]).append("\n\n");
         }
         return result.length() == 0 ? "暂无监控事件" : result.toString().trim();
     }
 
     private void reconnect() {
-        if (!prefs.monitorEnabled()) { error("请先开启 FCM 监控"); return; }
+        if (!authorizationReady()) { go(AuthActivity.class); return; }
+        if (!prefs.monitorEnabled() || !FcmMonitorService.isRunning()) { error("请先开启 FCM 监控"); return; }
+        JSONObject snapshot = FcmMonitorService.lastSnapshot(this);
+        MonitorStatus.State verdict = MonitorStatus.resolve(true, true, true,
+                FcmMonitorService.sampleAgeSeconds(this),
+                !FcmMonitorService.currentError(this).isEmpty(),
+                "gms".equals(snapshot.optString("fcm_source")),
+                snapshot.optString("fcm_state"));
+        if (verdict != MonitorStatus.State.DISCONNECTED
+                && verdict != MonitorStatus.State.CONNECTING) {
+            error("未确认断联，没有发送恢复请求。请先立即检查。");
+            render();
+            return;
+        }
         worker.execute(() -> {
             try {
                 String text = FcmMonitorService.manualReconnect(this);
-                runOnUiThread(() -> error(text.isEmpty() ? "重连请求已发送，等待下一次连接观察" : text));
+                runOnUiThread(() -> { if (!isDestroyed()) { error(text); render(); } });
             } catch (Exception ex) {
                 runOnUiThread(() -> error("重连请求失败：" + ex.getMessage()));
             }
@@ -152,6 +315,7 @@ public final class MonitorActivity extends Ui {
     }
     @Override protected void onResume() {
         super.onResume();
+        if (authorizationReady()) FcmMonitorService.resumeIfNeeded(this);
         ui.removeCallbacks(update);
         ui.post(update);
     }

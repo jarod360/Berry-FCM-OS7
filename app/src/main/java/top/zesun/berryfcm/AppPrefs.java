@@ -11,6 +11,7 @@ final class AppPrefs {
     static final String ROOT = "root";
     static final String WIRELESS = "wireless";
     static final String STATIC = "static";
+    static final String SHIZUKU = "shizuku";
     static final String EXTERNAL = "external";
     private final SharedPreferences p;
 
@@ -18,13 +19,37 @@ final class AppPrefs {
         p = context.getSharedPreferences("berry_fcm_guardian", Context.MODE_PRIVATE);
     }
     String mode() { return p.getString("mode", WIRELESS); }
+    String authTab() {
+        String selected = p.getString("auth_tab", mode());
+        return ROOT.equals(selected) || WIRELESS.equals(selected) || STATIC.equals(selected)
+                || SHIZUKU.equals(selected) || EXTERNAL.equals(selected) ? selected : mode();
+    }
+    void authTab(String value) { p.edit().putString("auth_tab", value).apply(); }
+    boolean servicePaused(String mode) { return p.getBoolean("service_paused_" + mode, false); }
+    void servicePaused(String mode, boolean paused) {
+        p.edit().putBoolean("service_paused_" + mode, paused).apply();
+    }
     void mode(String value) {
         if (!value.equals(mode())) {
             p.edit().putString("mode", value).putLong("shell_verified_at", 0).apply();
         }
     }
+    void activateMode(String mode, String host, int port, String identity) {
+        p.edit().putString("mode", mode).putString("host", host).putInt("static_port", port)
+                .putLong("shell_verified_at", System.currentTimeMillis())
+                .putLong("shell_verified_elapsed", SystemClock.elapsedRealtime())
+                .putString("shell_mode", mode).putString("shell_identity", identity)
+                .putString("auth_tab", mode).putBoolean("service_paused_" + mode, false)
+                .remove("shell_error").apply();
+    }
+    String connectionKey() {
+        if (SHIZUKU.equals(mode())) return SHIZUKU + ":" + ShizukuShell.authorizedUid();
+        return STATIC.equals(mode()) ? STATIC + ":" + host() + ":" + staticPort() : mode();
+    }
     String host() { return p.getString("host", "127.0.0.1"); }
     void host(String value) { p.edit().putString("host", value).apply(); }
+    int wirelessConnectPort() { return p.getInt("wireless_connect_port", 0); }
+    void wirelessConnectPort(int value) { p.edit().putInt("wireless_connect_port", value).apply(); }
     int pairPort() { return p.getInt("pair_port", 0); }
     void pairPort(int value) { p.edit().putInt("pair_port", value).apply(); }
     int staticPort() { return p.getInt("static_port", 5555); }
@@ -32,6 +57,11 @@ final class AppPrefs {
 
     boolean monitorEnabled() { return p.getBoolean("monitor_enabled", false); }
     void monitorEnabled(boolean value) { p.edit().putBoolean("monitor_enabled", value).apply(); }
+    void enableMonitorOnFirstAuthorization() {
+        if (!p.contains("monitor_enabled")) monitorEnabled(true);
+    }
+    boolean autoReconnect() { return p.getBoolean("auto_reconnect", true); }
+    void autoReconnect(boolean value) { p.edit().putBoolean("auto_reconnect", value).apply(); }
     boolean guardEnabled() { return p.getBoolean("guard_enabled", false); }
     void guardEnabled(boolean value) { p.edit().putBoolean("guard_enabled", value).apply(); }
     boolean startOnBoot() { return p.getBoolean("start_on_boot", true); }
@@ -77,7 +107,7 @@ final class AppPrefs {
     void shellFailed(String message) {
         String reason = message == null ? "Shell 连接失败" : message.trim();
         if (reason.contains("RSA routines") || reason.contains("SSL library")) {
-            reason = "TLS 握手失败；请核对配对端口，使用新版身份重新配对";
+            reason = "TLS 握手失败；请确认无线调试已开启，只有系统撤销配对身份时才重新配对";
         } else {
             reason = reason.replace('\r', ' ').replace('\n', ' ');
             if (reason.length() > 150) reason = reason.substring(0, 150) + "…";
@@ -87,9 +117,37 @@ final class AppPrefs {
     }
     /** Pairing identity persists; a 120-second Shell probe is not the authorization itself. */
     boolean adbPaired() {
-        return p.getBoolean("adb_paired", pairingStatus().startsWith("配对成功"));
+        return p.getBoolean("privkit_pairing_history", false);
     }
-    void markAdbPaired() { p.edit().putBoolean("adb_paired", true).apply(); }
+    // Historical hint only; current auth requires the upstream ADB check.
+    void markAdbPaired() {
+        p.edit().putBoolean("privkit_pairing_history", true)
+                .putString("privkit_pairing_evidence", "accepted").apply();
+    }
+    void markPairingExchange() {
+        p.edit().putBoolean("privkit_pairing_history", true)
+                .putString("privkit_pairing_evidence", "unverified").apply();
+    }
+    void clearAdbPaired() {
+        p.edit().putBoolean("privkit_pairing_history", false)
+                .putString("privkit_pairing_evidence", "unverified").apply();
+    }
+    void rejectAdbIdentity() {
+        p.edit().putBoolean("privkit_pairing_history", false)
+                .putString("privkit_pairing_evidence", "rejected").apply();
+    }
+    boolean pairingRejected() { return "rejected".equals(p.getString("privkit_pairing_evidence", "")); }
+    void pairingUnavailable() {
+        if (!pairingRejected()) p.edit().putString("privkit_pairing_evidence", "unavailable").apply();
+    }
+    String pairingEvidenceLabel() {
+        switch (p.getString("privkit_pairing_evidence", "")) {
+            case "accepted": return "历史 ADB 认证已通过 · 当前待验证";
+            case "rejected": return "系统拒绝当前密钥 · 需要配对";
+            case "unavailable": return "当前无法验证系统配对";
+            default: return adbPaired() ? "配对交换已完成 · 认证待验证" : "当前身份尚未验证";
+        }
+    }
     String pairingStatus() { return p.getString("pairing_status", "尚未配对"); }
     void pairingStatus(String value) { p.edit().putString("pairing_status", value).apply(); }
 }

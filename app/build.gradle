@@ -7,12 +7,13 @@ def buildNumber = (System.getenv("BERRYFCM_VERSION_CODE") ?: "1").toInteger()
 
 android {
     namespace 'top.zesun.berryfcm'
-    compileSdk 35
+    compileSdk 37
+    buildToolsVersion '37.0.0'
 
     defaultConfig {
         applicationId 'top.zesun.berryfcm'
         minSdk 26
-        targetSdk 35
+        targetSdk 37
         versionCode buildNumber
         versionName "0.1.0-alpha.${buildNumber}"
     }
@@ -27,6 +28,15 @@ android {
             keyAlias System.getenv("BERRYFCM_KEY_ALIAS") ?: "berryfcm"
             keyPassword System.getenv("BERRYFCM_KEY_PASSWORD") ?: ""
         }
+    }
+
+    // Priv Kit's native starter requires extraction on Android 8–9.
+    packaging {
+        jniLibs { useLegacyPackaging = true }
+    }
+
+    buildFeatures {
+        aidl true
     }
 
     compileOptions {
@@ -46,4 +56,8 @@ dependencies {
     implementation 'androidx.annotation:annotation:1.9.1'
     implementation 'com.github.MuntashirAkon:libadb-android:3.1.1'
     implementation 'org.conscrypt:conscrypt-android:2.5.3'
+    implementation 'io.github.priv-kit:priv-core:0.20.0'
+    implementation 'org.lsposed.hiddenapibypass:hiddenapibypass:6.2'
+    implementation 'dev.rikka.shizuku:api:13.1.5'
+    implementation 'dev.rikka.shizuku:provider:13.1.5'
 }

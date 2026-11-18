@@ -7,16 +7,21 @@ import android.security.keystore.KeyProperties;
 import androidx.annotation.NonNull;
 import io.github.muntashirakon.adb.AbsAdbConnectionManager;
 import io.github.muntashirakon.adb.AdbStream;
-import io.github.muntashirakon.adb.LocalServices;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPairGenerator;
 import java.security.KeyStore;
 import java.security.PrivateKey;
 import java.security.cert.Certificate;
+import java.util.UUID;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /** AndroidKeyStore ADB identity; six-digit pairing codes never persist. */
 final class AdbConnectionManager extends AbsAdbConnectionManager {
@@ -29,6 +34,7 @@ final class AdbConnectionManager extends AbsAdbConnectionManager {
     private String activeTransport = "";
     private String staticHost = "";
     private int staticPort;
+    private final ExecutorService shellWorker = Executors.newSingleThreadExecutor();
 
     static synchronized AdbConnectionManager get(Context context) throws Exception {
         if (instance == null) instance = new AdbConnectionManager(context.getApplicationContext());
@@ -55,11 +61,7 @@ final class AdbConnectionManager extends AbsAdbConnectionManager {
                     .build();
             generator.initialize(spec);
             generator.generateKeyPair();
-            // The new identity must be paired explicitly; do not claim the prior
-            // v1/v2 identity has authenticated the current TLS client.
-            AppPrefs prefs = new AppPrefs(context);
-            prefs.shellFailed("ADB 身份已更新；请重新进行无线配对");
-            prefs.pairingStatus("TLS 身份已修复，等待重新配对");
+            // This separate identity is for explicit legacy ADB TCP only.
         }
         privateKey = (PrivateKey) store.getKey(KEY_ALIAS, null);
         certificate = store.getCertificate(KEY_ALIAS);
@@ -71,23 +73,12 @@ final class AdbConnectionManager extends AbsAdbConnectionManager {
     @NonNull @Override protected Certificate getCertificate() { return certificate; }
     @NonNull @Override protected String getDeviceName() { return "BerryFCM"; }
 
-    synchronized boolean pairLocal(int pairingPort, String code) throws Exception {
-        disconnectSession();
-        return pair("127.0.0.1", pairingPort, code);
-    }
-
-    synchronized boolean autoConnectLocal(Context context) throws Exception {
-        if ("wireless".equals(activeTransport) && isConnected()) return true;
-        disconnectSession();
-        boolean connected = connectTls(context.getApplicationContext(), 8000);
-        if (connected) activeTransport = "wireless";
-        return connected;
-    }
-
     synchronized boolean connectStatic(String host, int port) throws Exception {
         if ("static".equals(activeTransport) && port == staticPort
                 && host.equals(staticHost) && isConnected()) return true;
         disconnectSession();
+        // Legacy USB-to-TCP setup may legitimately need Android RSA approval.
+        setThrowOnUnauthorised(false);
         boolean connected = connect(host, port);
         if (connected) {
             activeTransport = "static";
@@ -97,20 +88,74 @@ final class AdbConnectionManager extends AbsAdbConnectionManager {
         return connected;
     }
 
+    /**
+     * One bounded ADB transaction. Never keep adbd connected between samples.
+     * Pairing credentials are independent of the transport socket.
+     */
+    synchronized String executeOnce(Context context, String mode, String host, int port,
+            String command) throws Exception {
+        try {
+            if (!AppPrefs.STATIC.equals(mode)) throw new IOException("无线 ADB 必须使用 Priv Kit");
+            boolean connected = connectStatic(host, port);
+            if (!connected) throw new IOException("ADB 暂未连接");
+            String identity = shell("id").trim();
+            if (!identity.matches("(?s)^uid=2000(?:\\D.*)?$"))
+                throw new IOException("ADB Shell 身份异常");
+            return "id".equals(command) ? identity : shell(command);
+        } finally {
+            disconnectSession();
+        }
+    }
+
     synchronized String shell(String command) throws Exception {
-        try (AdbStream stream = openStream(LocalServices.SHELL)) {
-            OutputStream out = stream.openOutputStream();
-            out.write((command + "\nexit\n").getBytes(StandardCharsets.UTF_8));
-            out.flush();
-            ByteArrayOutputStream result = new ByteArrayOutputStream();
-            try (InputStream in = stream.openInputStream()) {
-                byte[] buffer = new byte[4096];
-                int n;
-                while ((n = in.read(buffer)) >= 0 && result.size() < 200000) {
-                    result.write(buffer, 0, Math.min(n, 200000 - result.size()));
-                }
+        // libadb's connect timeout does not bound command stream reads. Keep
+        // the shared transport serialized and cancel a stalled command.
+        Future<String> job = shellWorker.submit(() -> readCommand(command));
+        try {
+            return job.get(45, TimeUnit.SECONDS);
+        } catch (TimeoutException timeout) {
+            job.cancel(true);
+            throw new IOException("ADB Shell 命令 45 秒超时，后台将重新连接", timeout);
+        } catch (InterruptedException interrupted) {
+            job.cancel(true);
+            Thread.currentThread().interrupt();
+            throw interrupted;
+        } catch (ExecutionException failure) {
+            Throwable cause = failure.getCause();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw new IOException("ADB Shell 命令失败", cause);
+        }
+    }
+
+    private String readCommand(String command) throws Exception {
+        // Legacy shell:COMMAND avoids PTY input echo. A subshell preserves the
+        // completion marker even when a command uses "exit". Do not rely on
+        // libadb's peer-close/EOF timing to determine command completion.
+        String marker = "__BERRY_DONE_" + UUID.randomUUID().toString().replace("-", "") + "__";
+        String destination = "shell:(" + command + "); __berry_rc=$?; printf '\\n"
+                + marker + ":%s\\n' \"$__berry_rc\"";
+        try (AdbStream stream = openStream(destination);
+                InputStream input = stream.openInputStream()) {
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            byte[] buffer = new byte[8192];
+            int n;
+            while ((n = input.read(buffer)) >= 0) {
+                if (n == 0) continue;
+                if (output.size() + n > 200000) throw new IOException("ADB Shell 输出超限");
+                output.write(buffer, 0, n);
+                String text = output.toString(StandardCharsets.UTF_8).replace("\r\n", "\n");
+                int start = text.lastIndexOf("\n" + marker + ":");
+                if (start < 0) continue;
+                int from = start + marker.length() + 2;
+                int end = text.indexOf('\n', from);
+                if (end < 0) continue;
+                String code = text.substring(from, end).trim();
+                if (!code.matches("[0-9]+")) throw new IOException("ADB Shell 完成标记异常");
+                // Preserve the existing shell API: policy probes may inspect
+                // the output of non-zero commands themselves.
+                return text.substring(0, start);
             }
-            return result.toString(StandardCharsets.UTF_8);
+            throw new IOException("ADB Shell 未返回命令完成标记");
         }
     }
 

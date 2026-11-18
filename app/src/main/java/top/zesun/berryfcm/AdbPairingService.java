@@ -8,10 +8,11 @@ import android.app.RemoteInput;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
-import android.net.nsd.NsdManager;
-import android.net.nsd.NsdServiceInfo;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.Handler;
+import android.os.Looper;
+import java.util.concurrent.Future;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -26,10 +27,18 @@ public final class AdbPairingService extends Service {
     private static final String ACTION_REPLY = "berryfcm.pair.reply";
     private static final String ACTION_STOP = "berryfcm.pair.stop";
     private static final int NOTIFICATION = 7310;
-    private NsdManager nsd;
-    private NsdManager.DiscoveryListener discovery;
+    private static final long MANUAL_FALLBACK_DELAY_MS = 15000L;
+    private static final long PAIR_INPUT_TIMEOUT_MS = 120000L;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
-    private int port;
+    private final Handler main = new Handler(Looper.getMainLooper());
+    private final PairingGate gate = new PairingGate();
+    private Future<?> task;
+    private int manualPairPort;
+    private static volatile boolean active;
+    private static volatile boolean codeSubmitted;
+    static boolean isPairingActive() { return active; }
+    static boolean isAwaitingInput() { return active && !codeSubmitted; }
+    static boolean isCodeSubmitted() { return active && codeSubmitted; }
 
     static void begin(Context context, int manualPort) {
         Intent i = new Intent(context, AdbPairingService.class).setAction(ACTION_BEGIN)
@@ -38,7 +47,7 @@ public final class AdbPairingService extends Service {
         else context.startService(i);
     }
     static void stop(Context context) {
-        context.startService(new Intent(context, AdbPairingService.class).setAction(ACTION_STOP));
+        if (active) context.startService(new Intent(context, AdbPairingService.class).setAction(ACTION_STOP));
     }
 
     @Override public void onCreate() {
@@ -50,141 +59,192 @@ public final class AdbPairingService extends Service {
         getSystemService(NotificationManager.class).createNotificationChannel(channel);
     }
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent == null) {
-            stopSelf();
-            return START_NOT_STICKY;
-        }
-        String action = intent.getAction();
-        if (ACTION_STOP.equals(action)) {
-            stopDiscovery();
+        if (intent == null || ACTION_STOP.equals(intent.getAction())) {
+            if (active) updateStatus("配对已取消，可以继续使用原有授权方式");
+            cancel();
             stopForeground(STOP_FOREGROUND_REMOVE);
             stopSelf();
             return START_NOT_STICKY;
         }
-        if (ACTION_REPLY.equals(action)) {
-            int selectedPort = intent.getIntExtra("port", port);
-            CharSequence value = null;
+        if (ACTION_REPLY.equals(intent.getAction())) {
+            int generation = intent.getIntExtra("generation", -1);
+            int port = intent.getIntExtra("port", 0);
             android.os.Bundle reply = RemoteInput.getResultsFromIntent(intent);
-            if (reply != null) value = reply.getCharSequence(KEY_CODE);
+            CharSequence value = reply == null ? null : reply.getCharSequence(KEY_CODE);
             String code = value == null ? "" : value.toString().trim();
-            // If mDNS is blocked by the ROM, permit "37123:123456" entirely
-            // inside the notification, without switching back from Developer Options.
-            java.util.regex.Matcher fallback = java.util.regex.Pattern.compile(
-                    "^([0-9]{2,5})[ :#/]([0-9]{6})$").matcher(code);
-            if (fallback.matches()) {
-                selectedPort = Integer.parseInt(fallback.group(1));
-                code = fallback.group(2);
+            // Stale notifications, missing service and duplicate submissions
+            // cannot initiate pairing. The port comes from discovery, not input.
+            if (!active) { stopSelf(); return START_NOT_STICKY; }
+            boolean fallback = port == 0 && intent.getBooleanExtra("manual_fallback", false);
+            if (fallback) {
+                if (!gate.searching(generation) || gate.hasPort()) return START_NOT_STICKY;
+                String[] parts = code.split(":", -1);
+                int entered = 0;
+                try { if (parts.length == 2) entered = Integer.parseInt(parts[0].trim()); }
+                catch (NumberFormatException ignored) { }
+                if (entered < 1 || entered > 65535 || parts.length != 2 || !parts[1].trim().matches("[0-9]{6}")) {
+                    publish("请输入系统配对端口:六位配对码", true, 0);
+                    return START_NOT_STICKY;
+                }
+                if (!gate.submitManual(generation, entered)) return START_NOT_STICKY;
+                port = entered;
+                code = parts[1].trim();
+            } else {
+                if (!gate.ready(generation, port)) return START_NOT_STICKY;
+                if (!code.matches("[0-9]{6}")) {
+                    publish("配对码必须是六位数字，请重新输入", true, port);
+                    return START_NOT_STICKY;
+                }
+                if (!gate.submit(generation, port)) return START_NOT_STICKY;
             }
-            if (!code.matches("[0-9]{6}") || selectedPort <= 0 || selectedPort > 65535) {
-                publish("请输入六位码；若未发现端口，请输入“端口:六位码”", true, selectedPort);
-                return START_NOT_STICKY;
-            }
-            stopDiscovery();
-            publish("配对中，正在验证 ADB 身份…", false, 0);
-            final int p = selectedPort;
-            final String pairingCode = code;
-            worker.execute(() -> pair(p, pairingCode));
+            codeSubmitted = true;
+            publish("正在验证配对码…", false, 0);
+            final boolean manual = fallback || manualPairPort > 0;
+            final int submittedPort = port;
+            final String submittedCode = code;
+            // Cancel any rediscovery in progress before starting the handshake.
+            if (task != null) task.cancel(true);
+            task = worker.submit(() -> pair(generation, submittedPort, submittedCode, manual));
             return START_NOT_STICKY;
         }
-        new AppPrefs(this).shellInvalidate();
-        port = intent.getIntExtra("manual_port", 0);
-        publish(port > 0 ? "已指定配对端口 " + port + "；从通知输入配对码"
-                : "正在发现本机配对端口；若自动发现失败，可在通知输入“端口:六位码”",
-                true, port);
-        if (port <= 0) startDiscovery();
+        if (!ACTION_BEGIN.equals(intent.getAction())) {
+            if (!active) stopSelf();
+            return START_NOT_STICKY;
+        }
+        if (gate.isPairing()) return START_NOT_STICKY;
+        cancel();
+        int generation = gate.begin();
+        active = true;
+        codeSubmitted = false;
+        main.postDelayed(() -> {
+            if (active && gate.searching(generation)) {
+                complete("未收到配对码，已自动结束配对");
+            }
+        }, PAIR_INPUT_TIMEOUT_MS);
+        int manual = intent.getIntExtra("manual_port", 0);
+        manualPairPort = manual;
+        publish("等待系统配对服务：请打开“使用配对码配对设备”", false, 0);
+        task = worker.submit(() -> discover(generation, manual));
         return START_NOT_STICKY;
     }
 
-    private void startDiscovery() {
-        if (discovery != null) return;
-        try {
-            nsd = (NsdManager) getSystemService(NSD_SERVICE);
-            discovery = new NsdManager.DiscoveryListener() {
-                @Override public void onDiscoveryStarted(String type) {}
-                @Override public void onStartDiscoveryFailed(String type, int error) {
-                    updateStatus("mDNS 发现失败（" + error + "），可返回授权页填写备用端口");
+    private void discover(int generation, int manual) {
+        // Let Priv Kit validate the actual local endpoint (LAN or loopback).
+        // A second loopback bind test rejects valid Android 17 LAN listeners.
+        int previous = 0;
+        long searchStart = android.os.SystemClock.elapsedRealtime();
+        while (gate.searching(generation) && !Thread.currentThread().isInterrupted()) {
+            try {
+                int found = manual > 0 ? manual : PrivKitShell.discoverPairingPort();
+                if (!gate.searching(generation)) return;
+                if (found != previous) {
+                    if (!gate.found(generation, found)) return;
+                    previous = found;
+                    main.post(() -> {
+                        if (gate.ready(generation, found))
+                            publish("请输入系统显示的六位配对码", true, found);
+                    });
                 }
-                @Override public void onStopDiscoveryFailed(String type, int error) {}
-                @Override public void onDiscoveryStopped(String type) {}
-                @Override public void onServiceLost(NsdServiceInfo service) {}
-                @Override public void onServiceFound(NsdServiceInfo service) {
-                    try {
-                        nsd.resolveService(service, new NsdManager.ResolveListener() {
-                            @Override public void onResolveFailed(NsdServiceInfo service, int error) {
-                                updateStatus("配对端口解析失败：" + error);
-                            }
-                            @Override public void onServiceResolved(NsdServiceInfo resolved) {
-                                // Accept only this phone's own ADB pairing service,
-                                // not another Android device advertising mDNS on the LAN.
-                                java.net.InetAddress address = resolved.getHost();
-                                if (address == null || !localAddress(address)) return;
-                                int found = resolved.getPort();
-                                if (found > 0 && found <= 65535) {
-                                    port = found;
-                                    publish("已找到无线 ADB 配对端口 " + found + "，展开通知输入六位配对码", true, found);
-                                }
-                            }
-                        });
-                    } catch (RuntimeException error) {
-                        updateStatus("解析配对端口失败：" + error.getMessage());
-                    }
+                // The code is valid only while this pairing screen stays open.
+                // No second mDNS discovery cycle: once a port is found, let
+                // the existing notification accept its six-digit code.
+                return;
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return;
+            } catch (Exception failure) {
+                if (!gate.searching(generation)) return;
+                if (previous > 0) gate.lost(generation, previous);
+                previous = 0;
+                String failureText = PrivKitShell.errorChain(failure);
+                if (failureText.contains("ADB service") && failureText.matches("(?s).*:[ ]?7(?:[ ]|$).*")) {
+                    main.post(() -> { if (gate.searching(generation))
+                        complete("Android 17 拒绝了本地网络 NSD 服务发现（错误 7）。请返回应用授权本地网络访问。"); });
+                    return;
                 }
-            };
-            nsd.discoverServices("_adb-tls-pairing._tcp.", NsdManager.PROTOCOL_DNS_SD, discovery);
-        } catch (RuntimeException error) {
-            updateStatus("无线调试发现不可用：" + error.getMessage());
-        }
-    }
-
-    private static boolean localAddress(java.net.InetAddress host) {
-        try {
-            if (host.isLoopbackAddress()) return true;
-            java.util.Enumeration<java.net.NetworkInterface> devices =
-                    java.net.NetworkInterface.getNetworkInterfaces();
-            while (devices != null && devices.hasMoreElements()) {
-                java.net.NetworkInterface device = devices.nextElement();
-                java.util.Enumeration<java.net.InetAddress> addresses = device.getInetAddresses();
-                while (addresses.hasMoreElements()) {
-                    if (host.equals(addresses.nextElement())) return true;
-                }
+                boolean fallback = android.os.SystemClock.elapsedRealtime() - searchStart >= MANUAL_FALLBACK_DELAY_MS;
+                main.post(() -> {
+                    if (gate.searching(generation) && !gate.hasPort())
+                        publish(fallback ? "未自动发现端口，可在通知栏输入配对端口:六位配对码"
+                                : "请打开系统无线调试中的“使用配对码配对设备”", fallback, 0);
+                });
+                try { Thread.sleep(500L); }
+                catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); return; }
             }
-        } catch (Exception ignored) { }
-        return false;
+        }
     }
 
-    private void pair(int selectedPort, String code) {
+    private void cancel() {
+        active = false;
+        codeSubmitted = false;
+        gate.cancel();
+        if (task != null) task.cancel(true);
+        task = null;
+    }
+
+    private void pair(int generation, int selectedPort, String code, boolean manual) {
+        AppPrefs prefs = new AppPrefs(this);
         try {
-            AdbConnectionManager adb = AdbConnectionManager.get(this);
-            if (!adb.pairLocal(selectedPort, code))
-                throw new IllegalStateException("配对未成功，请核对配对码及端口");
-            AppPrefs prefs = new AppPrefs(this);
-            prefs.mode(AppPrefs.WIRELESS);
-            prefs.markAdbPaired();
-            prefs.pairingStatus("配对成功，监控正在自动连接");
-            // Pairing is a one-time identity exchange. The foreground monitor
-            // owns automatic TLS connection, UID validation and sampling retries.
-            prefs.monitorEnabled(true);
-            FcmMonitorService.start(this);
-            complete("配对成功，已启动监控；后台将自动连接并采样");
+            if (!gate.pairing(generation)) return;
+            // Reuse the exact endpoint just discovered: the old automatic
+            // path did a second mDNS lookup here and could lose the pairing
+            // page or fail NSD even after a valid port had been found.
+            PrivKitShell.pair(this, selectedPort, code);
         } catch (Exception error) {
-            String message = String.valueOf(error.getMessage());
-            new AppPrefs(this).shellFailed(message);
-            if (message.contains("RSA routines") || message.contains("SSL library")) {
-                complete("配对失败：TLS 握手异常，请检查系统无线调试并重试");
-            } else complete("配对失败：" + message);
+            String message = PrivKitShell.errorChain(error);
+            prefs.shellFailed(message);
+            finish(generation, "配对失败：" + message);
+            return;
         }
+        if (!gate.pairing(generation)) return;
+        prefs.wirelessConnectPort(0);
+        prefs.servicePaused(AppPrefs.WIRELESS, false);
+        main.post(() -> { if (gate.pairing(generation))
+            publish("配对完成，正在启动服务…", false, 0); });
+        try {
+            // Finish the actual independent service handshake while the pairing
+            // foreground service is still active. Do not claim success early.
+            PrivKitShell.start(this);
+            String identity = PrivKitShell.execute(this, "id").trim();
+            if (!identity.matches("(?s)^uid=2000(?:\\D.*)?$"))
+                throw new IllegalStateException("独立服务身份不匹配");
+            if (!gate.pairing(generation)) return;
+            prefs.activateMode(AppPrefs.WIRELESS, prefs.host(), prefs.staticPort(), identity);
+            prefs.enableMonitorOnFirstAuthorization();
+            // Pairing alone is not authorization: the live Binder and id
+            // above must both succeed before enabling background tasks.
+            boolean requested = (prefs.monitorEnabled() || prefs.guardEnabled()) && FcmMonitorService.start(this);
+            finish(generation, requested
+                    ? "授权成功，正在恢复已启用的后台任务"
+                    : "授权成功，请返回应用");
+        } catch (Exception error) {
+            prefs.shellFailed(error.getMessage());
+            finish(generation, "服务启动失败，请返回应用重试。\n" + PrivKitShell.errorChain(error));
+        }
+    }
+
+    private void finish(int generation, String message) {
+        main.post(() -> {
+            if (!gate.pairing(generation)) return;
+            complete(message);
+        });
     }
 
     private void complete(String message) {
+        active = false;
+        codeSubmitted = false;
+        gate.cancel();
         updateStatus(message);
         stopForeground(STOP_FOREGROUND_REMOVE);
+        PendingIntent open = PendingIntent.getActivity(this, 12, new Intent(this, AuthActivity.class),
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         getSystemService(NotificationManager.class).notify(NOTIFICATION,
                 new Notification.Builder(this, CHANNEL)
                         .setSmallIcon(R.drawable.ic_bf_auth)
                         .setContentTitle("BerryFCM ADB 授权")
                         .setContentText(message)
                         .setStyle(new Notification.BigTextStyle().bigText(message))
-                        .setAutoCancel(true).build());
+                        .setContentIntent(open).setTimeoutAfter(15000L).setAutoCancel(true).build());
         stopSelf();
     }
 
@@ -196,20 +256,26 @@ public final class AdbPairingService extends Service {
         updateStatus(message);
         Notification.Builder b = new Notification.Builder(this, CHANNEL)
                 .setSmallIcon(R.drawable.ic_bf_auth)
+                .setColor(android.graphics.Color.WHITE)
                 .setContentTitle("BerryFCM · 无线 ADB 配对")
                 .setContentText(message)
                 .setStyle(new Notification.BigTextStyle().bigText(message))
                 .setOngoing(true);
         if (withInput) {
             Intent reply = new Intent(this, AdbPairingService.class).setAction(ACTION_REPLY)
-                    .putExtra("port", selectedPort);
-            PendingIntent pending = PendingIntent.getForegroundService(this, 10, reply,
+                    .putExtra("port", selectedPort)
+                    .putExtra("generation", gate.generation())
+                    .putExtra("manual_fallback", selectedPort == 0)
+                    .setData(android.net.Uri.parse("berryfcm://pair/" + gate.generation() + "/" + selectedPort));
+            // The pairing service is already foreground. A stale reply must never
+            // create a new service that owes Android a startForeground call.
+            PendingIntent pending = PendingIntent.getService(this, 10, reply,
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
             Notification.Action input = new Notification.Action.Builder(
                     android.R.drawable.ic_menu_edit,
-                    selectedPort > 0 ? "输入六位配对码" : "输入配对端口和配对码", pending)
+                    selectedPort == 0 ? "输入端口和配对码" : "输入六位配对码", pending)
                     .addRemoteInput(new RemoteInput.Builder(KEY_CODE)
-                            .setLabel(selectedPort > 0 ? "六位配对码" : "例如 37123:123456").build())
+                            .setLabel(selectedPort == 0 ? "端口:六位配对码" : "六位配对码").build())
                     .build();
             b.addAction(input);
         }
@@ -221,14 +287,9 @@ public final class AdbPairingService extends Service {
         startForeground(NOTIFICATION, b.build());
     }
 
-    private void stopDiscovery() {
-        if (nsd != null && discovery != null) {
-            try { nsd.stopServiceDiscovery(discovery); } catch (RuntimeException ignored) {}
-        }
-        discovery = null;
-    }
     @Override public void onDestroy() {
-        stopDiscovery();
+        cancel();
+        main.removeCallbacksAndMessages(null);
         worker.shutdownNow();
         super.onDestroy();
     }

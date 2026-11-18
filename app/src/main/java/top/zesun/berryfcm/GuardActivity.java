@@ -46,16 +46,29 @@ public final class GuardActivity extends Ui {
     private LinearLayout selectedEntries, picker, candidateEntries;
     private EditText filter;
     private CheckBox showSystem;
-    private TextView selectedCount, candidateCount, report;
+    private TextView selectedCount, candidateCount, report, guardStatus;
     private Button choose, more;
     private int shown = PAGE_SIZE;
-    private boolean loading, scanned;
+    private boolean loading, scanned, operationRunning;
+    private Switch running;
+    private java.util.concurrent.Future<?> watchFuture;
+    private long operationGeneration;
+    private final android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
+    private android.content.SharedPreferences guardReport;
+    private String renderedReport;
+    private Set<String> renderedTargets;
+    private final Runnable refreshReport = this::refreshStoredReport;
+    private final android.content.SharedPreferences.OnSharedPreferenceChangeListener reportListener =
+            (store, key) -> {
+                ui.removeCallbacks(refreshReport);
+                ui.post(refreshReport);
+            };
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         title("应用守护", "仅显示已选择的守护应用，按需添加更多");
 
-        LinearLayout selected = card("正在守护的应用", "Google Play 服务为核心目标，始终保留。");
+        LinearLayout selected = card("已选择的守护应用", "Google Play 服务为核心目标，始终保留。");
         selectedCount = text("", 12, false, muted);
         selected.addView(selectedCount);
         selectedEntries = new LinearLayout(this);
@@ -99,34 +112,57 @@ public final class GuardActivity extends Ui {
         button(picker, "刷新候选应用", this::loadCandidates, false);
 
         LinearLayout actions = card("自动守护", "约每五分钟检查已选目标；不等于强制常驻或保证 FCM 消息送达。");
-        Switch running = new Switch(this);
+        running = new Switch(this);
         running.setText("启用后台自动守护");
         running.setTextColor(ink);
         running.setMinHeight(dp(50));
         running.setChecked(prefs.guardEnabled());
         actions.addView(running);
         running.setOnCheckedChangeListener((view, enabled) -> {
-            if (enabled && AppPrefs.WIRELESS.equals(prefs.mode()) && !prefs.adbPaired()) {
-                running.setChecked(false);
-                error("首次使用请先完成无线 ADB 配对");
+            if (bindingSwitches()) return;
+            if (enabled && !PrivilegeAccess.readyForUserAction(this)) {
+                syncChecked(running, prefs.guardEnabled());
+                error("请先完成授权并启动服务");
                 go(AuthActivity.class);
                 return;
             }
             prefs.guardEnabled(enabled);
             if (enabled) FcmMonitorService.start(this);
             else if (!prefs.monitorEnabled()) FcmMonitorService.stop(this);
+            renderGuardStatus();
         });
+        guardStatus = text("", 13, false, muted);
+        actions.addView(guardStatus);
         button(actions, "检查所选应用", () -> runCheck(false), true);
         button(actions, "恢复已停止的应用", () -> runCheck(true), false);
         LinearLayout advanced = disclosure(actions, "高级操作 · 90 秒巡检 / GMS 心跳", false);
         button(advanced, "运行 90 秒巡检", this::watchNinetySeconds, false);
         button(advanced, "请求 GMS 心跳", this::requestHeartbeat, false);
         LinearLayout output = disclosure(actions, "检查日志", false);
-        report = text(getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE)
-                .getString("report", "尚未检查"), 12, false, muted);
+        guardReport = getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE);
+        report = text(guardReport.getString("report", "尚未检查"), 12, false, muted);
         report.setTextIsSelectable(true);
         output.addView(report);
         renderSelected();
+        renderGuardStatus();
+    }
+
+    private void renderGuardStatus() {
+        if (guardStatus == null) return;
+        syncChecked(running, prefs.guardEnabled());
+        long last = getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE).getLong("last_run", 0);
+        String time = last > 0 ? new java.text.SimpleDateFormat("MM-dd HH:mm:ss",
+                Locale.getDefault()).format(new java.util.Date(last)) : "尚未检查";
+        guardStatus.setText(!PrivilegeAccess.readyForUserAction(this)
+                ? "需要授权，完成授权后才能检查或恢复应用。"
+                : (prefs.guardEnabled() && FcmMonitorService.isRunning()
+                    ? "后台守护已开启" : "后台守护未运行") + "\n最近检查：" + time);
+    }
+
+    private boolean requireAuthorization() {
+        if (PrivilegeAccess.readyForUserAction(this)) return true;
+        go(AuthActivity.class);
+        return false;
     }
 
     private void togglePicker() {
@@ -200,6 +236,10 @@ public final class GuardActivity extends Ui {
         if (selectedEntries == null) return;
         Set<String> target = new HashSet<>(prefs.guardTargets());
         target.add(GuardOps.GMS);
+        String previous = guardReport.getString("report", "");
+        if (target.equals(renderedTargets) && previous.equals(renderedReport)) return;
+        renderedTargets = new HashSet<>(target);
+        renderedReport = previous;
         List<App> chosen = new ArrayList<>();
         for (String pkg : target) chosen.add(selectedApp(pkg));
         chosen.sort(Comparator.comparingInt((App app) ->
@@ -292,9 +332,9 @@ public final class GuardActivity extends Ui {
             if (!line.startsWith(pkg + "|")) continue;
             String code = line.substring(pkg.length() + 1).trim();
             switch (code) {
-                case "running": return "上次正常";
-                case "stopped": return "上次已停止";
-                case "restored": return "上次已恢复";
+                case "running": return "上次未被强制停止";
+                case "stopped": return "上次处于强制停止状态";
+                case "restored": return "上次已解除停止";
                 case "repair_failed": return "上次恢复失败";
                 case "unknown": return "上次无法判断";
                 default: return "";
@@ -304,53 +344,110 @@ public final class GuardActivity extends Ui {
     }
 
     private void runCheck(boolean fix) {
-        report.setText(fix ? "正在检查并尝试修复…" : "正在检查 stopped 状态…");
+        if (!requireAuthorization() || !beginOperation()) return;
+        guardStatus.setText(fix ? "正在检查并尝试恢复…" : "正在检查应用…");
+        report.setText(fix ? "正在检查并尝试恢复…" : "正在检查应用是否被强制停止…");
         worker.execute(() -> {
             try (PrivilegeShell shell = PrivilegeAccess.open(this)) {
-                String result = shell.execute(GuardOps.command(prefs.guardTargets(), fix));
+                String result = runGuardBatches(shell, fix);
                 getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE)
-                        .edit().putString("report", result).apply();
-                runOnUiThread(() -> { report.setText(result); renderSelected(); });
+                        .edit().putString("report", result).putLong("last_run", System.currentTimeMillis()).apply();
+                runOnUiThread(() -> { if (!isDestroyed()) { report.setText(result); renderSelected(); renderGuardStatus(); } });
             } catch (Exception e) {
-                runOnUiThread(() -> report.setText("操作失败：" + e.getMessage()));
-            }
+                runOnUiThread(() -> { if (!isDestroyed()) { report.setText("操作失败：" + e.getMessage()); guardStatus.setText("检查失败，请查看检查日志。"); } });
+            } finally { runOnUiThread(() -> operationRunning = false); }
         });
     }
+    private String runGuardBatches(PrivilegeShell shell, boolean fix) throws Exception {
+        StringBuilder result = new StringBuilder();
+        for (String command : GuardOps.commandBatches(prefs.guardTargets(), fix)) {
+            if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
+            result.append(shell.execute(command)).append("\n");
+        }
+        return result.toString().trim();
+    }
+    private boolean beginOperation() {
+        if (operationRunning) { error("已有守护检查正在执行"); return false; }
+        operationRunning = true;
+        return true;
+    }
     private void requestHeartbeat() {
+        if (!requireAuthorization() || !beginOperation()) return;
         report.setText("正在请求 GMS 心跳…");
         worker.execute(() -> {
             try (PrivilegeShell shell = PrivilegeAccess.open(this)) {
                 String output = shell.execute(GuardOps.heartbeatCommand());
-                runOnUiThread(() -> report.setText("心跳广播结果（不是推送送达证明）\n" + output));
+                runOnUiThread(() -> { if (!isDestroyed()) report.setText("心跳广播结果（不是推送送达证明）\n" + output); });
             } catch (Exception error) {
-                runOnUiThread(() -> report.setText("心跳请求失败：" + error.getMessage()));
-            }
+                runOnUiThread(() -> { if (!isDestroyed()) report.setText("心跳请求失败：" + error.getMessage()); });
+            } finally { runOnUiThread(() -> operationRunning = false); }
         });
     }
 
     private void watchNinetySeconds() {
+        if (!requireAuthorization() || !beginOperation()) return;
         report.setText("正在运行 90 秒巡检；离开页面会中止本次交互测试");
-        worker.execute(() -> {
+        final long generation = ++operationGeneration;
+        watchFuture = worker.submit(() -> {
             try (PrivilegeShell shell = PrivilegeAccess.open(this)) {
                 for (int i = 0; i < 7; i++) {
-                    String result = shell.execute(GuardOps.command(prefs.guardTargets(), true));
+                    String result = runGuardBatches(shell, true);
                     if (result.contains("|restored")) {
                         result += "\n已修复应用，尝试请求 GMS 心跳：\n"
                                 + shell.execute(GuardOps.heartbeatCommand());
                     }
+                    getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE).edit()
+                            .putString("report", result).putLong("last_run", System.currentTimeMillis()).apply();
                     final int sample = i + 1;
                     final String current = result;
-                    runOnUiThread(() -> report.setText("巡检 " + sample + "/7\n" + current));
+                    runOnUiThread(() -> {
+                        if (!isDestroyed() && generation == operationGeneration) {
+                            report.setText("巡检 " + sample + "/7\n" + current);
+                            renderSelected(); renderGuardStatus();
+                        }
+                    });
                     if (i < 6) Thread.sleep(15000);
                 }
             } catch (InterruptedException error) {
                 Thread.currentThread().interrupt();
             } catch (Exception error) {
-                runOnUiThread(() -> report.setText("巡检异常：" + error.getMessage()));
+                runOnUiThread(() -> {
+                    if (!isDestroyed() && generation == operationGeneration) report.setText("巡检异常：" + error.getMessage());
+                });
+            } finally {
+                runOnUiThread(() -> {
+                    if (generation == operationGeneration) { operationRunning = false; watchFuture = null; }
+                });
             }
         });
     }
 
+    private void refreshStoredReport() {
+        if (isDestroyed() || isFinishing()) return;
+        if (!operationRunning) report.setText(guardReport.getString("report", "尚未检查"));
+        renderSelected();
+        renderGuardStatus();
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        renderedTargets = null; // re-read app installation state after returning
+        guardReport.registerOnSharedPreferenceChangeListener(reportListener);
+        refreshStoredReport();
+    }
+
+    @Override protected void onPause() {
+        guardReport.unregisterOnSharedPreferenceChangeListener(reportListener);
+        ui.removeCallbacks(refreshReport);
+        if (watchFuture != null) {
+            operationGeneration++;
+            watchFuture.cancel(true);
+            watchFuture = null;
+            operationRunning = false;
+            report.setText("本次交互巡检已取消；后台守护开关不变。");
+        }
+        super.onPause();
+    }
     @Override protected void onDestroy() {
         worker.shutdownNow();
         super.onDestroy();

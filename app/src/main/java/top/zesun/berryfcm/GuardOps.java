@@ -24,16 +24,34 @@ final class GuardOps {
     }
 
     static String command(Set<String> selected, boolean repair) {
+        return commandFor(targets(selected), repair);
+    }
+
+    private static List<String> targets(Set<String> selected) {
         List<String> items = new ArrayList<>(selected);
         if (!items.contains(GMS)) items.add(GMS);
         Collections.sort(items);
+        return items;
+    }
+
+    // Each target can take two 3s dumpsys calls. Keep a batch well below
+    // the 45s shell limit, include GMS only once, never silently drop targets.
+    static List<String> commandBatches(Set<String> selected, boolean repair) {
+        List<String> items = targets(selected);
+        List<String> batches = new ArrayList<>();
+        for (int i = 0; i < items.size(); i += 5)
+            batches.add(commandFor(items.subList(i, Math.min(i + 5, items.size())), repair));
+        return batches;
+    }
+
+    private static String commandFor(List<String> items, boolean repair) {
         StringBuilder cmd = new StringBuilder();
         for (String pkg : items) {
             if (!PACKAGE.matcher(pkg).matches()) continue;
             cmd.append("p='").append(pkg).append("'; ")
                .append("l=\"$(dumpsys -t 3 package \"$p\" 2>/dev/null | ")
                .append("grep -E '^[[:space:]]*User 0:.*installed=' | head -n 1)\"; ")
-               .append("case \" $l \" in ");
+               .append("case \" $l \" in *' installed=false '*) echo \"$p|unknown\";; ");
             if (repair) {
                 cmd.append("*' stopped=true '*) cmd package unstop --user 0 \"$p\" >/dev/null 2>&1; ")
                    .append("l=\"$(dumpsys -t 3 package \"$p\" 2>/dev/null | ")

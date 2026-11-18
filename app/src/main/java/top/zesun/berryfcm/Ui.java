@@ -16,6 +16,7 @@ import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.Switch;
 import android.widget.TextView;
 
 /** Common small native UI with explicit system-bar insets and independent screens. */
@@ -27,6 +28,8 @@ abstract class Ui extends Activity {
     private LinearLayout nav;
     private boolean dark;
     private boolean secondaryPage;
+    private boolean syncingSwitches;
+    protected int success, warning, danger;
     protected int ink, muted, surface, panel, accent;
 
     @Override protected void onCreate(Bundle state) {
@@ -47,6 +50,9 @@ abstract class Ui extends Activity {
         surface = dark ? 0xff0c1323 : 0xfff4f6fa;
         panel = dark ? 0xff172238 : Color.WHITE;
         accent = dark ? 0xff8ca8ff : 0xff365ed6;
+        success = dark ? 0xff83d5a5 : 0xff187747;
+        warning = dark ? 0xffffcd80 : 0xff935a00;
+        danger = dark ? 0xffffa6a7 : 0xffb3261e;
 
         getWindow().setStatusBarColor(surface);
         getWindow().setNavigationBarColor(surface);
@@ -56,8 +62,7 @@ abstract class Ui extends Activity {
                 | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
                 | (dark ? 0 : View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR));
 
-        secondaryPage = this instanceof AuthActivity || this instanceof DiagnosticsActivity
-                || this instanceof UpdateActivity;
+        secondaryPage = !primaryPage(getClass());
         frame = new LinearLayout(this);
         frame.setOrientation(LinearLayout.VERTICAL);
         frame.setBackgroundColor(surface);
@@ -81,15 +86,19 @@ abstract class Ui extends Activity {
         else buildNavigation();
         setContentView(frame);
         frame.setOnApplyWindowInsetsListener((v, insets) -> {
-            int top, bottom;
+            int top, bottom, left, right;
             if (android.os.Build.VERSION.SDK_INT >= 30) {
-                top = insets.getInsets(WindowInsets.Type.statusBars()).top;
-                bottom = insets.getInsets(WindowInsets.Type.navigationBars()).bottom;
+                android.graphics.Insets bars = insets.getInsets(
+                        WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                top = bars.top; bottom = bars.bottom; left = bars.left; right = bars.right;
             } else {
                 top = insets.getSystemWindowInsetTop();
                 bottom = insets.getSystemWindowInsetBottom();
+                left = insets.getSystemWindowInsetLeft();
+                right = insets.getSystemWindowInsetRight();
             }
-            header.setPadding(dp(20), top + dp(16), dp(20), dp(12));
+            frame.setPadding(left, 0, right, secondaryPage ? bottom : 0);
+            header.setPadding(dp(20), top + dp(12), dp(20), dp(9));
             nav.setPadding(dp(5), dp(5), dp(5), bottom + dp(5));
             return insets;
         });
@@ -158,14 +167,14 @@ abstract class Ui extends Activity {
     protected LinearLayout card(String heading, String description) {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(16), dp(16), dp(16), dp(16));
+        box.setPadding(dp(14), dp(14), dp(14), dp(14));
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(panel);
-        drawable.setCornerRadius(dp(16));
+        drawable.setCornerRadius(dp(14));
         drawable.setStroke(dp(1), dark ? 0xff28354c : 0xffe4e9f2);
         box.setBackground(drawable);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.bottomMargin = dp(12);
+        lp.bottomMargin = dp(10);
         content.addView(box, lp);
         if (heading != null) {
             box.addView(text(heading, 16, true, ink));
@@ -182,7 +191,7 @@ abstract class Ui extends Activity {
         b.setAllCaps(false);
         b.setText(title);
         b.setTextSize(14);
-        b.setTextColor(primary ? Color.WHITE : ink);
+        b.setTextColor(primary ? (dark ? 0xff0c1323 : Color.WHITE) : ink);
         GradientDrawable shape = new GradientDrawable();
         shape.setColor(primary ? accent : (dark ? 0xff2c3b58 : 0xffe9eef8));
         shape.setCornerRadius(dp(12));
@@ -192,7 +201,9 @@ abstract class Ui extends Activity {
         b.setElevation(0);
         b.setMinimumHeight(0);
         b.setMinHeight(0);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(48));
+        b.setMinHeight(dp(48));
+        b.setPadding(dp(12), dp(8), dp(12), dp(8));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
         params.topMargin = dp(8);
         box.addView(b, params);
         b.setOnClickListener(v -> action.run());
@@ -225,28 +236,35 @@ abstract class Ui extends Activity {
         if (action != null) {
             entry.setBackground(new RippleDrawable(
                     ColorStateList.valueOf(dark ? 0x44ffffff : 0x15000000), null, null));
+            entry.setFocusable(true);
+            entry.setMinimumHeight(dp(48));
             entry.setOnClickListener(v -> action.run());
         }
     }
     /** Progressive disclosure for infrequent or technical controls. */
     protected LinearLayout disclosure(LinearLayout parent, String caption, boolean expanded) {
-        TextView trigger = text("", 14, true, accent);
+        LinearLayout trigger = new LinearLayout(this);
         trigger.setGravity(Gravity.CENTER_VERTICAL);
-        trigger.setPadding(dp(4), dp(10), dp(4), dp(10));
-        trigger.setMinHeight(dp(48));
-        trigger.setClickable(true);
+        trigger.setPadding(dp(2), dp(7), dp(2), dp(7));
+        trigger.setMinimumHeight(dp(44));
         trigger.setFocusable(true);
+        trigger.setBackground(new RippleDrawable(ColorStateList.valueOf(
+                dark ? 0x33ffffff : 0x12000000), null, null));
+        TextView heading = text(caption, 16, true, ink);
+        trigger.addView(heading, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView arrow = text(expanded ? "⌃" : "⌄", 22, true, accent);
+        arrow.setGravity(Gravity.CENTER);
+        trigger.addView(arrow, new LinearLayout.LayoutParams(dp(30), dp(34)));
+        trigger.setContentDescription(caption + (expanded ? "，点击收起" : "，点击展开"));
         parent.addView(trigger);
         LinearLayout details = new LinearLayout(this);
         details.setOrientation(LinearLayout.VERTICAL);
         parent.addView(details);
         details.setVisibility(expanded ? View.VISIBLE : View.GONE);
-        trigger.setText(caption + (expanded ? "  ▴" : "  ▾"));
-        trigger.setContentDescription(caption + (expanded ? "，点击收起" : "，点击展开"));
         trigger.setOnClickListener(v -> {
             boolean opening = details.getVisibility() != View.VISIBLE;
             details.setVisibility(opening ? View.VISIBLE : View.GONE);
-            trigger.setText(caption + (opening ? "  ▴" : "  ▾"));
+            arrow.setText(opening ? "⌃" : "⌄");
             trigger.setContentDescription(caption + (opening ? "，点击收起" : "，点击展开"));
         });
         return details;
@@ -267,8 +285,47 @@ abstract class Ui extends Activity {
         parent.addView(row);
     }
     protected int dp(int px) { return (int) (px * getResources().getDisplayMetrics().density + .5f); }
-    protected void go(Class<? extends Activity> page) { startActivity(new Intent(this, page)); }
-    protected void error(String info) { android.widget.Toast.makeText(this, info, android.widget.Toast.LENGTH_LONG).show(); }
+    private static boolean primaryPage(Class<?> type) {
+        return type == MainActivity.class || type == MonitorActivity.class
+                || type == GuardActivity.class || type == BackgroundActivity.class
+                || type == SettingsActivity.class;
+    }
+    protected void go(Class<? extends Activity> page) {
+        if (page.isInstance(this) || isFinishing() || isDestroyed()) return;
+        Intent intent = new Intent(this, page);
+        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        startActivity(intent);
+        // Keep overview as the only root, not a stack of every selected tab.
+        if (primaryPage(page) && primaryPage(getClass()) && !(this instanceof MainActivity)) finish();
+    }
+    protected void syncChecked(Switch view, boolean value) {
+        if (view == null || view.isChecked() == value) return;
+        boolean previous = syncingSwitches;
+        syncingSwitches = true;
+        try { view.setChecked(value); }
+        finally { syncingSwitches = previous; }
+    }
+    protected boolean bindingSwitches() { return syncingSwitches; }
+    protected int statusColor(MonitorStatus.State state) {
+        switch (state) {
+            case CONNECTED: return success;
+            case DISCONNECTED: case FAILED: return danger;
+            case CONNECTING: case AUTH_REQUIRED: return warning;
+            default: return muted;
+        }
+    }
+    protected void error(String info) {
+        if (!isFinishing() && !isDestroyed())
+            android.widget.Toast.makeText(this, info, android.widget.Toast.LENGTH_LONG).show();
+    }
+    @Override protected void onResume() {
+        super.onResume();
+        String theme = prefs.theme();
+        boolean desiredDark = "dark".equals(theme) || ("system".equals(theme)
+                && (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
+                    == Configuration.UI_MODE_NIGHT_YES);
+        if (desiredDark != dark) recreate();
+    }
 
     private void buildNavigation() {
         Class<?>[] pages = {MainActivity.class, MonitorActivity.class, GuardActivity.class,
@@ -286,12 +343,15 @@ abstract class Ui extends Activity {
             item.setMinimumHeight(dp(56));
             item.setClickable(true);
             item.setFocusable(true);
+            item.setSelected(selected);
             item.setContentDescription(names[i] + (selected ? "，当前页面" : ""));
             if (selected) {
                 GradientDrawable pill = new GradientDrawable();
                 pill.setCornerRadius(dp(14));
                 pill.setColor(dark ? 0xff2b3b61 : 0xffe5ecff);
                 item.setBackground(pill);
+            } else {
+                item.setBackground(new RippleDrawable(ColorStateList.valueOf(dark ? 0x44ffffff : 0x15000000), null, null));
             }
             ImageView image = symbol(icons[i], selected ? accent : muted, 22);
             item.addView(image, new LinearLayout.LayoutParams(dp(22), dp(22)));
@@ -303,13 +363,7 @@ abstract class Ui extends Activity {
             itemParams.leftMargin = dp(2);
             itemParams.rightMargin = dp(2);
             nav.addView(item, itemParams);
-            item.setOnClickListener(v -> {
-                if (!target.isInstance(this)) {
-                    Intent intent = new Intent(this, target.asSubclass(Activity.class));
-                    intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-                    startActivity(intent);
-                }
-            });
+            item.setOnClickListener(v -> go(target.asSubclass(Activity.class)));
         }
     }
 
