@@ -31,6 +31,7 @@ public final class AdbPairingService extends Service {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final PairingGate gate = new PairingGate();
     private Future<?> task;
+    private int manualPairPort;
     private static volatile boolean active;
     static boolean isPairingActive() { return active; }
 
@@ -68,11 +69,17 @@ public final class AdbPairingService extends Service {
             // Stale notifications, missing service and duplicate submissions
             // cannot initiate pairing. The port comes from discovery, not input.
             if (!active) { stopSelf(); return START_NOT_STICKY; }
-            if (!code.matches("[0-9]{6}") || !gate.submit(generation, port))
+            if (!gate.ready(generation, port)) return START_NOT_STICKY;
+            if (!code.matches("[0-9]{6}")) {
+                publish("配对码必须是六位数字，请重新输入", true, port);
                 return START_NOT_STICKY;
-            publish("正在配对，随后验证 ADB 认证和独立服务", false, 0);
-            // The discovery worker exits on submit before this queued operation.
-            task = worker.submit(() -> pair(generation, port, code));
+            }
+            if (!gate.submit(generation, port)) return START_NOT_STICKY;
+            publish("正在配对…", false, 0);
+            final boolean manual = manualPairPort > 0;
+            // Cancel any rediscovery in progress before starting the handshake.
+            if (task != null) task.cancel(true);
+            task = worker.submit(() -> pair(generation, port, code, manual));
             return START_NOT_STICKY;
         }
         if (!ACTION_BEGIN.equals(intent.getAction())) return START_NOT_STICKY;
@@ -81,60 +88,45 @@ public final class AdbPairingService extends Service {
         int generation = gate.begin();
         active = true;
         int manual = intent.getIntExtra("manual_port", 0);
+        manualPairPort = manual;
         publish("等待系统配对服务：请打开“使用配对码配对设备”", false, 0);
         task = worker.submit(() -> discover(generation, manual));
         return START_NOT_STICKY;
     }
 
     private void discover(int generation, int manual) {
-        // Match Priv Kit's own UI: discover first, periodically check that
-        // the endpoint remains available, disable input again when it disappears.
+        // Let Priv Kit validate the actual local endpoint (LAN or loopback).
+        // A second loopback bind test rejects valid Android 17 LAN listeners.
+        int previous = 0;
         while (gate.searching(generation) && !Thread.currentThread().isInterrupted()) {
             try {
                 int found = manual > 0 ? manual : PrivKitShell.discoverPairingPort();
                 if (!gate.searching(generation)) return;
-                if (!localPortListening(found)) {
-                    manual = 0;
-                    Thread.sleep(500L);
-                    continue;
+                if (found != previous) {
+                    if (!gate.found(generation, found)) return;
+                    previous = found;
+                    main.post(() -> {
+                        if (gate.ready(generation, found))
+                            publish("请输入系统显示的六位配对码", true, found);
+                    });
                 }
-                if (!gate.found(generation, found)) return;
-                main.post(() -> {
-                    if (gate.ready(generation, found))
-                        publish("已发现本机配对服务，输入系统显示的六位配对码", true, found);
-                });
-                while (gate.searching(generation) && localPortListening(found))
-                    Thread.sleep(500L);
-                if (!gate.searching(generation)) return;
-                gate.lost(generation, found);
-                main.post(() -> {
-                    if (gate.searching(generation) && !gate.hasPort())
-                        publish("配对服务已关闭，等待重新打开系统配对码页面", false, 0);
-                });
-                manual = 0;
+                // Manual port is an explicit fallback, not an auto-discovered endpoint.
+                Thread.sleep(manual > 0 ? 1000L : 500L);
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
                 return;
             } catch (Exception failure) {
                 if (!gate.searching(generation)) return;
+                if (previous > 0) gate.lost(generation, previous);
+                previous = 0;
                 main.post(() -> {
                     if (gate.searching(generation) && !gate.hasPort())
-                        publish("正在搜索本机配对服务，请保持系统配对码页面打开", false, 0);
+                        publish("请打开系统无线调试中的“使用配对码配对设备”", false, 0);
                 });
                 try { Thread.sleep(500L); }
                 catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); return; }
             }
         }
-    }
-
-    // The upstream Priv Kit UI uses a local bind probe, not a connection that
-    // might consume the pairing service's handshake.
-    private static boolean localPortListening(int port) {
-        if (port <= 0 || port > 65535) return false;
-        try (java.net.ServerSocket socket = new java.net.ServerSocket()) {
-            socket.bind(new java.net.InetSocketAddress("127.0.0.1", port), 1);
-            return false;
-        } catch (java.io.IOException busy) { return true; }
     }
 
     private void cancel() {
@@ -144,13 +136,15 @@ public final class AdbPairingService extends Service {
         task = null;
     }
 
-    private void pair(int generation, int selectedPort, String code) {
+    private void pair(int generation, int selectedPort, String code, boolean manual) {
         AppPrefs prefs = new AppPrefs(this);
         try {
             if (!gate.pairing(generation)) return;
-            PrivKitShell.pair(this, selectedPort, code);
+            // Passing a numeric port forces upstream to use loopback. Null keeps
+            // the LAN address resolved by upstream for the normal automatic flow.
+            PrivKitShell.pair(this, manual ? selectedPort : null, code);
         } catch (Exception error) {
-            String message = String.valueOf(error.getMessage());
+            String message = PrivKitShell.errorChain(error);
             prefs.shellFailed(message);
             finish(generation, "配对失败：" + message);
             return;
@@ -158,7 +152,7 @@ public final class AdbPairingService extends Service {
         if (!gate.pairing(generation)) return;
         prefs.wirelessConnectPort(0);
         main.post(() -> { if (gate.pairing(generation))
-            publish("配对交换完成，正在验证真实认证并启动服务", false, 0); });
+            publish("配对完成，正在启动服务…", false, 0); });
         try {
             // Finish the actual independent service handshake while the pairing
             // foreground service is still active. Do not claim success early.
@@ -171,11 +165,11 @@ public final class AdbPairingService extends Service {
             prefs.monitorEnabled(true);
             boolean requested = FcmMonitorService.start(this);
             finish(generation, requested
-                    ? "配对成功，独立服务已运行，已请求启动监控"
-                    : "配对成功，独立服务已运行；请返回应用启动监控");
+                    ? "授权成功，正在开启 FCM 监控"
+                    : "授权成功，请返回应用开启监控");
         } catch (Exception error) {
             prefs.shellFailed(error.getMessage());
-            finish(generation, "配对交换完成，独立服务未启动：" + error.getMessage());
+            finish(generation, "服务启动失败，请返回应用重试。\n" + PrivKitShell.errorChain(error));
         }
     }
 
