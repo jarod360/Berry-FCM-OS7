@@ -26,7 +26,7 @@ public final class MainActivity extends Ui {
 
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved);
-        title("BerryFCM", "FCM 连接与后台守护");
+        title("BerryFCM", "专为 OriginOS 7 开发 · 仅此系统已测试");
 
         LinearLayout monitor = card("FCM 监控", "检查 Google 推送连接是否正常");
         state = text("正在读取状态", 23, true, ink);
