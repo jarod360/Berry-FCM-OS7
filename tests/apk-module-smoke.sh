@@ -356,3 +356,6 @@ need 'permissionText(highPowerRow, "允许后台高耗电", "需在系统确认"
 # Keep optional permissions out of the main authorization view.
 need 'disclosure(permissionCard, "后台运行权限", false)' "$src/AuthActivity.java"
 need 'disclosure(notificationCard, "通知与快捷功能", false)' "$src/AuthActivity.java"
+
+# No automatic ADB recovery when Android 17 local network authorization is absent.
+need 'PrivKitShell.localNetworkAllowed(context)' "$src/PrivilegeAccess.java"
