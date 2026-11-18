@@ -411,3 +411,6 @@ Each actual runtime method (Wireless ADB, Root, Shizuku, ADB TCP) has one status
 
 ### Compact authorization state and inline failure diagnostics
 Auth page now shows a single large actual state (已启动/已停止/启动失败/处理中), small 来源：无线 ADB/Root/Shizuku/ADB TCP, and one play/pause icon toggling selected transport. On real startup failure, the summary appears directly below; full error + Priv Kit trace can be expanded/copied. Method chooser and pairing are collapsed. Wireless ADB crash null-unboxing fixed in previous commit; real device Binder start remains unverified.
+
+### 2026-11-18 OEM permission UI clean-up
+Removed the full `cmd appops get top.zesun.berryfcm` dump incorrectly labeled as vendor permissions diagnosis. Android AppOps are not reliable indicators of OriginOS 自启动、关联启动、高耗电. Kept separate user-actionable settings links and conservative '需在系统确认' when an OEM toggle cannot be read. Does not alter privileges, policies, or the already-released APK.

@@ -345,3 +345,10 @@ need 'stateToggle.setContentDescription((running ? "停止" : "启动")' "$src/A
 need 'errorSummary.setText(singleLine)' "$src/AuthActivity.java"
 need 'errorLog.setText(failure +' "$src/AuthActivity.java"
 need 'ShizukuShell.isRunning()' "$src/AuthActivity.java"
+
+# Do not expose irrelevant full AppOps dump as OEM permission diagnosis.
+if grep -q 'cmd appops get top.zesun.berryfcm 2>&1' "$src/AuthActivity.java"; then
+  echo 'Full Android AppOps is not Vivo permission status' >&2; exit 1
+fi
+need 'permissionText(associatedRow, "关联启动", "需在系统确认")' "$src/AuthActivity.java"
+need 'permissionText(highPowerRow, "允许后台高耗电", "需在系统确认")' "$src/AuthActivity.java"
