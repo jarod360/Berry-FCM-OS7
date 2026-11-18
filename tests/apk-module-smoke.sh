@@ -341,6 +341,14 @@ rm -rf "$tmp_adb_port"
 # Compact authorization controls and selected method state.
 need 'detail.setText("当前来源：" + methodName(currentMode)' "$src/AuthActivity.java"
 need 'pendingAction = "正在验证 "' "$src/AuthActivity.java"
+need 'confirmSwitch(this::startCandidateService)' "$src/AuthActivity.java"
+need 'AdbPairingService.isAwaitingInput()' "$src/AuthActivity.java"
+need 'openedPairSettings && leftForPairSettings' "$src/AuthActivity.java"
+need 'PAIR_INPUT_TIMEOUT_MS' "$src/AdbPairingService.java"
+need 'isCodeSubmitted()' "$src/AdbPairingService.java"
+if grep -q '当前授权正在进行，请先完成或取消' "$src/AuthActivity.java"; then
+  echo 'Browsing authorization methods must remain available' >&2; exit 1
+fi
 need 'pendingAction = "正在停止 "' "$src/AuthActivity.java"
 need 'pendingAction = "正在重启 "' "$src/AuthActivity.java"
 if grep -q 'busy ? "处理中"' "$src/AuthActivity.java"; then
@@ -360,7 +368,7 @@ need 'permissionText(associatedRow, "关联启动", "需在系统确认")' "$src
 need 'permissionText(highPowerRow, "允许后台高耗电", "需在系统确认")' "$src/AuthActivity.java"
 
 # Keep optional permissions out of the main authorization view.
-need 'disclosure(permissionCard, "后台运行权限", false)' "$src/AuthActivity.java"
+need 'disclosure(permissionCard, "自启动、电池和后台权限", false)' "$src/AuthActivity.java"
 # Old private/OEM or duplicate settings assertion removed.
 
 # No automatic ADB recovery when Android 17 local network authorization is absent.
@@ -370,11 +378,11 @@ need 'PrivKitShell.localNetworkAllowed(context)' "$src/PrivilegeAccess.java"
 need 'toggleSurface.setColor(surface)' "$src/AuthActivity.java"
 
 # Actionable authorization UI and truthful OriginOS permission state.
-need 'disclosure(chooser, "更换授权方式 · 配对与高级设置", false)' "$src/AuthActivity.java"
+need 'disclosure(chooser, "选择与管理授权方式", true)' "$src/AuthActivity.java"
 need 'permissionText(autoStartRow, "自启动", "需在系统确认")' "$src/AuthActivity.java"
 need 'step("Root 授权"' "$src/AuthActivity.java"
 need 'step("Shizuku "' "$src/AuthActivity.java"
-need 'text(caption, 20, true, ink)' "$src/Ui.java"
+need 'text(caption, 16, true, ink)' "$src/Ui.java"
 need '后台监控运行通知' "$src/FcmMonitorService.java"
 need 'new Notification.Builder(this, CHANNEL)' "$src/FcmMonitorService.java"
 need 'setColor(android.graphics.Color.WHITE)' "$src/AdbPairingService.java"
