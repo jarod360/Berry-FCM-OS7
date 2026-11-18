@@ -25,6 +25,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantLock;
 import org.json.JSONObject;
 
 /** Foreground monitoring runs independently of activities; all shell writes are serialized. */
@@ -36,7 +37,9 @@ public final class FcmMonitorService extends Service {
     private static final String CHECK = "berryfcm.monitor.check";
     private static final String RECONNECT = "berryfcm.monitor.reconnect";
     private static final String REFRESH_DISPLAY = "berryfcm.monitor.display";
-    private final ScheduledExecutorService worker = Executors.newSingleThreadScheduledExecutor();
+    private final ScheduledExecutorService monitorWorker = Executors.newSingleThreadScheduledExecutor();
+    private final ScheduledExecutorService guardWorker = Executors.newSingleThreadScheduledExecutor();
+    private final ReentrantLock commandLock = new ReentrantLock(true);
     private volatile boolean scheduled;
     private boolean installed;
     private static volatile String activeSession = "";
@@ -55,6 +58,7 @@ public final class FcmMonitorService extends Service {
     private String installedMode;
     private String lastAttemptKey = "";
     private java.util.concurrent.ScheduledFuture<?> periodic;
+    private java.util.concurrent.ScheduledFuture<?> guardPeriodic;
     // Held across checks while monitoring/guard is enabled, not just inside a sample.
     private PowerManager.WakeLock persistentWakeLock;
     private static volatile boolean wakeLockHeld;
@@ -261,20 +265,36 @@ public final class FcmMonitorService extends Service {
                     .putLong("attempt_time", 0)
                     .putString("attempt_state", "pending").apply();
             scheduled = true;
-            if (periodic == null || periodic.isCancelled() || periodic.isDone())
-                periodic = worker.scheduleWithFixedDelay(() -> runSafe(false), 0, 15, TimeUnit.SECONDS);
         }
+        updatePeriodicSchedules(prefs);
         updatePersistentWakeLock(prefs.monitorEnabled() || prefs.guardEnabled());
         String action = intent == null ? null : intent.getAction();
         if (CHECK.equals(action) && !firstStart) queueCheck(true);
         if (RECONNECT.equals(action) && reconnectQueued.compareAndSet(false, true)) {
             saveManualResult(prefs.connectionKey(), "正在读取 GMS 并检查重连条件…");
-            worker.execute(() -> {
+            monitorWorker.execute(() -> {
                 try { manualReconnectInternal(); }
                 finally { reconnectQueued.set(false); }
             });
         }
         return START_STICKY;
+    }
+
+    private void updatePeriodicSchedules(AppPrefs prefs) {
+        if (prefs.monitorEnabled()) {
+            if (periodic == null || periodic.isCancelled() || periodic.isDone())
+                periodic = monitorWorker.scheduleWithFixedDelay(() -> runSafe(false), 0, 15, TimeUnit.SECONDS);
+        } else if (periodic != null) {
+            periodic.cancel(false);
+            periodic = null;
+        }
+        if (prefs.guardEnabled()) {
+            if (guardPeriodic == null || guardPeriodic.isCancelled() || guardPeriodic.isDone())
+                guardPeriodic = guardWorker.scheduleWithFixedDelay(this::runGuardSafe, 0, 5, TimeUnit.MINUTES);
+        } else if (guardPeriodic != null) {
+            guardPeriodic.cancel(false);
+            guardPeriodic = null;
+        }
     }
 
     private void updatePersistentWakeLock(boolean enabled) {
@@ -313,6 +333,7 @@ public final class FcmMonitorService extends Service {
         scheduled = false;
         if (session.equals(activeSession)) activeSession = "";
         if (periodic != null) periodic.cancel(false);
+        if (guardPeriodic != null) guardPeriodic.cancel(false);
         releasePersistentWakeLock();
         stopForeground(STOP_FOREGROUND_REMOVE);
     }
@@ -358,9 +379,9 @@ public final class FcmMonitorService extends Service {
     }
 
     private void queueCheck(boolean manual) {
-        if (!scheduled || !checkQueued.compareAndSet(false, true)) return;
+        if (!scheduled || !new AppPrefs(this).monitorEnabled() || !checkQueued.compareAndSet(false, true)) return;
         try {
-            worker.execute(() -> {
+            monitorWorker.execute(() -> {
                 try {
                     if (manual || SystemClock.elapsedRealtime() - lastCheckElapsed >= 5000)
                         runSafe(manual);
@@ -474,33 +495,39 @@ public final class FcmMonitorService extends Service {
                 installed = false;
             }
         }
+    }
+
+    private void runGuardSafe() {
+        if (!scheduled || !session.equals(activeSession) || Thread.currentThread().isInterrupted()) return;
+        AppPrefs p = new AppPrefs(this);
+        if (!p.guardEnabled() || !PrivilegeAccess.canRunInBackground(this)) return;
         long now = SystemClock.elapsedRealtime();
-        if (p.guardEnabled() && (lastGuardAt == 0 || now < lastGuardAt
-                || now - lastGuardAt >= TimeUnit.MINUTES.toMillis(5))) {
-            lastGuardAt = now;
-            try {
-                StringBuilder reports = new StringBuilder();
-                String mode = p.mode();
-                String guardKey = p.connectionKey();
-                for (String command : GuardOps.commandBatches(p.guardTargets(), true)) {
-                    if (!scheduled || !p.guardEnabled() || !guardKey.equals(p.connectionKey())) return;
-                    reports.append(execute(p, mode, command)).append("\n");
-                }
-                if (!scheduled || !p.guardEnabled() || !guardKey.equals(p.connectionKey())) return;
-                String report = reports.toString().trim();
-                if (report.contains("|restored")) {
-                    report += "\n已修复应用，已请求 GMS 心跳（非连接成功证明）：\n"
-                            + execute(p, mode, GuardOps.heartbeatCommand());
-                }
-                getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE).edit()
-                        .putString("report", report).putLong("last_run", System.currentTimeMillis()).apply();
-            } catch (Exception error) {
-                if (scheduled && session.equals(activeSession) && p.guardEnabled()
-                        && attemptKey.equals(p.connectionKey()) && !Thread.currentThread().isInterrupted())
-                    getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE).edit()
-                            .putString("report", "守护检查失败：" + safeError(error))
-                            .putLong("last_run", System.currentTimeMillis()).apply();
+        if (lastGuardAt != 0 && now >= lastGuardAt
+                && now - lastGuardAt < TimeUnit.MINUTES.toMillis(5)) return;
+        lastGuardAt = now;
+        String key = p.connectionKey();
+        String mode = p.mode();
+        try {
+            StringBuilder reports = new StringBuilder();
+            // A single target per transaction bounds how long FCM may wait for Shell.
+            for (String command : GuardOps.commandBatches(p.guardTargets(), true, 1)) {
+                if (Thread.currentThread().isInterrupted() || !scheduled || !p.guardEnabled()
+                        || !key.equals(p.connectionKey())) return;
+                reports.append(execute(p, mode, command)).append("\n");
             }
+            if (!scheduled || !p.guardEnabled() || !key.equals(p.connectionKey())) return;
+            String report = reports.toString().trim();
+            if (report.contains("|restored"))
+                report += "\n已修复应用，已请求 GMS 心跳（非连接成功证明）：\n"
+                        + execute(p, mode, GuardOps.heartbeatCommand());
+            getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE).edit()
+                    .putString("report", report).putLong("last_run", System.currentTimeMillis()).apply();
+        } catch (Exception error) {
+            if (scheduled && session.equals(activeSession) && p.guardEnabled()
+                    && key.equals(p.connectionKey()) && !Thread.currentThread().isInterrupted())
+                getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE).edit()
+                        .putString("report", "守护检查失败：" + safeError(error))
+                        .putLong("last_run", System.currentTimeMillis()).apply();
         }
     }
 
@@ -688,6 +715,8 @@ public final class FcmMonitorService extends Service {
     }
 
     private String execute(AppPrefs prefs, String mode, String command) throws Exception {
+        commandLock.lock();
+        try {
         if (AppPrefs.ROOT.equals(mode)) {
             try (PrivilegeShell shell = new RootShell(this)) {
                 String result = shell.execute(command);
@@ -726,6 +755,9 @@ public final class FcmMonitorService extends Service {
             if (mode.equals(prefs.mode())) prefs.shellFailed(error.getMessage());
             throw error;
         }
+        } finally {
+            commandLock.unlock();
+        }
     }
     @Override public void onDestroy() {
         scheduled = false;
@@ -740,8 +772,10 @@ public final class FcmMonitorService extends Service {
         }
         main.removeCallbacksAndMessages(null);
         if (periodic != null) periodic.cancel(true);
+        if (guardPeriodic != null) guardPeriodic.cancel(true);
         releasePersistentWakeLock();
-        worker.shutdownNow();
+        monitorWorker.shutdownNow();
+        guardWorker.shutdownNow();
         stopForeground(STOP_FOREGROUND_REMOVE);
         super.onDestroy();
     }
