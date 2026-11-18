@@ -379,7 +379,6 @@ public final class AuthActivity extends Ui {
                 if (mode.equals(selected)) return;
                 selected = mode;
                 selectedFailure = "";
-                selectedFailure = "";
                 prefs.authTab(mode);
                 // Browsing connection methods must not interrupt the active monitor.
                 renderTabs();
@@ -401,7 +400,7 @@ public final class AuthActivity extends Ui {
     private void startSelectedService() {
         if (checking) return;
         if (AppPrefs.WIRELESS.equals(selected)) {
-            if (!prefs.adbPaired() && !PrivKitShell.hasStoredIdentity(this))
+            if (prefs.pairingRejected() || (!prefs.adbPaired() && !PrivKitShell.hasStoredIdentity(this)))
                 beginPair(0);
             else startWireless();
         } else if (AppPrefs.SHIZUKU.equals(selected)) authorizeShizuku();
