@@ -345,3 +345,7 @@ alpha.46（#44228259741）已通过 API 37.0 SDK 安装、依赖解析、原生�
 
 ### alpha.54 发布方案修正（不增加任何 Secret）
 用户明确无需增加 Token。保留原四个签名 Secrets；删除未使用的 BERRYFCM_RELEASE_TOKEN 入口。发布源快照 `release/alpha.54` / `2b239ccbc0624b09e67143c86d3f69499205bc1b` 已由原实际构建提交 `bde6ff58263c55e7b283a387eb9b6625e3f2dbed` 派生并验证，唯一差异是 `.github/workflows/build-apk.yml` 恢复为当前 main 的版本；全部产品源码、测试、其他文件完全相同，两份 workflow 的 blob SHA 与 main 一致。GitHub Release tag 指向该快照，不冒充原始构建提交；Release 说明同时记录原始构建 SHA / run 44245895574 及快照 SHA。晋升流程使用默认 GITHUB_TOKEN，重新验证原 run 全部八项门槛、原 APK、包名、版本、固定签名、快照唯一 CI 差异和 main workflow 一致性，再发布原制品。不重新编译，不修改 main/KSU，不更改签名；如 GitHub 拒绝，不自动请求更多权限。实际发布结果仍待核实。
+
+### alpha.54 测试发布成功
+- 2026-11-18 已实际确认 [Release v0.1.0-alpha.54](https://github.com/jarod360/Berry-FCM-OS7/releases/tag/v0.1.0-alpha.54)，release ID 449600753，非草稿、prerelease=true。两个兼容文件名 APK 都是同一份已验签的原构建制品，大小均为 8244791 bytes，SHA256 `754ebf5adce2a5a768d279a487eda31f18337cdb67f135ce9e5343509de7f99c`。
+- [仅发布任务 #44251045028](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44251045028) 已通过制品来源、源码快照一致性、固定证书、包名与版本校验，并成功创建 Release。build 跳过；无额外 token，四项签名 Secrets 不变，main 不变。下一步是用户在旧版 APP 内检查更新并覆盖安装，进行真实设备验收；不把 CI 通过等同于实机功能通过。
