@@ -16,7 +16,7 @@ import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.EditText;
-import android.widget.ImageButton;
+import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import java.util.concurrent.ExecutorService;
@@ -29,9 +29,9 @@ public final class AuthActivity extends Ui {
     private static final String[] LABELS = {"无线 ADB", "Root", "Shizuku", "ADB TCP", "电脑 USB"};
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private LinearLayout tabs, instructions;
-    private TextView status, detail, errorSummary, errorLog;
-    private LinearLayout failurePanel;
-    private ImageButton stateToggle;
+    private TextView status, detail, errorSummary, errorLog, pairingInfo;
+    private LinearLayout failurePanel, pairingPanel;
+    private Button stateToggle, cancelPairButton;
     private TextView autoStartRow, associatedRow, highPowerRow, lockRow, batteryRow, notificationRow, monitorNotificationRow, restrictionRow, tileRow;
     private android.widget.Button removeTileButton;
     private String selected;
@@ -60,7 +60,9 @@ public final class AuthActivity extends Ui {
     private boolean startAfterSettings;
     private String selectedFailure = "";
     private String pendingAction = "";
+    private String pendingMode = "";
     private boolean leftForSettings;
+    private boolean openedPairSettings, leftForPairSettings;
     private int pendingPairPort = -1;
     private static final int SHIZUKU_PERMISSION = 130;
     private static final int LOCAL_NETWORK_PERMISSION = 131;
@@ -78,7 +80,7 @@ public final class AuthActivity extends Ui {
         super.onCreate(state);
         selected = prefs.mode();
         Shizuku.addRequestPermissionResultListener(shizukuPermission);
-        title("授权管理", "选择方式，管理启停");
+        title("授权管理", "查看授权状态，选择并切换连接方式");
 
         LinearLayout card = card("授权状态", null);
         LinearLayout stateRow = new LinearLayout(this);
@@ -93,9 +95,10 @@ public final class AuthActivity extends Ui {
         detail.setPadding(0, dp(4), 0, 0);
         labels.addView(detail);
 
-        stateToggle = new ImageButton(this);
-        stateToggle.setScaleType(android.widget.ImageView.ScaleType.CENTER_INSIDE);
-        stateToggle.setPadding(dp(13), dp(13), dp(13), dp(13));
+        stateToggle = new Button(this);
+        stateToggle.setAllCaps(false);
+        stateToggle.setTextSize(14);
+        stateToggle.setPadding(dp(10), dp(8), dp(10), dp(8));
         GradientDrawable toggleSurface = new GradientDrawable();
         toggleSurface.setColor(surface);
         toggleSurface.setCornerRadius(dp(14));
@@ -112,9 +115,21 @@ public final class AuthActivity extends Ui {
             if (isSelectedRunning()) stopSelectedService();
             else startSelectedService();
         });
-        LinearLayout.LayoutParams toggleSize = new LinearLayout.LayoutParams(dp(52), dp(52));
+        LinearLayout.LayoutParams toggleSize = new LinearLayout.LayoutParams(dp(88), dp(44));
         toggleSize.leftMargin = dp(12);
         stateRow.addView(stateToggle, toggleSize);
+
+        pairingPanel = new LinearLayout(this);
+        pairingPanel.setOrientation(LinearLayout.VERTICAL);
+        pairingPanel.setPadding(0, dp(10), 0, 0);
+        card.addView(pairingPanel);
+        pairingInfo = text("", 13, false, warning);
+        pairingPanel.addView(pairingInfo);
+        cancelPairButton = button(pairingPanel, "取消本次配对", () -> {
+            AdbPairingService.stop(this);
+            renderStatus();
+        }, false);
+        pairingPanel.setVisibility(View.GONE);
 
         failurePanel = new LinearLayout(this);
         failurePanel.setOrientation(LinearLayout.VERTICAL);
@@ -139,14 +154,14 @@ public final class AuthActivity extends Ui {
             }
         }, false);
 
-        LinearLayout chooser = card(null, null);
-        LinearLayout choices = disclosure(chooser, "更换授权方式 · 配对与高级设置", false);
+        LinearLayout chooser = card("授权方式", "查看其他方式不会中断当前授权；真正切换时需要确认。");
+        LinearLayout choices = disclosure(chooser, "选择与管理授权方式", true);
         tabs = new LinearLayout(this);
         tabs.setOrientation(LinearLayout.VERTICAL);
         choices.addView(tabs);
         instructions = new LinearLayout(this);
         instructions.setOrientation(LinearLayout.VERTICAL);
-        instructions.setPadding(dp(2), dp(12), dp(2), 0);
+        instructions.setPadding(dp(2), dp(6), dp(2), 0);
         choices.addView(instructions);
         renderTabs();
         renderInstructions();
@@ -157,8 +172,8 @@ public final class AuthActivity extends Ui {
     private TextView permissionRow(LinearLayout parent, String name, Runnable click) {
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(2), dp(8), dp(2), dp(8));
-        row.setMinimumHeight(dp(52));
+        row.setPadding(dp(2), dp(5), dp(2), dp(5));
+        row.setMinimumHeight(dp(44));
         LinearLayout words = new LinearLayout(this);
         words.setOrientation(LinearLayout.VERTICAL);
         words.addView(text(name, 14, true, ink));
@@ -183,8 +198,9 @@ public final class AuthActivity extends Ui {
     }
 
     private void createAuxiliaryPermissions() {
-        LinearLayout permissionCard = card(null, null);
-        LinearLayout auxiliary = disclosure(permissionCard, "后台运行权限", false);
+        LinearLayout permissionCard = card("系统设置与快捷功能",
+                "OriginOS 7 厂商权限无法可靠地公开读取；点击项目在系统内查看。");
+        LinearLayout auxiliary = disclosure(permissionCard, "自启动、电池和后台权限", false);
         autoStartRow = permissionRow(auxiliary, "自启动", () -> BackgroundSettings.autostart(this));
         associatedRow = permissionRow(auxiliary, "关联启动", () -> BackgroundSettings.associatedStart(this));
         highPowerRow = permissionRow(auxiliary, "允许后台高耗电", () -> BackgroundSettings.powerSettings(this));
@@ -196,10 +212,9 @@ public final class AuthActivity extends Ui {
         restrictionRow = permissionRow(auxiliary, "Android 后台限制", () -> BackgroundSettings.details(this));
         notificationRow = permissionRow(auxiliary, "通知权限", () -> BackgroundSettings.notifications(this));
         button(auxiliary, "刷新权限状态", this::refreshAuxiliaryPermissions, false);
-        LinearLayout notificationCard = card(null, null);
-        LinearLayout display = disclosure(notificationCard, "通知与快捷功能", false);
+        LinearLayout display = disclosure(permissionCard, "通知与快捷功能", false);
         monitorNotificationRow = permissionRow(display, "运行通知设置", () -> BackgroundSettings.monitorNotifications(this));
-        TextView monitorTip = text("运行中的监控需要显示系统通知；它不是快捷设置开关。", 12, false, muted);
+        TextView monitorTip = text("运行通知与快捷磁贴互不关联；关闭系统中的监控通知展示，不会自动移除磁贴。", 12, false, muted);
         monitorTip.setPadding(0, dp(6), 0, dp(6));
         display.addView(monitorTip);
         display.addView(text("运行通知默认不响铃；是否显示或提醒由系统通知设置管理，关闭通知可能影响前台运行可见性。", 12, false, muted));
@@ -228,9 +243,9 @@ public final class AuthActivity extends Ui {
     private void refreshAuxiliaryPermissions() {
         if (autoStartRow == null || isDestroyed() || isFinishing()) return;
         // OriginOS does not expose a verified public state API for these switches.
-        permissionText(autoStartRow, "自启动", "需在系统确认");
-        permissionText(associatedRow, "关联启动", "需在系统确认");
-        permissionText(highPowerRow, "允许后台高耗电", "需在系统确认");
+        permissionText(autoStartRow, "自启动", "需在 OriginOS 中查看");
+        permissionText(associatedRow, "关联启动", "需在 OriginOS 中查看");
+        permissionText(highPowerRow, "允许后台高耗电", "需在 OriginOS 中查看");
         permissionText(lockRow, "锁定后台", "需在最近任务确认");
         permissionText(batteryRow, "忽略电池优化", BackgroundSettings.batteryExempt(this) ? "已开启" : "未开启");
         permissionText(restrictionRow, "Android 后台限制", BackgroundSettings.backgroundRestriction(this));
@@ -311,7 +326,8 @@ public final class AuthActivity extends Ui {
             }
             final String mode = MODES[i];
             boolean active = mode.equals(selected);
-            TextView tab = text(LABELS[i], 13, active, active ? 0xffffffff : ink);
+            TextView tab = text(LABELS[i] + (mode.equals(prefs.mode()) ? " · 使用中" : ""),
+                    12, active, active ? 0xffffffff : ink);
             tab.setGravity(Gravity.CENTER);
             tab.setPadding(dp(4), dp(8), dp(4), dp(8));
             tab.setMinHeight(dp(44));
@@ -320,15 +336,14 @@ public final class AuthActivity extends Ui {
             bg.setCornerRadius(dp(12));
             tab.setBackground(bg);
             tab.setFocusable(true);
-            tab.setContentDescription(LABELS[i] + (active ? "，当前选中" : "，点击切换"));
+            tab.setContentDescription(LABELS[i]
+                    + (mode.equals(prefs.mode()) ? "，当前授权来源" : "")
+                    + (active ? "，当前查看" : "，点击查看"));
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -2, 1);
             params.setMargins(dp(3), dp(3), dp(3), dp(3));
             group.addView(tab, params);
             tab.setOnClickListener(v -> {
-                if (checking || AdbPairingService.isPairingActive() || PrivKitShell.isStarting()) {
-                    error("当前授权正在进行，请先完成或取消");
-                    return;
-                }
+                // Browsing a connection mode never changes or stops the running mode.
                 if (mode.equals(selected)) return;
                 selected = mode;
                 selectedFailure = "";
@@ -344,7 +359,7 @@ public final class AuthActivity extends Ui {
     private void renderInstructions() {
         instructions.removeAllViews();
         if (!selected.equals(prefs.mode()) && !AppPrefs.EXTERNAL.equals(selected))
-            button(instructions, "切换并启动 " + methodName(selected), this::startSelectedService, true);
+            button(instructions, "验证并切换到 " + methodName(selected), this::startSelectedService, true);
         if (AppPrefs.EXTERNAL.equals(selected)) usb();
         else if (AppPrefs.WIRELESS.equals(selected)) wireless();
         else if (AppPrefs.ROOT.equals(selected)) root();
