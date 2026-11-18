@@ -782,14 +782,18 @@ public final class AuthActivity extends Ui {
                     ? "BerryFCM Shell 已停止" : ShizukuShell.readiness());
             status.setTextColor(prefs.servicePaused(AppPrefs.SHIZUKU)
                     ? warning : ShizukuShell.authorizedUid() >= 0 ? success : warning);
-            detail.setText(ShizukuShell.authorizedUid() >= 0
-                    ? "使用独立 Binder 服务；不需要 BerryFCM 持续连接无线调试。实际采样结果以监控页为准。"
+            detail.setText(prefs.servicePaused(AppPrefs.SHIZUKU)
+                    ? "只停止 BerryFCM 的 Shell 服务，Shizuku 本身和授权都未撤销；点击启动可恢复。"
+                    : ShizukuShell.authorizedUid() >= 0
+                    ? "Shizuku 授权有效，实际 Shell 命令将连接独立 UserService；监控状态以真实采样为准。"
                     : "需先启动 Shizuku 并完成一次应用授权；原配对身份保留。");
         } else if (AppPrefs.WIRELESS.equals(selected)) {
             if (PrivKitShell.isConnected()) {
                 status.setText(prefs.servicePaused(AppPrefs.WIRELESS) ? "服务已停止" : "授权成功");
                 status.setTextColor(prefs.servicePaused(AppPrefs.WIRELESS) ? warning : success);
-                detail.setText("服务正在运行，可以使用 FCM 监控。");
+                detail.setText(prefs.servicePaused(AppPrefs.WIRELESS)
+                        ? "用户已停止 BerryFCM 独立服务，配对身份保留。"
+                        : "服务正在运行，可以使用 FCM 监控。");
             } else if (AdbPairingService.isPairingActive()) {
                 status.setText("正在配对");
                 detail.setText(prefs.pairingStatus());

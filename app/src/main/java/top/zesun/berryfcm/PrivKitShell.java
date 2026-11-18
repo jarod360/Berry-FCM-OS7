@@ -400,6 +400,11 @@ final class PrivKitShell {
                 + "\nADB 认证证据：" + new AppPrefs(context).pairingEvidenceLabel()
                 + "\nBinder：" + (live ? "存活 · UID=" + info.getUid() + " · PID=" + info.getPid() : "未连接")
                 + "\n本 APP 进程 PID：" + android.os.Process.myPid()
+                + "\n本地网络访问：" + (localNetworkAllowed(context) ? "系统允许" : "权限未授权")
+                + "\n系统当前 TLS 连接端口：" + (systemConnectPort() > 0
+                        ? String.valueOf(systemConnectPort()) : "不可读取，需 mDNS 自动发现")
+                + "\n无线调试开关状态：" + (wirelessDebuggingState(context) < 0
+                        ? "系统未提供可验证值" : wirelessDebuggingState(context) == 1 ? "开启" : "关闭")
                 + "\n累计 ADB 启动尝试：" + p.getLong("attempt_count", 0)
                 + "\n最近启动结果：" + p.getString("last_result", "none")
                 + "\n最近启动请求时间（epoch ms）：" + stamp
