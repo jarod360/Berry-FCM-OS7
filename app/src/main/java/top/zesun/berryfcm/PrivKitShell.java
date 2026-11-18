@@ -33,7 +33,7 @@ final class PrivKitShell {
     private static volatile String startupTrace = "";
     private static final String TRACE_KEY = "last_startup_trace";
     private static boolean autoAttempted;
-    private static final long RECOVERY_COOLDOWN_MS = 300000L;
+    private static final long RECOVERY_COOLDOWN_MS = 30000L;
     private static final String START_PREFS = "berry_privkit_start";
     private static volatile String status = "服务未启动";
     private static volatile boolean starting;

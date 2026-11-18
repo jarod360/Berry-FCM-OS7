@@ -31,13 +31,18 @@ public final class MonitorWatchdog extends BroadcastReceiver {
         AlarmManager alarms = context.getSystemService(AlarmManager.class);
         if (alarms == null) return;
         // Request 60 seconds, never claim it fires in 60 seconds under Doze.
+        long due = SystemClock.elapsedRealtime() + DELAY_MS;
+        context.getSharedPreferences("berry_fcm_watchdog", Context.MODE_PRIVATE)
+                .edit().putLong("due_elapsed", due).apply();
         alarms.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                SystemClock.elapsedRealtime() + DELAY_MS, operation(context));
+                due, operation(context));
     }
 
     static void cancel(Context context) {
         AlarmManager alarms = context.getSystemService(AlarmManager.class);
         if (alarms != null) alarms.cancel(operation(context));
+        context.getSharedPreferences("berry_fcm_watchdog", Context.MODE_PRIVATE)
+                .edit().remove("due_elapsed").apply();
     }
 
     @Override public void onReceive(Context context, Intent intent) {
@@ -47,6 +52,10 @@ public final class MonitorWatchdog extends BroadcastReceiver {
             cancel(context);
             return;
         }
+        // Capture the previous scheduled time before re-arming.
+        long due = context.getSharedPreferences("berry_fcm_watchdog", Context.MODE_PRIVATE)
+                .getLong("due_elapsed", -1L);
+        long lateness = due > 0 ? SystemClock.elapsedRealtime() - due : -1L;
         // Re-arm before attempting any Shell, Binder, or foreground service.
         schedule(context);
         long sampleAge = FcmMonitorService.sampleAgeSeconds(context);
@@ -54,6 +63,7 @@ public final class MonitorWatchdog extends BroadcastReceiver {
         boolean stalled = prefs.monitorEnabled() && (sampleAge < 0 || sampleAge > 60);
         FcmMonitorService.logRuntime(context, "watchdog_fired",
                 "service_running=" + !missing + "; sample_age_s=" + sampleAge
+                + "; alarm_late_ms=" + lateness
                 + "; needs_check=" + (missing || stalled));
         if (!missing && !stalled) return;
         if (!PrivilegeAccess.canRunInBackground(context)) {

@@ -332,7 +332,7 @@ public final class GuardActivity extends Ui {
             if (!line.startsWith(pkg + "|")) continue;
             String code = line.substring(pkg.length() + 1).trim();
             switch (code) {
-                case "running": return "上次未被强制停止";
+                case "not_stopped": case "running": return "上次未被强制停止";
                 case "stopped": return "上次处于强制停止状态";
                 case "restored": return "上次已解除停止";
                 case "repair_failed": return "上次恢复失败";

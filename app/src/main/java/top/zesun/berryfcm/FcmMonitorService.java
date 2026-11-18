@@ -329,8 +329,11 @@ public final class FcmMonitorService extends Service {
                 persistentWakeLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "BerryFCM:monitor");
                 persistentWakeLock.setReferenceCounted(false);
             }
-            if (!persistentWakeLock.isHeld()) persistentWakeLock.acquire();
+            boolean newlyHeld = !persistentWakeLock.isHeld();
+            if (newlyHeld) persistentWakeLock.acquire();
             wakeLockHeld = persistentWakeLock.isHeld();
+            if (newlyHeld && wakeLockHeld)
+                logRuntime(this, "wake_lock_acquired", "screen=" + (power.isInteractive() ? "on" : "off"));
             if (!wakeLockHeld) logRuntime(this, "wake_lock_failed", "not held");
         } catch (RuntimeException error) {
             wakeLockHeld = false;
@@ -384,13 +387,14 @@ public final class FcmMonitorService extends Service {
             resumeReceiver = new BroadcastReceiver() {
                 @Override public void onReceive(Context context, Intent intent) {
                     PowerManager power = getSystemService(PowerManager.class);
-                    if (PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED.equals(intent.getAction())
-                            && power != null && power.isDeviceIdleMode()) return;
+                    // The monitor keeps its CPU wake lock across sleep. Check both
+                    // entering and leaving Doze; never depend on SCREEN_ON alone.
                     queueCheck(false);
                 }
             };
             IntentFilter filter = new IntentFilter(Intent.ACTION_USER_PRESENT);
             filter.addAction(Intent.ACTION_SCREEN_ON);
+            filter.addAction(Intent.ACTION_SCREEN_OFF);
             filter.addAction(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED);
             if (Build.VERSION.SDK_INT >= 33)
                 registerReceiver(resumeReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
@@ -553,9 +557,8 @@ public final class FcmMonitorService extends Service {
             }
             if (!scheduled || !p.guardEnabled() || !key.equals(p.connectionKey())) return;
             String report = reports.toString().trim();
-            if (report.contains("|restored"))
-                report += "\n已修复应用，已请求 GMS 心跳（非连接成功证明）：\n"
-                        + execute(p, mode, GuardOps.heartbeatCommand());
+            // Unstopping an app is not evidence that GMS is disconnected;
+            // only the FCM monitor may request a recovery heartbeat.
             getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE).edit()
                     .putString("report", report).putLong("last_run", System.currentTimeMillis()).apply();
         } catch (Exception error) {
@@ -751,7 +754,11 @@ public final class FcmMonitorService extends Service {
     }
 
     private String execute(AppPrefs prefs, String mode, String command) throws Exception {
-        commandLock.lock();
+        long lockStart = SystemClock.elapsedRealtime();
+        commandLock.lockInterruptibly();
+        long lockDelay = SystemClock.elapsedRealtime() - lockStart;
+        if (lockDelay > 2000)
+            logRuntime(this, "shell_queue_delay", "wait_ms=" + lockDelay + "; mode=" + mode);
         try {
         if (AppPrefs.ROOT.equals(mode)) {
             try (PrivilegeShell shell = new RootShell(this)) {

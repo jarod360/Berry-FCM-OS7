@@ -18,7 +18,7 @@ import java.util.concurrent.Executors;
 public final class MonitorActivity extends Ui {
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler ui = new Handler(Looper.getMainLooper());
-    private TextView headline, current, technical, events, eventsFull, recoveryEvents, environmentEvents, manualResult, reconnectHint;
+    private TextView headline, current, technical, events, eventsFull, recoveryEvents, runtimeEvents, environmentEvents, manualResult, reconnectHint;
     private Button checkButton, reconnectButton;
     private Switch enabled, automatic;
     private final Runnable update = new Runnable() {
@@ -99,6 +99,10 @@ public final class MonitorActivity extends Ui {
         recoveryEvents = text("暂无恢复记录", 13, false, ink);
         recoveryEvents.setTextIsSelectable(true);
         recovery.addView(recoveryEvents);
+        LinearLayout runtime = disclosure(timeline, "BerryFCM 熄屏巡检与唤醒记录", false);
+        runtimeEvents = text("暂无巡检记录", 13, false, ink);
+        runtimeEvents.setTextIsSelectable(true);
+        runtime.addView(runtimeEvents);
         LinearLayout environment = disclosure(timeline, "网络与休眠状态变化", false);
         environmentEvents = text("暂无环境记录", 13, false, ink);
         environmentEvents.setTextIsSelectable(true);
@@ -205,6 +209,7 @@ public final class MonitorActivity extends Ui {
                 + "\n上次观察在线：" + time(j.optLong("fcm_last_seen", 0))
                 + "\n最近一次历史断开：" + time(j.optLong("fcm_disconnect_since", 0))
                 + "\n最近恢复观测：" + time(j.optLong("fcm_last_restore", 0))
+                + "\nBerryFCM CPU 唤醒锁：" + (FcmMonitorService.isCpuWakeLockHeld() ? "已持有" : "未持有")
                 + "\n历史已发送的恢复请求：" + j.optInt("fcm_attempts", 0) + " 次"
                 + "\n连续恢复尝试次数：" + j.optInt("fcm_retry_streak", 0) + " 次"
                 + "\n历史上次恢复请求结果：" + recoveryLabel(j.optString("fcm_last_result", "none"))
@@ -213,6 +218,7 @@ public final class MonitorActivity extends Ui {
         events.setText(eventText(lines, 6));
         eventsFull.setText(eventText(lines, 24));
         recoveryEvents.setText(eventText(FcmMonitorService.lastRecoveryEvents(this).split("\\n"), 24));
+        runtimeEvents.setText(eventText(FcmMonitorService.lastRuntimeEvents(this).split("\\n"), 36));
         environmentEvents.setText(eventText(FcmMonitorService.lastEnvironmentEvents(this).split("\\n"), 24));
     }
 
@@ -276,6 +282,14 @@ public final class MonitorActivity extends Ui {
                     : parts[1].equals("connection_down") ? "确认 FCM 已断开"
                     : parts[1].equals("connection_restored") ? "原生状态恢复"
                     : parts[1].equals("reconnect_skipped") ? "恢复请求跳过"
+                    : parts[1].equals("watchdog_fired") ? "系统兜底闹钟触发"
+                    : parts[1].equals("service_started") ? "后台服务启动"
+                    : parts[1].equals("service_destroyed") ? "后台服务结束"
+                    : parts[1].equals("check_started") ? "FCM 巡检开始"
+                    : parts[1].equals("check_finished") ? "FCM 巡检完成"
+                    : parts[1].equals("wake_lock_acquired") ? "CPU 唤醒锁获得"
+                    : parts[1].equals("shell_queue_delay") ? "Shell 排队等待"
+                    : parts[1].equals("sample_failed") ? "后台采样失败"
                     : parts[1].equals("sample_gap") ? "检查中断"
                     : parts[1].equals("environment") ? "检查环境变化（非 GMS 路由证据）" : parts[1];
             result.append(stamp).append("  ").append(label).append("\n")
