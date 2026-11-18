@@ -349,6 +349,7 @@ assert "monitorWorker.scheduleWithFixedDelay" in service
 assert "guardWorker.scheduleWithFixedDelay" in service
 assert "ReentrantLock" not in service and "commandLock" not in service
 assert "shell_duration" in service
+assert "private volatile AdbConnectionManager adb;" in service
 assert "!PrivKitShell.isConnected()" in service
 assert "!ShizukuShell.isRunning()" in service
 assert "synchronized String executeOnce" in static_adb
