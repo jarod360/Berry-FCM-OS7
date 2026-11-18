@@ -14,8 +14,8 @@
 | 页面 | 已实现的操作 |
 | --- | --- |
 | 概览 | 连接状态、采样新鲜度、授权入口、功能导航 |
-| Root / ADB 授权 | mDNS 配对端口自动发现、通知栏输入六位码、mDNS 失败时通知栏输入 \`端口:六位码\`、静态端口/Root Shell |
-| FCM 监控 | GMS Socket 观测、连接时间线、unknown/stale、后台采样、受控重连 |
+| Root / ADB 授权 | mDNS 配对端口自动发现、通知栏输入六位码、mDNS 失败时通知栏输入 \`端口:六位码\`、Priv Kit 独立 Binder 服务、静态端口/Root Shell、可选 Shizuku |
+| FCM 监控 | GMS MCS 原生状态与历史、连接时间线、unknown/stale、后台采样、受控重连 |
 | 应用守护 | 已安装应用搜索/多选/系统应用选项、stopped 检测与修复、90 秒巡检和心跳 |
 | 后台保活 | FGS/开机恢复、标准 Doze/AppOps、GMS 后台网络放行及受控撤销、OriginOS 设置跳转、最近任务隐藏 |
 | 诊断 | Google 原生 FCM Diagnostics、mtalk TCP 检测、GMS 策略和事件分享 |
@@ -25,7 +25,7 @@
 
 ## 已验证和未验证
 
-- 最新已通过的 APK： [Actions #44197684568](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44197684568)（alpha.42），包括 FCM 监控模拟、模块结构测试、Gradle 编译、固定 P12 签名、apksigner 验证及 Artifact 上传。无线配对在 OriginOS 真机上仍需验证。
+- 最新已通过的 APK： [Actions #44197684568](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44197684568)（alpha.42，主分支历史构建），包括 FCM 监控模拟、模块结构测试、Gradle 编译、固定 P12 签名、apksigner 验证及 Artifact 上传。无线配对在 OriginOS 真机上仍需验证。
 - KernelSU 仍为 v0.5.4-test，源码与数据目录独立，不受 APK UI 迁移影响。
 - **GitHub Releases 目前尚无正式 APK**；普通 push 只发布 Actions Artifact。\`workflow_dispatch.publish_release\` 明确手动勾选后才创建预发布版本，应用内更新只读取正式 Release。
 - 未完成的 **真机验证**：OriginOS 系统通知栏是否呈现 RemoteInput、ADB Shell 能否看到 GMS UID Socket、stopped 修复权限、锁屏过夜采样、用户授权和系统安装器覆盖升级。**CI 绿灯不代表这些已经通过。**
@@ -38,7 +38,7 @@ Android API 优先，Root/ADB Shell 只做确有权限需求的功能。无法�
 
 ## 开源参考
 
-[Shizuku](https://github.com/RikkaApps/Shizuku)（通知栏无线 ADB 配对）、[GKD](https://github.com/gkd-kit/gkd)（模块导航/后台服务经验）、[FCMFix ColorOS](https://github.com/ByteJuno/fcmfix-coloros)（mtalk Socket 识别边界）、[vivo-guardian](https://github.com/Lokside/vivo-guardian)（OriginOS 后台限制）、[libadb-android](https://github.com/MuntashirAkon/libadb-android)（ADB 客户端）。借鉴适用实现，不直接照搬界面。
+[Shizuku](https://github.com/RikkaApps/Shizuku)（通知栏无线 ADB 配对）、[GKD](https://github.com/gkd-kit/gkd) 与 [Priv Kit](https://github.com/priv-kit/priv-kit/tree/v0.20.0)（一次 ADB 启动、独立 Binder 命令服务）、[FCMFix ColorOS](https://github.com/ByteJuno/fcmfix-coloros)（mtalk Socket 识别边界）、[vivo-guardian](https://github.com/Lokside/vivo-guardian)（OriginOS 后台限制）、[libadb-android](https://github.com/MuntashirAkon/libadb-android)（ADB 客户端）。借鉴适用实现，不直接照搬界面。
 
 ## 新版外观与在线更新兼容
 
@@ -49,3 +49,8 @@ APP 桌面名称及新版安装包文件名已缩短为 **BerryFCM**。底部导
 ## 2026-11-18 进度简述
 
 按产品计划，APK 已具备大部分页面和对应后端逻辑，功能代码完成度约 75%（主观估算，非验收通过率）；无线 ADB / GMS Socket 可见性、OriginOS 后台恢复、Release 在线覆盖升级仍需手机验证，APK 稳定后才开展 KernelSU 回移。本轮已将不需特权的 mtalk TCP 检测从 Shell 改为 App 原生 Socket，并为 BerryFCM 自身 Doze/AppOps 配置加入原值记录与安全回滚。旧版缺少原值记录的历史更改不会盲目撤销。
+
+
+## 独立授权服务开发版
+
+开发分支 `dev/native-fcm-state` 已切换至 GKD 同款 Priv Kit 0.20.0：无线 ADB 只用于启动本项目独立服务，后续日常采样、应用守护走 Binder。保留现有配对密钥，启动失败不回退至逐次 ADB。正在验证 [alpha.47 #44228547705](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44228547705)；需真机确认后才可作为正式版本。主分支、KernelSU 和 Release 未变更。
