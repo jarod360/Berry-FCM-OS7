@@ -340,6 +340,9 @@ public final class FcmMonitorService extends Service {
                     + "; mode=" + prefs.mode());
         }
         updatePersistentWakeLock(prefs.monitorEnabled());
+        // The guard may continue after FCM monitoring is disabled. A pending
+        // anomaly-confirmation lease must end immediately, not at its timeout.
+        if (!prefs.monitorEnabled()) resetConfirmationWindow();
         updatePeriodicSchedules(prefs);
         MonitorWatchdog.schedule(this);
         String action = intent == null ? null : intent.getAction();
