@@ -108,8 +108,22 @@ public final class FcmMonitorService extends Service {
     }
     static String manualReconnect(Context context) {
         return start(context, RECONNECT)
-                ? "已安排后台检查；仅在确认 FCM 尚未连接时请求恢复，结果见恢复记录"
+                ? "正在安排重连，请查看本次手动重连结果"
                 : "未安排重连，请检查监控开关和核心授权";
+    }
+    static String manualReconnectResult(Context context) {
+        SharedPreferences stored = context.getSharedPreferences(SNAPSHOT, MODE_PRIVATE);
+        return !activeSession.isEmpty()
+                && activeSession.equals(stored.getString("manual_session", ""))
+                && new AppPrefs(context).connectionKey().equals(stored.getString("manual_mode", ""))
+                ? stored.getString("manual_result", "") : "";
+    }
+    private void saveManualResult(String key, String value) {
+        if (!scheduled || !session.equals(activeSession)
+                || !key.equals(new AppPrefs(this).connectionKey())) return;
+        getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
+                .putString("manual_session", session).putString("manual_mode", key)
+                .putString("manual_result", value).apply();
     }
     private static boolean start(Context context, String action) {
         AppPrefs prefs = new AppPrefs(context);
@@ -254,6 +268,7 @@ public final class FcmMonitorService extends Service {
         String action = intent == null ? null : intent.getAction();
         if (CHECK.equals(action) && !firstStart) queueCheck(true);
         if (RECONNECT.equals(action) && reconnectQueued.compareAndSet(false, true)) {
+            saveManualResult(prefs.connectionKey(), "正在读取 GMS 并检查重连条件…");
             worker.execute(() -> {
                 try { manualReconnectInternal(); }
                 finally { reconnectQueued.set(false); }
@@ -476,9 +491,37 @@ public final class FcmMonitorService extends Service {
                 installedMode = key;
             }
             if (!scheduled || !p.monitorEnabled() || !key.equals(p.connectionKey())) return;
-            execute(p, mode, monitorPrefix(p, mode) + "reconnect");
-            if (key.equals(p.connectionKey())) runSafe(true);
+            String prefix = monitorPrefix(p, mode);
+            String result = execute(p, mode, prefix + "reconnect >/dev/null || exit 9; "
+                    + "echo BERRY_MANUAL_RESULT; " + prefix + "snapshot");
+            int offset = result.indexOf("BERRY_MANUAL_RESULT\n");
+            if (offset < 0) throw new IllegalStateException("重连脚本未返回结果");
+            JSONObject reply = new JSONObject(result.substring(offset + "BERRY_MANUAL_RESULT\n".length()).trim());
+            String decision = reply.optString("fcm_recovery_decision");
+            String message;
+            switch (decision) {
+                case "requested": message = "广播已返回，尚未确认 FCM 恢复"; break;
+                case "request_failed": message = "广播请求失败，请查看恢复记录中的 UID 和错误"; break;
+                case "cooldown": message = "未发送广播：距上次请求不足60秒"; break;
+                case "gms_stopped_unknown": message = "未发送广播：GMS 停止状态未通过检查"; break;
+                case "network_gate": message = "未发送广播：当前无活动网络"; break;
+                case "not_disconnected": message = "未发送广播：" + ("connected".equals(reply.optString("fcm_state"))
+                        ? "GMS 已连接" : "GMS 当前状态无法确认"); break;
+                default: message = "重连结果未确认，见恢复记录"; break;
+            }
+            saveManualResult(key, message);
+            if (key.equals(p.connectionKey())) {
+                runSafe(true);
+                JSONObject latest = lastSnapshot(this);
+                if (key.equals(p.connectionKey()) && "gms".equals(latest.optString("fcm_source"))
+                        && "connected".equals(latest.optString("fcm_state"))
+                        && sampleAgeSeconds(this) >= 0 && sampleAgeSeconds(this) <= 90
+                        && currentError(this).isEmpty()) {
+                    saveManualResult(key, message + "；随后检查 GMS 已连接");
+                }
+            }
         } catch (Exception error) {
+            saveManualResult(key, "手动重连执行异常：" + safeError(error));
             if (scheduled && session.equals(activeSession) && p.monitorEnabled() && key.equals(p.connectionKey()))
                 getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
                         .putString("error", "手动重连请求失败：" + safeError(error))
