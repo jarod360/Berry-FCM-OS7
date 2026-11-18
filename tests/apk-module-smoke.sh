@@ -339,11 +339,11 @@ java -cp "$tmp_adb_port" top.zesun.berryfcm.AdbConnectPortSmoke
 rm -rf "$tmp_adb_port"
 
 # Compact authorization controls and selected method state.
-need 'detail.setText("来源：" + methodName(selected))' "$src/AuthActivity.java"
+need 'detail.setText("当前来源：" + methodName(currentMode))' "$src/AuthActivity.java"
 need 'if (isSelectedRunning()) stopSelectedService()' "$src/AuthActivity.java"
 need 'stateToggle.setContentDescription((running ? "停止" : "启动")' "$src/AuthActivity.java"
-need 'errorSummary.setText(singleLine)' "$src/AuthActivity.java"
-need 'errorLog.setText(failure +' "$src/AuthActivity.java"
+need 'errorSummary.setText(displayed.replace' "$src/AuthActivity.java"
+need 'errorLog.setText(displayed +' "$src/AuthActivity.java"
 need 'ShizukuShell.isRunning()' "$src/AuthActivity.java"
 
 # Do not expose irrelevant full AppOps dump as OEM permission diagnosis.
@@ -364,7 +364,7 @@ need 'PrivKitShell.localNetworkAllowed(context)' "$src/PrivilegeAccess.java"
 need 'toggleSurface.setColor(surface)' "$src/AuthActivity.java"
 
 # Actionable authorization UI and truthful OriginOS permission state.
-need 'disclosure(chooser, "授权方式与使用说明", false)' "$src/AuthActivity.java"
+need 'disclosure(chooser, "更换授权方式 · 配对与高级设置", false)' "$src/AuthActivity.java"
 need 'permissionText(autoStartRow, "自启动", "需在系统确认")' "$src/AuthActivity.java"
 need 'step("Root 授权"' "$src/AuthActivity.java"
 need 'step("Shizuku "' "$src/AuthActivity.java"
