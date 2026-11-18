@@ -101,8 +101,9 @@ public final class FcmMonitorService extends Service {
         catch (RuntimeException ignored) { /* existing notification remains until next refresh */ }
     }
     static String manualReconnect(Context context) {
-        start(context, RECONNECT);
-        return "已安排后台检查；仅在确认 FCM 尚未连接时请求恢复，结果见恢复记录";
+        return start(context, RECONNECT)
+                ? "已安排后台检查；仅在确认 FCM 尚未连接时请求恢复，结果见恢复记录"
+                : "未安排重连，请检查监控开关和核心授权";
     }
     private static boolean start(Context context, String action) {
         AppPrefs prefs = new AppPrefs(context);
@@ -404,7 +405,13 @@ public final class FcmMonitorService extends Service {
                 || now - lastGuardAt >= TimeUnit.MINUTES.toMillis(5))) {
             lastGuardAt = now;
             try {
-                String report = execute(p, p.mode(), GuardOps.command(p.guardTargets(), true));
+                StringBuilder reports = new StringBuilder();
+                String mode = p.mode();
+                for (String command : GuardOps.commandBatches(p.guardTargets(), true)) {
+                    if (!p.guardEnabled() || !mode.equals(p.mode())) break;
+                    reports.append(execute(p, mode, command)).append("\n");
+                }
+                String report = reports.toString().trim();
                 if (report.contains("|restored")) {
                     report += "\n已修复应用，已请求 GMS 心跳（非连接成功证明）：\n"
                             + execute(p, p.mode(), GuardOps.heartbeatCommand());
@@ -413,7 +420,8 @@ public final class FcmMonitorService extends Service {
                         .putString("report", report).putLong("last_run", System.currentTimeMillis()).apply();
             } catch (Exception error) {
                 getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE).edit()
-                        .putString("report", "守护检查未执行：" + safeError(error)).apply();
+                        .putString("report", "守护检查未执行：" + safeError(error))
+                        .putLong("last_run", System.currentTimeMillis()).apply();
             }
         }
     }

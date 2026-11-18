@@ -330,7 +330,7 @@ public final class GuardActivity extends Ui {
         report.setText(fix ? "正在检查并尝试恢复…" : "正在检查应用是否被强制停止…");
         worker.execute(() -> {
             try (PrivilegeShell shell = PrivilegeAccess.open(this)) {
-                String result = shell.execute(GuardOps.command(prefs.guardTargets(), fix));
+                String result = runGuardBatches(shell, fix);
                 getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE)
                         .edit().putString("report", result).putLong("last_run", System.currentTimeMillis()).apply();
                 runOnUiThread(() -> { report.setText(result); renderSelected(); renderGuardStatus(); });
@@ -338,6 +338,14 @@ public final class GuardActivity extends Ui {
                 runOnUiThread(() -> { report.setText("操作失败：" + e.getMessage()); guardStatus.setText("检查失败，请查看检查日志。"); });
             }
         });
+    }
+    private String runGuardBatches(PrivilegeShell shell, boolean fix) throws Exception {
+        StringBuilder result = new StringBuilder();
+        for (String command : GuardOps.commandBatches(prefs.guardTargets(), fix)) {
+            if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
+            result.append(shell.execute(command)).append("\n");
+        }
+        return result.toString().trim();
     }
     private void requestHeartbeat() {
         if (!requireAuthorization()) return;
@@ -358,7 +366,7 @@ public final class GuardActivity extends Ui {
         worker.execute(() -> {
             try (PrivilegeShell shell = PrivilegeAccess.open(this)) {
                 for (int i = 0; i < 7; i++) {
-                    String result = shell.execute(GuardOps.command(prefs.guardTargets(), true));
+                    String result = runGuardBatches(shell, true);
                     if (result.contains("|restored")) {
                         result += "\n已修复应用，尝试请求 GMS 心跳：\n"
                                 + shell.execute(GuardOps.heartbeatCommand());

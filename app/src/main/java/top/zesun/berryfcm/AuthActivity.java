@@ -185,7 +185,11 @@ public final class AuthActivity extends Ui {
 
     private void refreshAuxiliaryPermissions() {
         if (autoStartRow == null) return;
-        permissionText(autoStartRow, "自启动", BackgroundSettings.originAutoStartStatus(this));
+        permissionText(autoStartRow, "自启动", "正在读取");
+        worker.execute(() -> {
+            String result = BackgroundSettings.originAutoStartStatus(this);
+            runOnUiThread(() -> { if (!isDestroyed()) permissionText(autoStartRow, "自启动", result); });
+        });
         permissionText(associatedRow, "关联启动", "需在系统确认");
         permissionText(highPowerRow, "允许后台高耗电", "需在系统确认");
         permissionText(lockRow, "锁定后台", "需在最近任务确认");
@@ -316,8 +320,7 @@ public final class AuthActivity extends Ui {
                     checkShell();
                     return;
                 }
-                prefs.monitorEnabled(true);
-                FcmMonitorService.start(this);
+                FcmMonitorService.resumeIfNeeded(this);
                 go(MainActivity.class);
             }, true);
             return;
@@ -506,12 +509,6 @@ public final class AuthActivity extends Ui {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 120);
             return;
         }
-        if (Build.VERSION.SDK_INT >= 33
-                && checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES)
-                        != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.NEARBY_WIFI_DEVICES}, 121);
-            return;
-        }
         android.app.NotificationManager manager = getSystemService(android.app.NotificationManager.class);
         if (manager == null || !manager.areNotificationsEnabled()) {
             error("请先开启 BerryFCM 通知权限，才能从通知栏输入配对码");
@@ -542,7 +539,7 @@ public final class AuthActivity extends Ui {
     @Override public void onRequestPermissionsResult(
             int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode != 120 && requestCode != 121) return;
+        if (requestCode != 120) return;
         if (grantResults.length == 0 || grantResults[0] != PackageManager.PERMISSION_GRANTED) {
             pendingPairPort = -1;
             error("配对通知所需权限未授予，无法自动继续");
@@ -608,11 +605,11 @@ public final class AuthActivity extends Ui {
                 String identity = PrivilegeAccess.probe(this, candidate, host, port);
                 prefs.activateMode(candidate, host, port, identity);
                 if (!AppPrefs.WIRELESS.equals(candidate)) PrivKitShell.stop();
-                if (AppPrefs.WIRELESS.equals(candidate) || AppPrefs.SHIZUKU.equals(candidate)) prefs.monitorEnabled(true);
+                if (AppPrefs.WIRELESS.equals(candidate) || AppPrefs.SHIZUKU.equals(candidate)) prefs.enableMonitorOnFirstAuthorization();
                 runOnUiThread(() -> {
                     checking = false;
                     FcmMonitorService.resumeIfNeeded(this);
-                    if (AppPrefs.WIRELESS.equals(candidate)) FcmMonitorService.checkNow(this);
+                        if (AppPrefs.WIRELESS.equals(candidate) && prefs.monitorEnabled()) FcmMonitorService.checkNow(this);
                     renderStatus();
                     renderInstructions();
                 });

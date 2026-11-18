@@ -43,7 +43,7 @@ public final class AdbPairingService extends Service {
         else context.startService(i);
     }
     static void stop(Context context) {
-        context.startService(new Intent(context, AdbPairingService.class).setAction(ACTION_STOP));
+        if (active) context.startService(new Intent(context, AdbPairingService.class).setAction(ACTION_STOP));
     }
 
     @Override public void onCreate() {
@@ -101,7 +101,10 @@ public final class AdbPairingService extends Service {
             task = worker.submit(() -> pair(generation, submittedPort, submittedCode, manual));
             return START_NOT_STICKY;
         }
-        if (!ACTION_BEGIN.equals(intent.getAction())) return START_NOT_STICKY;
+        if (!ACTION_BEGIN.equals(intent.getAction())) {
+            if (!active) stopSelf();
+            return START_NOT_STICKY;
+        }
         if (gate.isPairing()) return START_NOT_STICKY;
         cancel();
         int generation = gate.begin();
@@ -184,11 +187,11 @@ public final class AdbPairingService extends Service {
                 throw new IllegalStateException("独立服务身份不匹配");
             if (!gate.pairing(generation)) return;
             prefs.activateMode(AppPrefs.WIRELESS, prefs.host(), prefs.staticPort(), identity);
-            prefs.monitorEnabled(true);
-            boolean requested = FcmMonitorService.start(this);
+            prefs.enableMonitorOnFirstAuthorization();
+            boolean requested = (prefs.monitorEnabled() || prefs.guardEnabled()) && FcmMonitorService.start(this);
             finish(generation, requested
-                    ? "授权成功，正在开启 FCM 监控"
-                    : "授权成功，请返回应用开启监控");
+                    ? "授权成功，正在恢复已启用的后台任务"
+                    : "授权成功，请返回应用");
         } catch (Exception error) {
             prefs.shellFailed(error.getMessage());
             finish(generation, "服务启动失败，请返回应用重试。\n" + PrivKitShell.errorChain(error));
@@ -207,13 +210,15 @@ public final class AdbPairingService extends Service {
         gate.cancel();
         updateStatus(message);
         stopForeground(STOP_FOREGROUND_REMOVE);
+        PendingIntent open = PendingIntent.getActivity(this, 12, new Intent(this, AuthActivity.class),
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         getSystemService(NotificationManager.class).notify(NOTIFICATION,
                 new Notification.Builder(this, CHANNEL)
                         .setSmallIcon(R.drawable.ic_bf_auth)
                         .setContentTitle("BerryFCM ADB 授权")
                         .setContentText(message)
                         .setStyle(new Notification.BigTextStyle().bigText(message))
-                        .setAutoCancel(true).build());
+                        .setContentIntent(open).setTimeoutAfter(15000L).setAutoCancel(true).build());
         stopSelf();
     }
 
@@ -235,7 +240,9 @@ public final class AdbPairingService extends Service {
                     .putExtra("generation", gate.generation())
                     .putExtra("manual_fallback", selectedPort == 0)
                     .setData(android.net.Uri.parse("berryfcm://pair/" + gate.generation() + "/" + selectedPort));
-            PendingIntent pending = PendingIntent.getForegroundService(this, 10, reply,
+            // The pairing service is already foreground. A stale reply must never
+            // create a new service that owes Android a startForeground call.
+            PendingIntent pending = PendingIntent.getService(this, 10, reply,
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
             Notification.Action input = new Notification.Action.Builder(
                     android.R.drawable.ic_menu_edit,
