@@ -242,6 +242,7 @@ public final class AdbPairingService extends Service {
         updateStatus(message);
         Notification.Builder b = new Notification.Builder(this, CHANNEL)
                 .setSmallIcon(R.drawable.ic_bf_auth)
+                .setColor(android.graphics.Color.WHITE)
                 .setContentTitle("BerryFCM · 无线 ADB 配对")
                 .setContentText(message)
                 .setStyle(new Notification.BigTextStyle().bigText(message))

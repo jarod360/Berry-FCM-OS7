@@ -35,8 +35,7 @@ public final class AuthActivity extends Ui {
     private TextView autoStartRow, associatedRow, highPowerRow, lockRow, batteryRow, notificationRow, monitorNotificationRow, restrictionRow, tileRow;
     private android.widget.Button removeTileButton;
     private String selected;
-    private boolean checking, tileRequestPending, auxiliaryReading, auxiliaryAgain;
-    private final ExecutorService permissionWorker = Executors.newSingleThreadExecutor();
+    private boolean checking, tileRequestPending;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private boolean lastPairing, lastReady, lastStarting;
     private final Runnable refresh = new Runnable() {
@@ -133,16 +132,14 @@ public final class AuthActivity extends Ui {
         }, false);
 
         LinearLayout chooser = card(null, null);
-        LinearLayout choices = disclosure(chooser, "更换授权方式", false);
+        LinearLayout choices = disclosure(chooser, "授权方式与使用说明", false);
         tabs = new LinearLayout(this);
         tabs.setOrientation(LinearLayout.VERTICAL);
         choices.addView(tabs);
-
-        LinearLayout settings = card(null, null);
-        LinearLayout advanced = disclosure(settings, "配对与高级设置", false);
         instructions = new LinearLayout(this);
         instructions.setOrientation(LinearLayout.VERTICAL);
-        advanced.addView(instructions);
+        instructions.setPadding(dp(2), dp(12), dp(2), 0);
+        choices.addView(instructions);
         renderTabs();
         renderInstructions();
         renderStatus();
@@ -193,9 +190,12 @@ public final class AuthActivity extends Ui {
         button(auxiliary, "刷新权限状态", this::refreshAuxiliaryPermissions, false);
         LinearLayout notificationCard = card(null, null);
         LinearLayout display = disclosure(notificationCard, "通知与快捷功能", false);
-        monitorNotificationRow = permissionRow(display, "监控通知类别", () -> BackgroundSettings.monitorNotifications(this, prefs.quietMonitor()));
+        monitorNotificationRow = permissionRow(display, "运行通知设置", () -> BackgroundSettings.monitorNotifications(this, prefs.quietMonitor()));
+        TextView monitorTip = text("运行中的监控需要显示系统通知；它不是快捷设置开关。", 12, false, muted);
+        monitorTip.setPadding(0, dp(6), 0, dp(6));
+        display.addView(monitorTip);
         android.widget.Switch quiet = new android.widget.Switch(this);
-        quiet.setText("监控通知低干扰模式");
+        quiet.setText("运行通知静音");
         quiet.setTextColor(ink);
         quiet.setMinHeight(dp(48));
         quiet.setChecked(prefs.quietMonitor());
@@ -208,7 +208,9 @@ public final class AuthActivity extends Ui {
             FcmMonitorService.refreshDisplay(this);
             refreshAuxiliaryPermissions();
         });
-        tileRow = permissionRow(display, "FCM 快捷磁贴", this::addTile);
+        TextView quietTip = text("仅切换通知提醒方式，监控和保活不会停止。", 12, false, muted);
+        display.addView(quietTip);
+        tileRow = permissionRow(display, "快捷设置开关（非通知）", this::addTile);
         removeTileButton = button(display, "移除 FCM 快捷磁贴", () -> {
             if (tileRequestPending) { error("请先完成系统的磁贴添加确认"); return; }
             FcmTileService.setOffered(this, false);
@@ -232,12 +234,8 @@ public final class AuthActivity extends Ui {
 
     private void refreshAuxiliaryPermissions() {
         if (autoStartRow == null || isDestroyed() || isFinishing()) return;
-        if (auxiliaryReading) auxiliaryAgain = true;
-        else {
-            auxiliaryReading = true;
-            permissionText(autoStartRow, "自启动", "正在读取");
-            readAutoStartPermission();
-        }
+        // OriginOS does not expose a verified public state API for these switches.
+        permissionText(autoStartRow, "自启动", "需在系统确认");
         permissionText(associatedRow, "关联启动", "需在系统确认");
         permissionText(highPowerRow, "允许后台高耗电", "需在系统确认");
         permissionText(lockRow, "锁定后台", "需在最近任务确认");
@@ -246,29 +244,9 @@ public final class AuthActivity extends Ui {
         android.app.NotificationManager manager = getSystemService(android.app.NotificationManager.class);
         permissionText(notificationRow, "通知权限", manager == null ? "无法读取" :
                 manager.areNotificationsEnabled() ? "已开启" : "未开启");
-        permissionText(monitorNotificationRow, "监控通知类别", BackgroundSettings.monitorNotificationStatus(this, prefs.quietMonitor()));
+        permissionText(monitorNotificationRow, "运行通知设置", BackgroundSettings.monitorNotificationStatus(this, prefs.quietMonitor()));
         permissionText(tileRow, "FCM 快捷磁贴", FcmTileService.displayStatus(this));
         removeTileButton.setVisibility(FcmTileService.offered(this) ? View.VISIBLE : View.GONE);
-    }
-
-    private void readAutoStartPermission() {
-        permissionWorker.execute(() -> {
-            String result;
-            try { result = BackgroundSettings.originAutoStartStatus(this); }
-            catch (RuntimeException error) { result = "无法读取"; }
-            final String value = result;
-            runOnUiThread(() -> {
-                if (isDestroyed() || isFinishing()) { auxiliaryReading = false; return; }
-                if (auxiliaryAgain) {
-                    auxiliaryAgain = false;
-                    // One additional async read, not another full page refresh.
-                    readAutoStartPermission();
-                } else {
-                    auxiliaryReading = false;
-                    permissionText(autoStartRow, "自启动", value);
-                }
-            });
-        });
     }
 
     private void openRecentsForLock() {
@@ -525,20 +503,23 @@ public final class AuthActivity extends Ui {
     }
 
     private void root() {
+        step("Root 授权", "安装并打开 KernelSU、Magisk 或其他 Root 管理器，点击上方启动；如弹出授权请求，允许 BerryFCM。");
         if (!prefs.shellError().isEmpty() && AppPrefs.ROOT.equals(prefs.shellMode())) {
-            LinearLayout detail = disclosure(instructions, "错误详情", false);
-            detail.addView(text(prefs.shellError(), 12, false, muted));
+            LinearLayout log = disclosure(instructions, "错误详情", false);
+            log.addView(text(prefs.shellError(), 12, false, muted));
         }
     }
 
     private void shizuku() {
-        if (ShizukuShell.authorizedUid() < 0) {
-            button(instructions, "打开 Shizuku 授权", () -> {
-                Intent launch = getPackageManager().getLaunchIntentForPackage("moe.shizuku.privileged.api");
-                if (launch == null) error("未安装 Shizuku");
-                else startActivity(launch);
-            }, false);
-        }
+        boolean granted = ShizukuShell.authorizedUid() >= 0;
+        step("Shizuku " + (granted ? "已授权" : "首次授权"),
+                granted ? "点上方启停图标即可使用或停止当前连接；不会关闭 Shizuku。"
+                        : "先打开 Shizuku 并启动它，再返回点上方启动，允许 BerryFCM 授权。");
+        button(instructions, "打开 Shizuku", () -> {
+            Intent launch = getPackageManager().getLaunchIntentForPackage("moe.shizuku.privileged.api");
+            if (launch == null) error("未安装 Shizuku，请先安装并启动");
+            else startActivity(launch);
+        }, false);
     }
 
     private void authorizeShizuku() {
@@ -559,7 +540,7 @@ public final class AuthActivity extends Ui {
     }
 
     private void tcp() {
-        step("连接设置", "");
+        step("ADB TCP", "需要电脑先通过 USB 授权并启用 ADB TCP；填写实际连接端口，再点“保存并启动”。");
         EditText host = field(instructions, "ADB 主机地址", prefs.host(), false);
         EditText port = field(instructions, "ADB 端口", String.valueOf(prefs.staticPort()), true);
         button(instructions, "保存并启动", () -> {
@@ -571,7 +552,7 @@ public final class AuthActivity extends Ui {
     }
 
     private void usb() {
-        step("电脑 USB", "电脑执行 adb tcpip 5555，然后选择 ADB TCP。");
+        step("电脑 USB", "先在电脑上授权 USB 调试，再执行 adb tcpip 5555；随后切换到 ADB TCP。手机应用无法自行授予 USB Shell 权限。");
         button(instructions, "切换到 ADB TCP", () -> {
             selected = AppPrefs.STATIC;
             prefs.authTab(selected);
@@ -833,7 +814,6 @@ public final class AuthActivity extends Ui {
         ui.removeCallbacks(refresh);
         Shizuku.removeRequestPermissionResultListener(shizukuPermission);
         worker.shutdownNow();
-        permissionWorker.shutdownNow();
         super.onDestroy();
     }
 }

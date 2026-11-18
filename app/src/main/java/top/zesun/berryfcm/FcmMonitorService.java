@@ -192,10 +192,12 @@ public final class FcmMonitorService extends Service {
         super.onCreate();
         NotificationManager manager = getSystemService(NotificationManager.class);
         NotificationChannel active = new NotificationChannel(CHANNEL,
-                "FCM 后台监测", NotificationManager.IMPORTANCE_LOW);
+                "运行通知（普通）", NotificationManager.IMPORTANCE_LOW);
+        active.setDescription("BerryFCM 后台监控运行状态；不是快捷设置磁贴。");
         manager.createNotificationChannel(active);
         NotificationChannel quiet = new NotificationChannel(QUIET_CHANNEL,
-                "FCM 静音监测", NotificationManager.IMPORTANCE_LOW);
+                "运行通知（静音）", NotificationManager.IMPORTANCE_LOW);
+        quiet.setDescription("静音显示后台监控运行状态；不停止监控。");
         quiet.setSound(null, null);
         manager.createNotificationChannel(quiet);
         startForeground(NOTIFICATION_ID, notification());

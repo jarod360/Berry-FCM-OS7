@@ -243,7 +243,7 @@ need 'STOP_FOREGROUND_REMOVE' "$src/FcmMonitorService.java"
 
 need 'private void addTile()' "$src/AuthActivity.java"
 need 'BackgroundSettings.backgroundRestriction(this)' "$src/AuthActivity.java"
-need 'BackgroundSettings.originAutoStartStatus(this)' "$src/AuthActivity.java"
+# Old private/OEM or duplicate settings assertion removed.
 need 'onTileAdded()' "$src/FcmTileService.java"
 need 'onTileRemoved()' "$src/FcmTileService.java"
 
@@ -265,9 +265,9 @@ need 'code != expectedVersion' "$src/UpdateActivity.java"
 
 # Concentrated regression: identity, optional vendor permission evidence and release promotion.
 need 'requireShellIdentity(PrivKitShell.execute(context, "id"), false)' "$src/PrivilegeAccess.java"
-need 'vivoPermissionResult(activity, "AUTO_START")' "$src/BackgroundSettings.java"
-need 'getVPTypeId' "$src/BackgroundSettings.java"
-need 'getPermissionResult' "$src/BackgroundSettings.java"
+# Old private/OEM or duplicate settings assertion removed.
+# Old private/OEM or duplicate settings assertion removed.
+# Old private/OEM or duplicate settings assertion removed.
 # Removed bulk AppOps diagnostic; negative guard at end of file.
 need 'accepted_run_id' "$root/.github/workflows/build-apk.yml"
 need 'gh run download "$RUN_ID"' "$root/.github/workflows/build-apk.yml"
@@ -292,7 +292,7 @@ need 'watchFuture.cancel(true)' "$src/GuardActivity.java"
 need 'runSafe(manual)' "$src/FcmMonitorService.java"
 need 'guardKey.equals(p.connectionKey())' "$src/FcmMonitorService.java"
 need 'tileRequestPending' "$src/AuthActivity.java"
-need 'permissionWorker.shutdownNow()' "$src/AuthActivity.java"
+# Old private/OEM or duplicate settings assertion removed.
 status_classes="$(mktemp -d)"
 javac -d "$status_classes" "$src/MonitorStatus.java" "$root/tests/MonitorStatusSmoke.java"
 java -cp "$status_classes" top.zesun.berryfcm.MonitorStatusSmoke
@@ -355,10 +355,23 @@ need 'permissionText(highPowerRow, "允许后台高耗电", "需在系统确认"
 
 # Keep optional permissions out of the main authorization view.
 need 'disclosure(permissionCard, "后台运行权限", false)' "$src/AuthActivity.java"
-need 'disclosure(notificationCard, "通知与快捷功能", false)' "$src/AuthActivity.java"
+# Old private/OEM or duplicate settings assertion removed.
 
 # No automatic ADB recovery when Android 17 local network authorization is absent.
 need 'PrivKitShell.localNetworkAllowed(context)' "$src/PrivilegeAccess.java"
 
 # Theme-aware toggle must use accessible Ui palette, not private Ui.dark.
 need 'toggleSurface.setColor(surface)' "$src/AuthActivity.java"
+
+# Actionable authorization UI and truthful OriginOS permission state.
+need 'disclosure(chooser, "授权方式与使用说明", false)' "$src/AuthActivity.java"
+need 'permissionText(autoStartRow, "自启动", "需在系统确认")' "$src/AuthActivity.java"
+need 'step("Root 授权"' "$src/AuthActivity.java"
+need 'step("Shizuku "' "$src/AuthActivity.java"
+need 'text(caption, 20, true, ink)' "$src/Ui.java"
+need '运行通知（普通）' "$src/FcmMonitorService.java"
+need '运行通知（静音）' "$src/FcmMonitorService.java"
+need 'setColor(android.graphics.Color.WHITE)' "$src/AdbPairingService.java"
+if grep -q 'readAutoStartPermission\|厂商权限检测诊断\|监控通知低干扰模式' "$src/AuthActivity.java"; then
+  echo 'Misleading OEM status or excessive notification UI remains' >&2; exit 1
+fi
