@@ -192,11 +192,11 @@ public final class FcmMonitorService extends Service {
         super.onCreate();
         NotificationManager manager = getSystemService(NotificationManager.class);
         NotificationChannel active = new NotificationChannel(CHANNEL,
-                "运行通知（普通）", NotificationManager.IMPORTANCE_LOW);
+                "后台监控运行通知", NotificationManager.IMPORTANCE_LOW);
         active.setDescription("BerryFCM 后台监控运行状态；不是快捷设置磁贴。");
         manager.createNotificationChannel(active);
         NotificationChannel quiet = new NotificationChannel(QUIET_CHANNEL,
-                "运行通知（静音）", NotificationManager.IMPORTANCE_LOW);
+                "后台监控运行通知（无声）", NotificationManager.IMPORTANCE_LOW);
         quiet.setDescription("静音显示后台监控运行状态；不停止监控。");
         quiet.setSound(null, null);
         manager.createNotificationChannel(quiet);
@@ -222,8 +222,6 @@ public final class FcmMonitorService extends Service {
         if (!PrivilegeAccess.readyForUserAction(this)) return "正在恢复授权服务，暂未监控";
         AppPrefs prefs = new AppPrefs(this);
         if (!prefs.monitorEnabled()) return "应用守护已开启";
-        long age = sampleAgeSeconds(this);
-        JSONObject data = lastSnapshot(this);
         // A persistent foreground-service notification is not a Quick Settings tile.
         // Keep actual FCM diagnostics in the application, not as an always-on headline.
         return "后台监控运行中（连接详情请在应用内查看）";
