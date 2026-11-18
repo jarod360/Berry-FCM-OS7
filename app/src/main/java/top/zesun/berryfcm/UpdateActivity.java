@@ -74,6 +74,10 @@ public final class UpdateActivity extends Ui {
     private void checkRelease() {
         if (checking || verifying || getPreferences(MODE_PRIVATE).getBoolean("auto_install", false)) return;
         checking = true;
+        apkUrl = null;
+        apkName = null;
+        remoteVersion = 0;
+        download.setVisibility(View.GONE);
         details.setText("正在查询 GitHub Releases…");
         worker.execute(() -> {
             HttpURLConnection conn = null;

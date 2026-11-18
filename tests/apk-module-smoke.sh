@@ -262,3 +262,13 @@ need 'pollDownload()' "$src/UpdateActivity.java"
 need 'waiting_install_permission' "$src/UpdateActivity.java"
 need 'if (!resumed) return' "$src/UpdateActivity.java"
 need 'code != expectedVersion' "$src/UpdateActivity.java"
+
+# Concentrated regression: identity, optional vendor permission evidence and release promotion.
+need 'requireShellIdentity(PrivKitShell.execute(context, "id"), false)' "$src/PrivilegeAccess.java"
+need 'vivoPermissionResult(activity, "AUTO_START")' "$src/BackgroundSettings.java"
+need 'getVPTypeId' "$src/BackgroundSettings.java"
+need 'getPermissionResult' "$src/BackgroundSettings.java"
+need 'cmd appops get top.zesun.berryfcm' "$src/AuthActivity.java"
+need 'accepted_run_id' "$root/.github/workflows/build-apk.yml"
+need 'gh run download "$RUN_ID"' "$root/.github/workflows/build-apk.yml"
+need 'Promote existing signed APK' "$root/.github/workflows/build-apk.yml"

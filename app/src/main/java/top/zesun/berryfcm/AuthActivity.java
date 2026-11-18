@@ -125,6 +125,25 @@ public final class AuthActivity extends Ui {
         restrictionRow = permissionRow(auxiliary, () -> BackgroundSettings.details(this));
         notificationRow = permissionRow(auxiliary, () -> BackgroundSettings.notifications(this));
         button(auxiliary, "刷新权限状态", this::refreshAuxiliaryPermissions, false);
+        LinearLayout diagnostic = disclosure(auxiliary, "厂商权限检测诊断", false);
+        TextView evidence = text("仅查看 BerryFCM 自身的系统 AppOps，不修改任何权限。", 12, false, muted);
+        evidence.setTextIsSelectable(true);
+        diagnostic.addView(evidence);
+        button(diagnostic, "读取系统权限证据", () -> {
+            if (!PrivilegeAccess.readyForUserAction(this)) {
+                error("请先完成核心授权；辅助权限不影响监控");
+                return;
+            }
+            evidence.setText("正在读取本应用 AppOps…");
+            worker.execute(() -> {
+                try (PrivilegeShell shell = PrivilegeAccess.open(this)) {
+                    String result = shell.execute("cmd appops get top.zesun.berryfcm 2>&1");
+                    runOnUiThread(() -> evidence.setText(result));
+                } catch (Exception ex) {
+                    runOnUiThread(() -> evidence.setText("读取失败：" + PrivKitShell.errorChain(ex)));
+                }
+            });
+        }, false);
 
         LinearLayout display = card("通知与快捷磁贴", "独立显示选项，不控制后台监控和守护。");
         monitorNotificationRow = permissionRow(display, () -> BackgroundSettings.monitorNotifications(this, prefs.quietMonitor()));

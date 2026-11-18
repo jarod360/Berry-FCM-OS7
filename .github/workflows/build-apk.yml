@@ -12,10 +12,15 @@ on:
   workflow_dispatch:
     inputs:
       publish_release:
-        description: "Publish a signed GitHub prerelease after device acceptance"
+        description: "Promote an existing successful signed APK build to a prerelease (no rebuild)"
         type: boolean
         required: false
         default: false
+      accepted_run_id:
+        description: "Exact successful Build Android APK run ID to publish"
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -26,6 +31,7 @@ concurrency:
 
 jobs:
   build:
+    if: github.event_name != 'workflow_dispatch' || inputs.publish_release != true
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -185,36 +191,70 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   publish_release:
-    name: Publish verified GitHub prerelease
+    name: Promote existing signed APK
     if: github.event_name == 'workflow_dispatch' && inputs.publish_release == true
-    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: read
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/setup-java@v4
         with:
-          name: BerryFCM-v0.1.0-alpha.${{ github.run_number }}
-          path: release
-      - name: Confirm signed APK artifact is present
-        env:
-          BUILD_NUMBER: ${{ github.run_number }}
-        run: |
-          set -Eeuo pipefail
-          apk="release/BerryFCM-v0.1.0-alpha.${BUILD_NUMBER}.apk"
-          test -s "$apk"
-      - name: Create GitHub prerelease
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-37.0 build-tools;37.0.0'
+      - name: Verify selected successful run and download original artifact
+        id: accepted
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          BUILD_NUMBER: ${{ github.run_number }}
-          TARGET_SHA: ${{ github.sha }}
+          RUN_ID: ${{ inputs.accepted_run_id }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]] || { echo "Provide the exact successful build run ID"; exit 1; }
+          gh api "repos/$GH_REPO/actions/runs/$RUN_ID" > run.json
+          jq -e --arg repo "$GH_REPO" '
+            .status == "completed" and .conclusion == "success"
+            and (.path | split("@")[0]) == ".github/workflows/build-apk.yml"
+            and .head_repository.full_name == $repo
+            and (.head_branch == "main" or .head_branch == "build/native-fcm-batch")
+          ' run.json >/dev/null
+          number="$(jq -r .run_number run.json)"
+          sha="$(jq -r .head_sha run.json)"
+          [[ "$number" =~ ^[0-9]+$ && "$sha" =~ ^[0-9a-f]{40}$ ]]
+          gh run download "$RUN_ID" --repo "$GH_REPO" --name "BerryFCM-v0.1.0-alpha.$number" --dir release
+          apk="release/BerryFCM-v0.1.0-alpha.$number.apk"
+          test -s "$apk"
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - name: Verify exact APK package version and fixed certificate
+        env:
+          BUILD_NUMBER: ${{ steps.accepted.outputs.number }}
+        run: |
+          set -Eeuo pipefail
+          apk="release/BerryFCM-v0.1.0-alpha.${BUILD_NUMBER}.apk"
+          tools="$ANDROID_HOME/build-tools/37.0.0"
+          "$tools/apksigner" verify --verbose --print-certs "$apk" > cert.txt
+          actual="$(awk -F': ' '/^Signer #1 certificate SHA-256 digest:/ {print toupper($2)}' cert.txt)"
+          test "$actual" = "BB328497280F72FE6662E84D7D0D0B15BAF425872B9B360287ED120529D97615"
+          test "$(grep -c '^Signer #[0-9][0-9]* certificate SHA-256 digest:' cert.txt)" -eq 1
+          "$tools/aapt" dump badging "$apk" > badging.txt
+          grep -F "package: name='top.zesun.berryfcm' versionCode='${BUILD_NUMBER}'" badging.txt
+      - name: Create GitHub prerelease from original verified APK
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          BUILD_NUMBER: ${{ steps.accepted.outputs.number }}
+          TARGET_SHA: ${{ steps.accepted.outputs.sha }}
+          RUN_ID: ${{ inputs.accepted_run_id }}
         run: |
           set -Eeuo pipefail
           tag="v0.1.0-alpha.${BUILD_NUMBER}"
           apk="release/BerryFCM-v0.1.0-alpha.${BUILD_NUMBER}.apk"
           legacy="release/BerryFCM-Guardian-v0.1.0-alpha.${BUILD_NUMBER}.apk"
           cp "$apk" "$legacy"
-          gh release create "$tag" "$apk" "$legacy" --target "$TARGET_SHA" --prerelease \
+          gh release create "$tag" "$apk" "$legacy" --target "$TARGET_SHA" --prerelease --latest=false \
             --title "BerryFCM Guardian ${tag}" \
-            --notes "BerryFCM fixed-signature prerelease. See docs/HANDOFF.md and docs/PRODUCT_PLAN.md for features, limits, and device validation."
+            --notes "Fixed-signature prerelease from the original successful Actions run $RUN_ID. See docs/HANDOFF.md for device validation. Prerelease is not a stable release."

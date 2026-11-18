@@ -178,6 +178,8 @@ final class PrivKitShell {
             throw new IllegalStateException("独立服务必须在后台启动");
         if (isConnected() && KIT.pingServer()) {
             autoAttempted = false;
+            status = "独立服务运行中";
+            startPrefs(context).edit().remove("last_error").apply();
             return;
         }
         if (!explicit && (AdbPairingService.isPairingActive() || !new AppPrefs(context).adbPaired()))
@@ -222,10 +224,15 @@ final class PrivKitShell {
                 } catch (InterruptedException interrupted) {
                     throw interrupted;
                 } catch (Exception failure) {
-                    try { verifyPairing(context, port); }
-                    catch (InterruptedException interrupted) { throw interrupted; }
-                    catch (Exception checkFailure) { startupTrace += "\n认证检查：" + errorChain(checkFailure); }
-                    throw failure;
+                    if (isConnected() && KIT.pingServer()) {
+                        result = KIT.getServerState().getValue();
+                        startupTrace += "\n启动响应异常，但已收到存活的 UID 2000 Binder";
+                    } else {
+                        try { verifyPairing(context, port); }
+                        catch (InterruptedException interrupted) { throw interrupted; }
+                        catch (Exception checkFailure) { startupTrace += "\n认证检查：" + errorChain(checkFailure); }
+                        throw failure;
+                    }
                 }
                 if (result == null || result.getUid() != 2000)
                     throw new IOException("独立服务未返回 UID 2000");
