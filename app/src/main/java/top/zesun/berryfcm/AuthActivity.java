@@ -303,7 +303,7 @@ public final class AuthActivity extends Ui {
         try { status.requestAddTileService(
                 new ComponentName(this, FcmTileService.class),
                 "BerryFCM 监控",
-                Icon.createWithResource(this, R.drawable.ic_bf_fcm),
+                Icon.createWithResource(this, R.drawable.ic_berry_fcm_mono),
                 getMainExecutor(),
                 result -> {
                     tileRequestPending = false;

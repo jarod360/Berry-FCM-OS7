@@ -518,6 +518,10 @@ must('this::syncWakeChoice' in bg
      and 'FcmMonitorService.wakeModeChanged(this)' in bg, "mode switch requires confirmation")
 must('累计确认窗口持锁' in monitor and '累计事务持锁' in bg,
      "CPU wake statistics visible")
+must('setSmallIcon(R.drawable.ic_berry_fcm_mono)' in svc
+     and 'android:icon="@drawable/ic_berry_fcm_mono"' in manifest
+     and 'Icon.createWithResource(this, R.drawable.ic_berry_fcm_mono)' in auth,
+     "notification and tile must use chosen app monochrome icon")
 must('android.permission.WAKE_LOCK' in manifest
      and 'android:name=".MonitorWatchdog"' in manifest, "Manifest permissions")
 print("PASS: issues 1/2 pre-build policy, lifecycle, UI and Android permissions")

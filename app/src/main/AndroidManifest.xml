@@ -71,7 +71,7 @@
             android:name=".FcmTileService"
             android:enabled="false"
             android:label="BerryFCM 监控"
-            android:icon="@drawable/ic_bf_fcm"
+            android:icon="@drawable/ic_berry_fcm_mono"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
             android:exported="true">
             <intent-filter>

@@ -282,7 +282,7 @@ public final class FcmMonitorService extends Service {
                 new Intent(this, MainActivity.class),
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         return new Notification.Builder(this, CHANNEL)
-                .setSmallIcon(R.drawable.ic_bf_fcm)
+                .setSmallIcon(R.drawable.ic_berry_fcm_mono)
                 .setColor(0xff365ed6)
                 .setContentTitle("BerryFCM")
                 .setContentText(notificationText())
@@ -430,7 +430,8 @@ public final class FcmMonitorService extends Service {
             return;
         }
         boolean abnormal = "gms".equals(sample.optString("fcm_source"))
-                && ("disconnected".equals(state) || "connecting".equals(state));
+                && ("disconnected".equals(state) || "connecting".equals(state))
+                && new AppPrefs(this).autoReconnect();
         if (!abnormal || !AppPrefs.WAKE_SMART.equals(new AppPrefs(this).wakeMode())) {
             releaseConfirmationWakeLock();
             return;
