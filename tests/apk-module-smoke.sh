@@ -330,6 +330,37 @@ need 'hasStoredIdentity(context)' "$src/PrivKitShell.java"
 need 'foregroundRecovery.compareAndSet(false, true)' "$src/PrivKitShell.java"
 echo 'PASS: Priv Kit host integration and persisted-identity recovery wiring'
 
+
+# Command concurrency regression: one authorization, multiple independently
+# scheduled Shell jobs. Lifecycle changes stay serialized; command waits do not.
+python3 - "$src/PrivKitShell.java" "$src/FcmMonitorService.java" "$src/BerryShellUserService.java" "$src/AdbConnectionManager.java" "$src/GuardActivity.java" <<'PY_PARALLEL'
+from pathlib import Path
+import sys
+priv, service, shizuku, static_adb, guard = [Path(p).read_text() for p in sys.argv[1:]]
+assert "private static synchronized void ensureCommandServer(Context context)" in priv
+assert "static String execute(Context context, String command)" in priv
+assert "static synchronized String execute(Context context, String command)" not in priv
+assert "ensureCommandServer(context);" in priv
+assert "static synchronized void start(Context context)" in priv
+assert "static synchronized void stopManually(Context context)" in priv
+assert "static synchronized void pair(Context context" in priv
+assert "process.close();" in priv and "45000L" in priv
+assert "monitorWorker.scheduleWithFixedDelay" in service
+assert "guardWorker.scheduleWithFixedDelay" in service
+assert "ReentrantLock" not in service and "commandLock" not in service
+assert "shell_duration" in service
+assert "!PrivKitShell.isConnected()" in service
+assert "!ShizukuShell.isRunning()" in service
+assert "synchronized String executeOnce" in static_adb
+assert "@Override public String execute(String command)" in shizuku
+assert "@Override public synchronized String execute" not in shizuku
+assert "Binder.getCallingUid() != ownerUid" in shizuku
+assert "process.waitFor(45, TimeUnit.SECONDS)" in shizuku
+assert "requestHeartbeat()" in guard and "shell.execute(GuardOps.heartbeatCommand())" in guard
+assert 'if (result.contains("|restored"))' not in guard
+print("PASS: parallel privileged commands with serialized lifecycle, static ADB, UID checks and bounded shell execution")
+PY_PARALLEL
+
 # Android 17 permission, TLS port and explicit service lifecycle.
 need 'targetSdk 37' "$root/app/build.gradle"
 need 'android.permission.ACCESS_LOCAL_NETWORK' "$root/app/src/main/AndroidManifest.xml"

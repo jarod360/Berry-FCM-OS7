@@ -26,7 +26,7 @@ public final class BerryShellUserService extends IBerryShell.Stub {
         System.exit(0);
     }
 
-    @Override public synchronized String execute(String command) {
+    @Override public String execute(String command) {
         // The Shizuku broker grants this binder to BerryFCM, not other apps.
         if (Binder.getCallingUid() != ownerUid)
             throw new SecurityException("BerryFCM app UID required");

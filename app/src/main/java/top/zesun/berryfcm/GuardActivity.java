@@ -392,10 +392,9 @@ public final class GuardActivity extends Ui {
             try (PrivilegeShell shell = PrivilegeAccess.open(this)) {
                 for (int i = 0; i < 7; i++) {
                     String result = runGuardBatches(shell, true);
-                    if (result.contains("|restored")) {
-                        result += "\n已修复应用，尝试请求 GMS 心跳：\n"
-                                + shell.execute(GuardOps.heartbeatCommand());
-                    }
+                    // An unstopped application is not proof of an MCS outage.
+                    // Keep the manual heartbeat button, but do not broadcast
+                    // automatically during guardian verification.
                     getSharedPreferences("berry_fcm_guard_report", MODE_PRIVATE).edit()
                             .putString("report", result).putLong("last_run", System.currentTimeMillis()).apply();
                     final int sample = i + 1;
