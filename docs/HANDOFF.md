@@ -416,3 +416,8 @@ Termux 本机无线 ADB 配对通过，id=2000(shell)，SELinux u:r:shell:s0，G
 - 应用升级下载时不显示「继续安装」；失败下载清理过期候选与操作入口，避免点了重复失败。
 - 所有本批修改仅用 GitHub 原始源码读取并执行轻量静态条件检查，共 9 项 PASS，**尚未执行本批 Android 编译、签名或真机验收**。不以源代码通过推断 APK 必然可运行。
 - 尚未验证的关键目标不变：Android 17 Priv Kit 内置 ADB 配对和 Binder 成功、实际断联后的非 Root 心跳恢复、OriginOS 长时间休眠，以及真正的 APK 在线覆盖安装。不得把隐藏 API 豁免当作已经证实修复所有设备 TLS 兼容。
+
+### 16:xx 内置无线 ADB 错误码 7 追踪（待完整 CI）
+- 用户手机 15:51—16:03 反复显示 `PrivilegeStartupException: Failed to discover ADB connect port / IOException: Failed to discover ADB service _adb-tls-connect._tcp: 7`。系统返回 NSD permission denied，尚未到独立服务启动，更没有实际 UID2000 Binder 成功。已有密钥文件只代表可尝试连接。
+- 对照 Priv Kit v0.20.0 官方 activation.md、PrivilegeAdbMdns.kt、PrivilegeUiLocalNetworkPermission.kt 和 Android 官方 targetSdk 兼容规定；API 37 设备运行 targetSdk35 理应有隐式局域网访问，但 OriginOS 实际 NSD 拒绝。因此仅在实际检查权限未授予时请求，本机权限不可用不再要求输入手动端口；成功后继续自动 mDNS，不改密钥。
+- 修改 AppPrefs.authTab/AuthActivity 让用户最后选中的无线 ADB 标签不因旧 `mode=shizuku` 而重进 Shizuku；PrivilegeKitShell 加入权限检查与发现失败诊断；AdbPairingService 对 NSD:7 停止自动发现且显示权限错误。全部仅源码提交，不重复编译；未通过真机，不能宣布修复。目标仍是正常只输入一次六位码、连接端口自动发现、Binder 存活、不重复配对。
