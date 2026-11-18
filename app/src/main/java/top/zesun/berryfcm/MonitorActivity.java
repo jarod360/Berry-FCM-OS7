@@ -18,7 +18,7 @@ import java.util.concurrent.Executors;
 public final class MonitorActivity extends Ui {
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler ui = new Handler(Looper.getMainLooper());
-    private TextView headline, current, technical, events, eventsFull, recoveryEvents, environmentEvents;
+    private TextView headline, current, technical, events, eventsFull, recoveryEvents, environmentEvents, manualResult;
     private Button checkButton, reconnectButton;
     private Switch enabled, automatic;
     private final Runnable update = new Runnable() {
@@ -76,6 +76,10 @@ public final class MonitorActivity extends Ui {
             render();
         }, true);
         reconnectButton = button(control, "尝试重新连接", this::reconnect, false);
+        manualResult = text("", 13, false, muted);
+        manualResult.setTextIsSelectable(true);
+        control.addView(manualResult);
+        manualResult.setVisibility(View.GONE);
         LinearLayout extra = disclosure(control, "详细连接证据与统计", false);
         technical = text("暂无详细数据", 13, false, ink);
         technical.setTextIsSelectable(true);
@@ -111,6 +115,10 @@ public final class MonitorActivity extends Ui {
         syncChecked(automatic, prefs.autoReconnect());
         checkButton.setText(!ready ? "去授权" : !prefs.monitorEnabled() ? "开启监控" : !FcmMonitorService.isRunning() ? "启动监控" : "立即检查");
         reconnectButton.setVisibility(ready && prefs.monitorEnabled() && FcmMonitorService.isRunning() ? View.VISIBLE : View.GONE);
+        String manual = FcmMonitorService.manualReconnectResult(this);
+        manualResult.setVisibility(manual.isEmpty() ? View.GONE : View.VISIBLE);
+        manualResult.setText("手动重连：" + manual);
+        reconnectButton.setEnabled(!manual.startsWith("正在读取"));
         JSONObject j = FcmMonitorService.lastSnapshot(this);
         long sample = j.optLong("fcm_sample_time", 0);
         long age = FcmMonitorService.sampleAgeSeconds(this);
@@ -259,7 +267,7 @@ public final class MonitorActivity extends Ui {
         worker.execute(() -> {
             try {
                 String text = FcmMonitorService.manualReconnect(this);
-                runOnUiThread(() -> error(text.isEmpty() ? "重连请求已发送，等待下一次连接观察" : text));
+                runOnUiThread(() -> { if (!isDestroyed()) { error(text); render(); } });
             } catch (Exception ex) {
                 runOnUiThread(() -> error("重连请求失败：" + ex.getMessage()));
             }

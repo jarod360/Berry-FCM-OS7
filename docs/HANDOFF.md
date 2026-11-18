@@ -371,3 +371,17 @@ alpha.46（#44228259741）已通过 API 37.0 SDK 安装、依赖解析、原生�
 - 首页面与授权页进入时共同尝试恢复已保存的 Priv Kit 身份（即使本地历史标记缺失），真实 Binder UID2000 和 id 验证后保存，拒绝才提示重新配对；无线调试关闭、发现不可用不当作撤销。共享并发门控及持久冷却，正常 Binder 采样不重新打开 ADB；不把文件存在当作认证成功。
 - 自动端口仍采用上游本机 mDNS：正常只输入六位码，手动端口仅备用。未获取 OriginOS 7 真机成功证据，不宣称端口问题已解决。
 - 加入完整接入及身份恢复静态回归。本次修改尚需单次完整构建和固定签名验签，随后只发布通过的测试 prerelease，实机验证后再按项目计划处理。main 与 KSU 不改。
+
+
+### FCM 恢复缺陷专项回归（2026-11-18）
+
+- 用户在第三方授权下提供 14:43:09 新鲜 GMS 采样：FCM 已断开，监控/自动恢复均开，但仍提示等待异常确认；最近历史关闭事件 14:19:44。截图不证明整个间隔持续断开，也不能单独证明路由/代理问题或广播未送达。
+- 已修正无原生断开时长、休眠采样间隔重置、备用主机连接计时重置导致的恢复饥饿；显式 disconnected 观察满15秒或 connecting 观察满120秒可请求恢复，长 native 断开仍须确认；跨90秒采样间隔需两次新鲜读取。已修正休眠跨间隔后在线恢复事件漏记。冷却及明确 stopped、未知状态、无网络、用户关闭自动恢复等保护保留。改用定向 GCM_RECONNECT，不用 heartbeat 冒充断联重连；仍须原生 Connected 才确认恢复。
+- 监控页面显示真实恢复决策、请求次数及最近结果，不再用一个笼统的等待提示掩盖不发广播的原因。
+- 独立验证分支 verify/fcm-recovery 的 [Actions #44253848951](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44253848951) 实际完成全部回归：Shell 语法、原生 GMS 模拟、无时长断联、跨休眠后恢复和确认、连接计时重置、权限异常、停止状态、冷却、守护分批、配对门控、监控显示及接入静态检查。该运行没有构建 APK、签名或发布；不是第三方授权真机或网络可达性实测。对应开发代码 957fbb8。
+- 上一构建 [#44253249415](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44253249415) 在 Ui.java:240 的 LinearLayout.setMinHeight 调用失败，未签名、未发布。已改为 View.setMinimumHeight，尚未执行完整 Android 编译。按用户要求继续集中审查，不触发新的 APK 构建或发布；不能依据模拟回归宣称 OriginOS 网络已修复，最终还需验证 GMS 实际路径、恢复请求是否生效及推送送达。
+
+
+### OriginOS 7 真机对照：广播未投递（2026-11-18）
+
+alpha.54 Shizuku UserService 实际 UID2000；前台 FcmMonitorService 正常，原生 GMS 状态为 Not connected。14:47:54 自动及 14:50:36 手动 GCM_RECONNECT 均写 requested，但系统广播摘要 enqueue=当时时间、dispatch=1970-01-01、finish=enqueue，无实际分发证据。14:55:02 Termux Root UID0 发同一 action，系统记录 DELIVERED 到 GMS UID10200，3ms 内投递，14:55:04 原生 connected=mtalk.google.com/108.177.98.188,port=5228，随后持续连接。确认当时网络可达，不能把 am result=0 当作接收成功。Shell 未分发的具体原因尚待检查动态接收器 requiredPermission/exported 及系统 Permission Denial/skip 日志；不能认定所有 Android 均需 Root，也不应绕过接收器安全边界。当前设备可通过现有 Root 模式（用户明确授权）验证闭环。另有 12841 秒及 136 秒采样间隔和 Vivo freeze 记录，应单独处理。当前未构建或发布新 APK。
