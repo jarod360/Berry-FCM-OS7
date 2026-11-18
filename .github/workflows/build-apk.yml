@@ -50,7 +50,7 @@ jobs:
       - name: Validate APK FCM monitor under simulated Root and ADB shell
         run: |
           sh -n app/src/main/assets/fcm-monitor.sh
-          BERRY_MONITOR_SCRIPT=app/src/main/assets/fcm-monitor.sh BERRY_ASSERT_UID_ACCESS=1 sh tests/fcm-monitor-smoke.sh
+          sh tests/apk-native-fcm-smoke.sh
 
       - name: Verify complete APK module and permission scope
         run: sh tests/apk-module-smoke.sh

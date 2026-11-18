@@ -62,7 +62,7 @@ public final class MonitorActivity extends Ui {
         technical.setTextIsSelectable(true);
         extra.addView(technical);
 
-        LinearLayout timeline = card("最新事件", "显示最近 6 条。短于采样间隔的断连可能漏检。");
+        LinearLayout timeline = card("最新事件", "读取 GMS 原生事件；显示最近 6 条，历史缓冲区有容量限制。");
         events = text("暂无记录", 13, false, ink);
         events.setTextIsSelectable(true);
         timeline.addView(events);
@@ -80,17 +80,19 @@ public final class MonitorActivity extends Ui {
         long age = sample == 0 ? -1 : System.currentTimeMillis() / 1000 - sample;
         String lastError = FcmMonitorService.lastError(this);
         String state = j.optString("fcm_state", "never_seen");
+        boolean nativeState = "gms".equals(j.optString("fcm_source"));
         long attempt = FcmMonitorService.lastAttemptAt(this);
         long serviceStart = FcmMonitorService.lastStartAt(this);
         if (!prefs.monitorEnabled()) state = "unknown（监控未开启）";
         else if (!lastError.isEmpty()) state = "unknown（最近一次采样失败）";
-        else if (sample <= 0 && attempt > 0) state = "connecting";
-        else if (sample <= 0 && serviceStart > 0) state = "connecting";
+        else if (sample <= 0 && (attempt > 0 || serviceStart > 0)) state = "waiting";
         else if (age < 0 || age > 90)
             state = "unknown（采样数据过期）";
-        String readable = state.equals("connected") ? "观察到 FCM Socket"
-                : state.equals("connecting") ? "正在建立连接"
-                : state.equals("disconnected") ? "未观察到连接"
+        else if (!nativeState) state = "unknown（原生状态不可读）";
+        String readable = state.equals("connected") ? "FCM 已连接"
+                : state.equals("connecting") ? "FCM 正在重连"
+                : state.equals("disconnected") ? "FCM 已断联"
+                : state.equals("waiting") ? "等待首次采样"
                 : state.equals("stale") ? "采样数据已过期"
                 : state.startsWith("unknown") ? "当前状态无法确认" : "暂无连接证据";
         String progress = FcmMonitorService.lastError(this).isEmpty()
@@ -99,22 +101,27 @@ public final class MonitorActivity extends Ui {
         current.setText("FCM 状态：" + readable
                 + "\n最近采样：" + (sample <= 0 ? "暂无" : time(sample)
                 + (age < 0 ? "（时间异常）" : "（" + age + " 秒前）"))
-                + "\n累计观察断联：" + j.optInt("fcm_outages", 0) + " 次"
+                + "\n历史连接关闭事件：" + j.optInt("fcm_native_close_events", 0) + " 条（不是独立断联次数）"
+                + (nativeState && !state.startsWith("unknown") && !state.equals("waiting")
+                    && !state.equals("stale") && j.optLong("fcm_native_duration", -1) >= 0
+                    ? "\n" + (state.equals("connected") ? "已连接：" : "未连接：")
+                        + j.optLong("fcm_native_duration") + " 秒" : "")
                 + (attempt > 0 ? "\n上次采样尝试：" + time(attempt / 1000) : "")
                 + "\n" + progress
                 + (lastError.isEmpty() ? "" : "\n采样异常：" + lastError));
         technical.setText("原始状态：" + state
-                + "\nSocket：" + j.optString("fcm_transport", "无")
+                + "\n状态来源：" + (nativeState ? "Google GMS 原生 MCS" : "原生状态不可读")
+                + "\nTCP 辅助证据：" + j.optString("fcm_tcp_hint", "无")
+                + "\n服务器：" + j.optString("fcm_transport", "无")
                 + "  " + j.optString("fcm_remote", "")
-                + "\n已观测连接时长：" + j.optLong("fcm_connected_seconds", 0) + " 秒"
-                + "\n连续缺失观测：" + j.optLong("fcm_missing_seconds", 0) + " 秒"
+                + "\n最后关闭错误码：" + j.optString("fcm_last_close_code", "无")
+                + "\n原生连接成功事件：" + j.optInt("fcm_native_connected_events", 0) + " 条"
                 + "\n上次观察在线：" + time(j.optLong("fcm_last_seen", 0))
                 + "\n上次观察断联：" + time(j.optLong("fcm_disconnect_since", 0))
                 + "\n最近恢复观测：" + time(j.optLong("fcm_last_restore", 0))
-                + "\nSocket 更换：" + j.optInt("fcm_reconnects", 0) + " 次"
                 + "\n重连请求：" + j.optInt("fcm_attempts", 0) + " 次"
                 + "\n最近请求结果：" + j.optString("fcm_last_result", "无")
-                + "\n注意：采样并非内核精准时间，不代表推送必达。");
+                + "\n注意：GMS 原生历史有限，同一时刻的多网络关闭事件不等于多次整体断联。");
         String[] lines = FcmMonitorService.lastEvents(this).split("\n");
         events.setText(eventText(lines, 6));
         eventsFull.setText(eventText(lines, 24));
@@ -128,7 +135,12 @@ public final class MonitorActivity extends Ui {
             String stamp;
             try { stamp = time(Long.parseLong(parts[0])); }
             catch (NumberFormatException ignored) { stamp = parts[0]; }
-            result.append(stamp).append("  ").append(parts[1]).append("\n")
+            String label = parts[1].equals("gms_close") ? "连接关闭"
+                    : parts[1].equals("gms_connected") ? "连接成功"
+                    : parts[1].equals("gms_failed") ? "连接失败"
+                    : parts[1].equals("gms_network_attempt") ? "网络连接尝试"
+                    : parts[1].equals("gms_heartbeat_delay") ? "心跳调度延迟" : parts[1];
+            result.append(stamp).append("  ").append(label).append("\n")
                     .append(parts[2]).append("\n\n");
         }
         return result.length() == 0 ? "暂无监控事件" : result.toString().trim();

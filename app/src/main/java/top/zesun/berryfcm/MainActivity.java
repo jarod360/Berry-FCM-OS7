@@ -26,7 +26,7 @@ public final class MainActivity extends Ui {
         super.onCreate(saved);
         title("BerryFCM", "FCM 连接与后台守护");
 
-        LinearLayout monitor = card("FCM 监控", "只显示有证据的连接状态，不把 TCP 连接等同于推送必达。");
+        LinearLayout monitor = card("FCM 监控", "读取 Google Play 服务原生 FCM 状态；TCP 仅作辅助。");
         state = text("正在读取状态", 23, true, ink);
         monitor.addView(state);
         summary = text("", 13, false, muted);
@@ -74,6 +74,7 @@ public final class MainActivity extends Ui {
         long age = stamp == 0 ? -1 : System.currentTimeMillis() / 1000 - stamp;
         String lastError = FcmMonitorService.lastError(this);
         String observed = snapshot.optString("fcm_state", "never_seen");
+        boolean nativeState = "gms".equals(snapshot.optString("fcm_source"));
         long attempt = FcmMonitorService.lastAttemptAt(this);
         String brief = lastError.replace('\n', ' ').replace('\r', ' ');
         if (brief.length() > 110) brief = brief.substring(0, 110) + "…";
@@ -82,16 +83,21 @@ public final class MainActivity extends Ui {
         else if (!lastError.isEmpty()) state.setText("采样异常 · 等待自动恢复");
         else if (stamp <= 0) state.setText(attempt > 0 ? "等待首次有效采样" : "监控启动中");
         else if (age < 0 || age > 90) state.setText("采样过期 · 当前未知");
-        else if ("connected".equals(observed)) state.setText("已观察到 FCM 连接");
-        else if ("connecting".equals(observed)) state.setText("正在连接 FCM");
-        else if ("disconnected".equals(observed)) state.setText("未观察到 FCM 连接");
+        else if (!nativeState) state.setText("FCM 原生状态无法确认");
+        else if ("connected".equals(observed)) state.setText("FCM 已连接");
+        else if ("connecting".equals(observed)) state.setText("FCM 正在重连");
+        else if ("disconnected".equals(observed)) state.setText("FCM 已断联");
         else state.setText("FCM 状态尚不确定");
 
         summary.setText("监控 " + (enabled ? "已开启" : "未开启")
                 + " · 应用守护 " + (prefs.guardEnabled() ? "已开启" : "未开启")
                 + "\n最近有效采样：" + (stamp <= 0 ? "暂无" :
                         age < 0 ? "时间异常" : age + " 秒前")
-                + " · 观察到断联 " + snapshot.optInt("fcm_outages", 0) + " 次"
+                + "\n历史连接关闭事件：" + snapshot.optInt("fcm_native_close_events", 0) + " 条（非独立断联次数）"
+                + (nativeState && age >= 0 && age <= 90 && lastError.isEmpty()
+                    && snapshot.optLong("fcm_native_duration", -1) >= 0
+                    ? "\n" + ("connected".equals(observed) ? "本次已连接：" : "本次未连接：")
+                        + snapshot.optLong("fcm_native_duration") + " 秒" : "")
                 + (attempt > 0 && stamp <= 0 ? "\n最近尝试："
                         + Math.max(0, (System.currentTimeMillis() - attempt) / 1000) + " 秒前" : "")
                 + (brief.isEmpty() ? "" : "\n错误：" + brief));
