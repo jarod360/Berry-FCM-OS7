@@ -55,6 +55,9 @@ public final class FcmMonitorService extends Service {
     private String installedMode;
     private String lastAttemptKey = "";
     private java.util.concurrent.ScheduledFuture<?> periodic;
+    // Held across checks while monitoring/guard is enabled, not just inside a sample.
+    private PowerManager.WakeLock persistentWakeLock;
+    private static volatile boolean wakeLockHeld;
     private final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
     private int newestStartId;
     private AdbConnectionManager adb;
@@ -65,6 +68,7 @@ public final class FcmMonitorService extends Service {
 
     static boolean start(Context context) { return start(context, null); }
     static boolean isRunning() { return !activeSession.isEmpty(); }
+    static boolean isCpuWakeLockHeld() { return wakeLockHeld; }
 
     // Called only from a visible activity. Restore existing enabled tasks,
     // without changing the user's settings or bypassing a force-stop.
@@ -260,6 +264,7 @@ public final class FcmMonitorService extends Service {
             if (periodic == null || periodic.isCancelled() || periodic.isDone())
                 periodic = worker.scheduleWithFixedDelay(() -> runSafe(false), 0, 15, TimeUnit.SECONDS);
         }
+        updatePersistentWakeLock(prefs.monitorEnabled() || prefs.guardEnabled());
         String action = intent == null ? null : intent.getAction();
         if (CHECK.equals(action) && !firstStart) queueCheck(true);
         if (RECONNECT.equals(action) && reconnectQueued.compareAndSet(false, true)) {
@@ -270,6 +275,31 @@ public final class FcmMonitorService extends Service {
             });
         }
         return START_STICKY;
+    }
+
+    private void updatePersistentWakeLock(boolean enabled) {
+        if (!enabled) { releasePersistentWakeLock(); return; }
+        try {
+            PowerManager power = getSystemService(PowerManager.class);
+            if (power == null) throw new IllegalStateException("PowerManager unavailable");
+            if (persistentWakeLock == null) {
+                persistentWakeLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "BerryFCM:monitor");
+                persistentWakeLock.setReferenceCounted(false);
+            }
+            if (!persistentWakeLock.isHeld()) persistentWakeLock.acquire();
+            wakeLockHeld = persistentWakeLock.isHeld();
+        } catch (RuntimeException error) {
+            wakeLockHeld = false;
+            getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit().putString(
+                    "wake_lock_error", safeError(error)).apply();
+        }
+    }
+
+    private void releasePersistentWakeLock() {
+        try {
+            if (persistentWakeLock != null && persistentWakeLock.isHeld()) persistentWakeLock.release();
+        } catch (RuntimeException ignored) { }
+        wakeLockHeld = false;
     }
 
     // Lifecycle changes are serialized on Android's main thread. A delayed
@@ -283,6 +313,7 @@ public final class FcmMonitorService extends Service {
         scheduled = false;
         if (session.equals(activeSession)) activeSession = "";
         if (periodic != null) periodic.cancel(false);
+        releasePersistentWakeLock();
         stopForeground(STOP_FOREGROUND_REMOVE);
     }
 
@@ -709,6 +740,7 @@ public final class FcmMonitorService extends Service {
         }
         main.removeCallbacksAndMessages(null);
         if (periodic != null) periodic.cancel(true);
+        releasePersistentWakeLock();
         worker.shutdownNow();
         stopForeground(STOP_FOREGROUND_REMOVE);
         super.onDestroy();
