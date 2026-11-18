@@ -46,6 +46,7 @@ public final class SettingsActivity extends Ui {
         try { version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName; }
         catch (Exception ignored) {}
         line(about, "当前版本", version + " · 已签名安装包可覆盖更新", null);
+        line(about, "适配范围", "OriginOS 7（已测试） · 其他系统尚未验证", null);
     }
 
     private void openUrl(String url) {
