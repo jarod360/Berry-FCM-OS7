@@ -54,7 +54,10 @@ public final class UpdateActivity extends Ui {
         download = button(panel, "立即更新", this::downloadApk, true);
         download.setVisibility(View.GONE);
         install = button(panel, "继续安装", this::verifyInstall, false);
-        install.setVisibility(getPreferences(MODE_PRIVATE).getLong("id", 0) > 0 ? View.VISIBLE : View.GONE);
+        // A downloading APK is not ready for installation.
+        SharedPreferences pending = getPreferences(MODE_PRIVATE);
+        install.setVisibility(pending.getLong("id", 0) > 0
+                && !pending.getBoolean("auto_install", false) ? View.VISIBLE : View.GONE);
         LinearLayout releaseNotes = disclosure(panel, "版本更新说明", false);
         notes = text("尚无更新说明", 12, false, muted);
         notes.setTextIsSelectable(true);
