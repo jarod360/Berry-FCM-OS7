@@ -405,3 +405,6 @@ Pairing discovery now stops after its first valid local service and reuses that 
 
 ### 2026-11-18 Android 17 ADB launch null-port crash
 alpha.60 device screenshot confirms automatic pairing discovery works but start fails with Java 'Cannot invoke java.lang.Integer.intValue()' due to nested ternary in PrivKitShell: `Integer port = manual > 0 ? manual : tls > 0 ? tls : null`; Java numeric conditional unboxes null if both manual/system TLS ports are unavailable. Fixed through AdbConnectPort.select() returning boxed Integer/null without unboxing; regression tests check default 0/0, absent system property, active TLS and manual port. This is a proven Java crash fix, not proof Binder starts successfully on OriginOS 7.
+
+### Authorization UI simplification
+Each actual runtime method (Wireless ADB, Root, Shizuku, ADB TCP) has one status and bold [启动][停止][重启]. No BerryFCM Shell/UserService/Binder technical names in the main UI; diagnostics, pairing and manual ports are under disclosures. Stopping root or explicit TCP only stops BerryFCM's use/background tasks, not system root or adbd; wireless stops the app's own privilege server, and Shizuku stops the app's bound user service without shutting down Shizuku itself. Inactive selected method is 未启动 rather than wrongly saying 当前使用 Shizuku. Paused state blocks background task gate.

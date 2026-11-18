@@ -337,3 +337,9 @@ tmp_adb_port="$(mktemp -d)"
 javac -d "$tmp_adb_port" "$src/AdbConnectPort.java" "$root/tests/AdbConnectPortSmoke.java"
 java -cp "$tmp_adb_port" top.zesun.berryfcm.AdbConnectPortSmoke
 rm -rf "$tmp_adb_port"
+
+# Compact authorization controls and selected method state.
+need 'String[] names = {"启动", "停止", "重启"}' "$src/AuthActivity.java"
+need 'b.setTypeface(android.graphics.Typeface.DEFAULT_BOLD)' "$src/AuthActivity.java"
+need 'status.setText(methodName(selected) + " · " + state)' "$src/AuthActivity.java"
+need 'ShizukuShell.isRunning()' "$src/AuthActivity.java"

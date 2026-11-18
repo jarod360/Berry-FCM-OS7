@@ -55,6 +55,7 @@ public final class AuthActivity extends Ui {
     };
     private boolean automaticCheckDone;
     private boolean startAfterSettings;
+    private String selectedFailure = "";
     private boolean leftForSettings;
     private int pendingPairPort = -1;
     private static final int SHIZUKU_PERMISSION = 130;
@@ -73,7 +74,7 @@ public final class AuthActivity extends Ui {
         super.onCreate(state);
         selected = prefs.authTab();
         Shizuku.addRequestPermissionResultListener(shizukuPermission);
-        title("授权管理", "核心授权与辅助后台权限");
+        title("授权管理", "选择方式，管理启停");
 
         LinearLayout card = card("授权状态", null);
         status = text("检查状态中", 20, true, ink);
@@ -83,12 +84,12 @@ public final class AuthActivity extends Ui {
         detail.setPadding(0, dp(5), 0, dp(1));
         card.addView(detail);
 
-        LinearLayout chooser = card("授权方式", "无线 ADB 通常只需配对一次；选择其他方式不会立即切换。");
+        LinearLayout chooser = card("授权方式", null);
         tabs = new LinearLayout(this);
         tabs.setOrientation(LinearLayout.VERTICAL);
         chooser.addView(tabs);
 
-        LinearLayout steps = card("操作步骤", null);
+        LinearLayout steps = card("操作", null);
         instructions = new LinearLayout(this);
         instructions.setOrientation(LinearLayout.VERTICAL);
         steps.addView(instructions);
@@ -327,6 +328,7 @@ public final class AuthActivity extends Ui {
                 }
                 if (mode.equals(selected)) return;
                 selected = mode;
+                selectedFailure = "";
                 prefs.authTab(mode);
                 // Browsing connection methods must not interrupt the active monitor.
                 renderTabs();
@@ -338,11 +340,32 @@ public final class AuthActivity extends Ui {
 
     private void renderInstructions() {
         instructions.removeAllViews();
+        if (AppPrefs.EXTERNAL.equals(selected)) { usb(); return; }
+        LinearLayout controls = new LinearLayout(this);
+        controls.setOrientation(LinearLayout.HORIZONTAL);
+        instructions.addView(controls);
+        String[] names = {"启动", "停止", "重启"};
+        Runnable[] actions = {this::startSelectedService, this::stopSelectedService, this::restartSelectedService};
+        for (int i = 0; i < names.length; i++) {
+            android.widget.Button b = button(controls, names[i], actions[i], i == 0);
+            b.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            b.setTextSize(16);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(48), 1);
+            lp.setMargins(dp(3), dp(3), dp(3), dp(3));
+            b.setLayoutParams(lp);
+            b.setEnabled(!checking && !PrivKitShell.isStarting() && !AdbPairingService.isPairingActive());
+        }
         if (AppPrefs.WIRELESS.equals(selected)) wireless();
         else if (AppPrefs.ROOT.equals(selected)) root();
         else if (AppPrefs.SHIZUKU.equals(selected)) shizuku();
-        else if (AppPrefs.STATIC.equals(selected)) tcp();
-        else usb();
+        else tcp();
+    }
+
+    private void startSelectedService() {
+        if (checking) return;
+        if (AppPrefs.WIRELESS.equals(selected)) startWireless();
+        else if (AppPrefs.SHIZUKU.equals(selected)) authorizeShizuku();
+        else checkShell();
     }
 
     private void step(String label, String description) {
@@ -354,58 +377,31 @@ public final class AuthActivity extends Ui {
 
     private void wireless() {
         if (AdbPairingService.isPairingActive()) {
-            step("正在配对", "请在系统的无线调试页面打开配对码，再从通知栏输入六位数字。");
-            button(instructions, "打开无线调试", this::openWirelessDebugging, true);
+            step("正在配对", "在无线调试页面打开配对码，通知栏输入六位数字。");
+            button(instructions, "打开无线调试", this::openWirelessDebugging, false);
             button(instructions, "取消配对", () -> AdbPairingService.stop(this), false);
             return;
         }
-        if (PrivKitShell.isStarting() || checking) {
-            step("正在启动服务…", "请保持无线调试开启。");
-            return;
-        }
-        if (PrivKitShell.isConnected()) {
-            step("授权成功", "服务正在运行，可以使用 FCM 监控。");
-            button(instructions, "停止 BerryFCM ADB 服务", this::stopSelectedService, false);
-            button(instructions, "重新启动服务", this::restartSelectedService, false);
-            button(instructions, "返回 FCM 监控", () -> {
-                if (!AppPrefs.WIRELESS.equals(prefs.mode())) {
-                    checkShell();
-                    return;
-                }
-                FcmMonitorService.resumeIfNeeded(this);
-                go(MainActivity.class);
-            }, true);
-            return;
-        }
-        if (prefs.servicePaused(AppPrefs.WIRELESS))
-            step("服务已手动停止", "配对身份已保留，可随时启动；不再自动反复启动。");
-        boolean previous = (prefs.adbPaired() || PrivKitShell.hasStoredIdentity(this)) && !prefs.pairingRejected();
-        if (previous) {
-            step("已保存 ADB 身份", "自动尝试原身份；仅在系统拒绝时需要重新配对。");
-            button(instructions, "启动服务", this::startWireless, true);
-            button(instructions, "停止 BerryFCM ADB 服务", this::stopSelectedService, false);
-            LinearLayout repair = disclosure(instructions, "重新配对", false);
-            wirelessSteps(repair);
-        } else {
-            if (!prefs.pairingRejected())
-                button(instructions, "检查已有授权", this::startWireless, false);
-            wirelessSteps(instructions);
-        }
-        LinearLayout direct = disclosure(instructions, "高级：手动输入连接端口", false);
-        connectPortFallback(direct);
-        String error = PrivKitShell.lastStartupError(this);
+        boolean paired = (prefs.adbPaired() || PrivKitShell.hasStoredIdentity(this))
+                && !prefs.pairingRejected();
+        if (!paired) button(instructions, "首次配对", () -> beginPair(0), false);
+        LinearLayout help = disclosure(instructions, paired ? "重新配对" : "配对说明", false);
+        wirelessSteps(help);
+        LinearLayout advanced = disclosure(instructions, "高级选项", false);
+        connectPortFallback(advanced);
+        String failure = PrivKitShell.lastStartupError(this);
         String pairing = prefs.pairingStatus();
-        if (!error.isEmpty() || pairing.startsWith("配对失败") || pairing.startsWith("服务启动失败")) {
-            LinearLayout diag = disclosure(instructions, "查看失败原因", false);
-            TextView log = text((error.isEmpty() ? pairing : error), 12, false, muted);
+        if (!failure.isEmpty() || pairing.startsWith("配对失败") || pairing.startsWith("服务启动失败")) {
+            LinearLayout diag = disclosure(instructions, "错误详情", false);
+            TextView log = text(failure.isEmpty() ? pairing : failure, 12, false, muted);
             log.setTextIsSelectable(true);
             diag.addView(log);
-            button(diag, "复制授权诊断", () -> {
+            button(diag, "复制诊断", () -> {
                 android.content.ClipboardManager clipboard = getSystemService(android.content.ClipboardManager.class);
                 if (clipboard != null) {
-                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("BerryFCM 授权诊断",
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("授权诊断",
                             prefs.pairingStatus() + "\n" + PrivKitShell.diagnostic(this)));
-                    error("授权诊断已复制");
+                    error("已复制诊断");
                 }
             }, false);
         }
@@ -421,44 +417,55 @@ public final class AuthActivity extends Ui {
     private void stopSelectedService() {
         if (checking || PrivKitShell.isStarting() || AdbPairingService.isPairingActive()) return;
         final String mode = selected;
-        if (!AppPrefs.WIRELESS.equals(mode) && !AppPrefs.SHIZUKU.equals(mode)) return;
+        if (AppPrefs.EXTERNAL.equals(mode)) return;
         checking = true;
-        status.setText("正在停止 BerryFCM 服务…");
+        status.setText(methodName(mode) + " · 正在停止");
         worker.execute(() -> {
-            if (AppPrefs.WIRELESS.equals(mode)) PrivKitShell.stopManually(this);
-            else {
-                prefs.servicePaused(AppPrefs.SHIZUKU, true);
-                ShizukuShell.stopBinding();
+            try {
+                prefs.servicePaused(mode, true);
+                if (AppPrefs.WIRELESS.equals(mode)) PrivKitShell.stopManually(this);
+                else if (AppPrefs.SHIZUKU.equals(mode)) ShizukuShell.stopBinding();
+                if (mode.equals(prefs.mode())) FcmMonitorService.stop(this);
+                runOnUiThread(() -> {
+                    checking = false;
+                    if (isDestroyed() || isFinishing()) return;
+                    selectedFailure = "";
+                    renderStatus();
+                    renderInstructions();
+                });
+            } catch (RuntimeException failure) {
+                runOnUiThread(() -> {
+                    checking = false;
+                    if (!isDestroyed()) error("停止失败：" + failure.getMessage());
+                });
             }
-            if (mode.equals(prefs.mode())) FcmMonitorService.stop(this);
-            runOnUiThread(() -> {
-                checking = false;
-                if (isDestroyed() || isFinishing()) return;
-                renderInstructions();
-                renderStatus();
-            });
         });
     }
 
     private void restartSelectedService() {
         if (checking || PrivKitShell.isStarting() || AdbPairingService.isPairingActive()) return;
         final String mode = selected;
-        if (!AppPrefs.WIRELESS.equals(mode) && !AppPrefs.SHIZUKU.equals(mode)) return;
+        if (AppPrefs.EXTERNAL.equals(mode)) return;
         checking = true;
-        status.setText("正在重新启动 BerryFCM 服务…");
+        status.setText(methodName(mode) + " · 正在重启");
         worker.execute(() -> {
-            if (AppPrefs.WIRELESS.equals(mode)) PrivKitShell.stopManually(this);
-            else {
-                prefs.servicePaused(AppPrefs.SHIZUKU, true);
-                ShizukuShell.stopBinding();
+            try {
+                prefs.servicePaused(mode, true);
+                if (AppPrefs.WIRELESS.equals(mode)) PrivKitShell.stopManually(this);
+                else if (AppPrefs.SHIZUKU.equals(mode)) ShizukuShell.stopBinding();
+                if (mode.equals(prefs.mode())) FcmMonitorService.stop(this);
+                runOnUiThread(() -> {
+                    checking = false;
+                    if (isDestroyed() || isFinishing()) return;
+                    prefs.servicePaused(mode, false);
+                    startSelectedService();
+                });
+            } catch (RuntimeException failure) {
+                runOnUiThread(() -> {
+                    checking = false;
+                    if (!isDestroyed()) error("重启失败：" + failure.getMessage());
+                });
             }
-            runOnUiThread(() -> {
-                checking = false;
-                if (isDestroyed() || isFinishing()) return;
-                prefs.servicePaused(mode, false);
-                if (AppPrefs.WIRELESS.equals(mode)) startWireless();
-                else authorizeShizuku();
-            });
         });
     }
 
@@ -479,21 +486,10 @@ public final class AuthActivity extends Ui {
     }
 
     private void wirelessSteps(LinearLayout parent) {
-        stepIn(parent, "1 · 打开无线调试",
-                "打开无线调试后，点击“使用配对码配对设备”。");
-        button(parent, "开始配对并打开无线调试", () -> beginPair(0), true);
-        stepIn(parent, "2 · 输入配对码",
-                "保持配对码页面打开，下拉通知栏，在 BerryFCM 通知中输入六位数字。");
-        stepIn(parent, "3 · 完成授权",
-                "配对后自动启动服务并开启 FCM 监控。以后通常不必重新配对。");
-        LinearLayout fallback = disclosure(parent, "端口无法发现？手动输入", false);
+        stepIn(parent, "配对", "打开系统的配对码页面，在通知栏输入六位数字。");
+        button(parent, "开始配对", () -> beginPair(0), false);
+        LinearLayout fallback = disclosure(parent, "无法自动发现？", false);
         stepFallback(fallback);
-        button(fallback, "只打开无线调试设置", this::openWirelessDebugging, false);
-        button(fallback, "取消配对通知", () -> {
-            AdbPairingService.stop(this);
-            status.setText("配对已取消");
-            detail.setText("可重新开始。");
-        }, false);
     }
 
     private void stepIn(LinearLayout parent, String label, String description) {
@@ -517,24 +513,20 @@ public final class AuthActivity extends Ui {
     }
 
     private void root() {
-        step("申请 Root Shell",
-                "系统 Root 管理器可能弹出授权请求。只有 id 返回 uid=0 才算完成。Root 可执行已在 OriginOS 7 实测有效的 GMS 重连命令。");
-        button(instructions, "申请并验证 Root Shell", this::checkShell, true);
+        if (!prefs.shellError().isEmpty() && AppPrefs.ROOT.equals(prefs.shellMode())) {
+            LinearLayout detail = disclosure(instructions, "错误详情", false);
+            detail.addView(text(prefs.shellError(), 12, false, muted));
+        }
     }
 
     private void shizuku() {
-        step("独立 Shell 服务", "适合已安装并启动 Shizuku v13+ 的用户。通过官方 Binder 服务采样，不占用 BerryFCM 的 ADB 连接。");
-        step("当前状态", prefs.servicePaused(AppPrefs.SHIZUKU)
-                ? "BerryFCM Shell 已停止；Shizuku 原有授权仍保留" : ShizukuShell.readiness());
-        button(instructions, prefs.servicePaused(AppPrefs.SHIZUKU)
-                ? "启动 BerryFCM Shell" : "授权并使用 Shizuku", this::authorizeShizuku, true);
-        button(instructions, "停止 BerryFCM Shell", this::stopSelectedService, false);
-        button(instructions, "重新启动 BerryFCM Shell", this::restartSelectedService, false);
-        button(instructions, "打开 Shizuku", () -> {
-            Intent launch = getPackageManager().getLaunchIntentForPackage("moe.shizuku.privileged.api");
-            if (launch == null) error("尚未安装 Shizuku；可直接使用 Root 或内置无线 ADB");
-            else startActivity(launch);
-        }, false);
+        if (ShizukuShell.authorizedUid() < 0) {
+            button(instructions, "打开 Shizuku 授权", () -> {
+                Intent launch = getPackageManager().getLaunchIntentForPackage("moe.shizuku.privileged.api");
+                if (launch == null) error("未安装 Shizuku");
+                else startActivity(launch);
+            }, false);
+        }
     }
 
     private void authorizeShizuku() {
@@ -555,11 +547,10 @@ public final class AuthActivity extends Ui {
     }
 
     private void tcp() {
-        step("验证已经开放的 ADB TCP 端口",
-                "需已开启 adbd TCP 服务；仅填写地址不会启用系统无线调试。");
+        step("连接设置", "");
         EditText host = field(instructions, "ADB 主机地址", prefs.host(), false);
         EditText port = field(instructions, "ADB 端口", String.valueOf(prefs.staticPort()), true);
-        button(instructions, "保存并验证 ADB Shell", () -> {
+        button(instructions, "保存并启动", () -> {
             String address = host.getText().toString().trim();
             int number = parsePort(port.getText().toString());
             if (address.isEmpty() || number == 0) { error("主机地址或端口无效"); return; }
@@ -568,9 +559,7 @@ public final class AuthActivity extends Ui {
     }
 
     private void usb() {
-        step("在电脑上初始化 ADB TCP", "USB 连接必须先经系统授权。手机 APK 本身不能授予持续 Shell 权限。");
-        step("电脑执行", "adb tcpip 5555");
-        step("返回 BerryFCM", "切换到 ADB TCP，填写本机 127.0.0.1 和实际开放的端口后验证。重启后可能失效。");
+        step("电脑 USB", "电脑执行 adb tcpip 5555，然后选择 ADB TCP。");
         button(instructions, "切换到 ADB TCP", () -> {
             selected = AppPrefs.STATIC;
             prefs.authTab(selected);
@@ -723,8 +712,8 @@ public final class AuthActivity extends Ui {
                 || AppPrefs.EXTERNAL.equals(selected)) return;
         final String candidate = selected;
         if (AppPrefs.WIRELESS.equals(candidate) && requestLocalNetworkIfNeeded(2, 0)) return;
-        if (AppPrefs.WIRELESS.equals(candidate) || AppPrefs.SHIZUKU.equals(candidate))
-            prefs.servicePaused(candidate, false);
+        prefs.servicePaused(candidate, false);
+        selectedFailure = "";
         if (AppPrefs.WIRELESS.equals(candidate)) {
             if (AdbPairingService.isPairingActive() || PrivKitShell.isStarting()) return;
             automaticCheckDone = true;
@@ -751,6 +740,7 @@ public final class AuthActivity extends Ui {
                 runOnUiThread(() -> {
                     checking = false;
                     if (isDestroyed() || isFinishing()) return;
+                    selectedFailure = message;
                     boolean wireless = AppPrefs.WIRELESS.equals(candidate);
                     status.setText(wireless && prefs.pairingRejected() ? "授权已失效，请重新配对" : "连接失败");
                     status.setTextColor(danger);
@@ -761,73 +751,48 @@ public final class AuthActivity extends Ui {
         });
     }
 
+    private String methodName(String mode) {
+        if (AppPrefs.WIRELESS.equals(mode)) return "无线 ADB";
+        if (AppPrefs.SHIZUKU.equals(mode)) return "Shizuku";
+        if (AppPrefs.ROOT.equals(mode)) return "Root";
+        if (AppPrefs.STATIC.equals(mode)) return "ADB TCP";
+        return "电脑 USB";
+    }
+
     private void renderStatus() {
         if (status == null || checking) return;
-        status.setTextColor(muted);
         if (AppPrefs.EXTERNAL.equals(selected)) {
-            status.setText("电脑 USB · 初始化指引");
-            detail.setText("这不是 APK 的授权模式。电脑启用 ADB TCP 后，回到 ADB TCP 标签连接验证。");
+            status.setText("电脑 USB · 设置指引");
+            status.setTextColor(muted);
+            detail.setText("");
             return;
         }
-        String mode = prefs.mode();
-        if (!selected.equals(mode)) {
-            boolean ready = PrivilegeAccess.readyForUserAction(this);
-            status.setText("当前使用：" + (AppPrefs.ROOT.equals(mode) ? "Root" : AppPrefs.SHIZUKU.equals(mode) ? "Shizuku" : AppPrefs.STATIC.equals(mode) ? "ADB TCP" : "无线 ADB"));
-            status.setTextColor(ready ? success : warning);
-            detail.setText((ready ? "当前方式可用" : "当前方式需要授权") + "；这里是候选方式，尚未切换。");
-            return;
-        }
-        if (AppPrefs.SHIZUKU.equals(selected)) {
-            status.setText(prefs.servicePaused(AppPrefs.SHIZUKU)
-                    ? "BerryFCM Shell 已停止" : ShizukuShell.readiness());
-            status.setTextColor(prefs.servicePaused(AppPrefs.SHIZUKU)
-                    ? warning : ShizukuShell.authorizedUid() >= 0 ? success : warning);
-            detail.setText(prefs.servicePaused(AppPrefs.SHIZUKU)
-                    ? "只停止 BerryFCM 的 Shell 服务，Shizuku 本身和授权都未撤销；点击启动可恢复。"
-                    : ShizukuShell.authorizedUid() >= 0
-                    ? "Shizuku 授权有效，实际 Shell 命令将连接独立 UserService；监控状态以真实采样为准。"
-                    : "需先启动 Shizuku 并完成一次应用授权；原配对身份保留。");
-        } else if (AppPrefs.WIRELESS.equals(selected)) {
-            if (PrivKitShell.isConnected()) {
-                status.setText(prefs.servicePaused(AppPrefs.WIRELESS) ? "服务已停止" : "授权成功");
-                status.setTextColor(prefs.servicePaused(AppPrefs.WIRELESS) ? warning : success);
-                detail.setText(prefs.servicePaused(AppPrefs.WIRELESS)
-                        ? "用户已停止 BerryFCM 独立服务，配对身份保留。"
-                        : "服务正在运行，可以使用 FCM 监控。");
-            } else if (AdbPairingService.isPairingActive()) {
-                status.setText("正在配对");
-                detail.setText(prefs.pairingStatus());
-            } else if (PrivKitShell.isStarting()) {
-                status.setText("正在启动服务…");
-                detail.setText("正在连接无线调试。");
-            } else if (prefs.pairingRejected()) {
-                status.setText("授权已失效");
-                status.setTextColor(danger);
-                detail.setText("系统已拒绝原有配对，请重新配对。");
-            } else if (prefs.adbPaired() || PrivKitShell.hasStoredIdentity(this)) {
-                boolean failed = !PrivKitShell.lastStartupError(this).isEmpty();
-                status.setText(failed ? "服务启动失败" : "服务未启动");
-                detail.setText(failed ? "请重试启动服务，具体原因见下方“查看失败原因”。" : "已有配对记录，请先启动服务。");
+        String state = "未启动";
+        if (prefs.servicePaused(selected)) state = "已停止";
+        else if (selected.equals(prefs.mode())) {
+            if (AppPrefs.WIRELESS.equals(selected)) {
+                if (PrivKitShell.isConnected()) state = "已启动";
+                else if (PrivKitShell.isStarting()) state = "启动中";
+                else if (AdbPairingService.isPairingActive()) state = "配对中";
+                else if (!PrivKitShell.lastStartupError(this).isEmpty()) state = "启动失败";
+            } else if (AppPrefs.SHIZUKU.equals(selected)) {
+                if (ShizukuShell.isRunning()) state = "已启动";
+                else if (ShizukuShell.authorizedUid() < 0) state = "未授权";
+                else if (!prefs.shellError().isEmpty() && selected.equals(prefs.shellMode()))
+                    state = "启动失败";
             } else {
-                boolean failed = prefs.pairingStatus().startsWith("配对失败");
-                status.setText(failed ? "配对失败" : "需要 ADB 授权");
-                detail.setText(failed ? "请重新打开系统配对码页面并输入六位码。具体原因见下方。" : "首次使用请完成无线配对。若已经配对，可检查已有授权。");
+                if (!prefs.shellError().isEmpty() && selected.equals(prefs.shellMode())) state = "启动失败";
+                else if (PrivilegeAccess.readyForUserAction(this)) state = "已启动";
             }
-        } else if (PrivilegeAccess.readyForUserAction(this)) {
-            status.setText("Shell 上次验证成功");
-            status.setTextColor(success);
-            detail.setText(mode + " · " + prefs.shellIdentity()
-                    + "\n每次实际命令都会验证 Shell 身份；不代表当前存在持续连接。");
-        } else if (!prefs.shellError().isEmpty() && mode.equals(prefs.shellMode())) {
-            status.setText("授权连接失败");
-            status.setTextColor(danger);
-            detail.setText(prefs.shellError() + "\n" + prefs.pairingStatus());
-        } else {
-            status.setText("未验证当前 Shell");
-            detail.setText(AppPrefs.WIRELESS.equals(selected)
-                    ? prefs.pairingStatus() + "\n先完成通知栏配对，配对成功后自动验证 Shell。"
-                    : "选择当前方式后执行授权或连接验证。");
         }
+        if (!selectedFailure.isEmpty()) state = "启动失败";
+        status.setText(methodName(selected) + " · " + state);
+        status.setTextColor("已启动".equals(state) ? success :
+                "启动失败".equals(state) ? danger : "未启动".equals(state) || "已停止".equals(state) ? muted : warning);
+        detail.setText(!selectedFailure.isEmpty() ? "启动失败，请查看错误详情"
+                : "已停止".equals(state) ? "点击启动可恢复"
+                : "未启动".equals(state) && !selected.equals(prefs.mode()) ? "点击启动切换到此方式"
+                : "");
     }
 
     @Override protected void onResume() {
