@@ -113,8 +113,8 @@ normalize_ip() {
 }
 
 gms_uid() {
-    uid="$("$CMD_BIN" package list packages -U --user 0 "$GMS" 2>/dev/null | awk -v p="$GMS" '$1=="package:"p && $2~/^uid:[0-9]+$/ {sub(/^uid:/,"",$2); if($2<100000){print $2;exit}}')"
-    [ -n "$uid" ] || uid="$("$PM_BIN" list packages -U --user 0 "$GMS" 2>/dev/null | awk -v p="$GMS" '$1=="package:"p && $2~/^uid:[0-9]+$/ {sub(/^uid:/,"",$2); if($2<100000){print $2;exit}}')"
+    uid="$("$CMD_BIN" package list packages -U --user 0 "$GMS" 2>/dev/null | awk -v p="$GMS" '$1=="package:"p && $2~/^uid:[0-9]+$/ {sub(/^uid:/,"",$2); if(($2+0)<100000){print $2;exit}}')"
+    [ -n "$uid" ] || uid="$("$PM_BIN" list packages -U --user 0 "$GMS" 2>/dev/null | awk -v p="$GMS" '$1=="package:"p && $2~/^uid:[0-9]+$/ {sub(/^uid:/,"",$2); if(($2+0)<100000){print $2;exit}}')"
     is_uint "$uid" && [ "$uid" -lt 100000 ] || return 1
     printf '%s\n' "$uid"
 }
