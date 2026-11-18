@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, build/native-fcm-batch]
     paths:
       - 'app/**'
       - 'build.gradle'
