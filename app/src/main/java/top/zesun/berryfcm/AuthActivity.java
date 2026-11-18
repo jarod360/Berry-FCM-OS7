@@ -368,7 +368,52 @@ public final class AuthActivity extends Ui {
     }
 
     private void startSelectedService() {
-        if (checking) return;
+        confirmSwitch(this::startCandidateService);
+    }
+
+    private void confirmSwitch(Runnable action) {
+        if (selected.equals(prefs.mode())) {
+            action.run();
+            return;
+        }
+        final String candidate = selected;
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("切换授权方式")
+                .setMessage("当前使用：" + methodName(prefs.mode())
+                        + "\n准备切换到：" + methodName(candidate)
+                        + "\n\n先验证新方式，成功后才切换；若失败，仍使用原来的方式。不需要先停止旧授权。")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("验证并切换", (dialog, which) -> {
+                    if (!candidate.equals(selected)) return;
+                    if (checking || PrivKitShell.isStarting() || AdbPairingService.isCodeSubmitted()) {
+                        error("正在执行其他授权操作，请完成或取消该操作后重试");
+                        return;
+                    }
+                    if (AdbPairingService.isAwaitingInput()) {
+                        AdbPairingService.stop(this);
+                        continueAfterCancel(candidate, action, 0);
+                    } else action.run();
+                }).show();
+    }
+
+    private void continueAfterCancel(String candidate, Runnable action, int attempt) {
+        if (isFinishing() || isDestroyed() || !candidate.equals(selected)) return;
+        if (AdbPairingService.isPairingActive()) {
+            if (attempt >= 20) {
+                error("未能结束旧配对，请使用顶部“取消本次配对”后重试");
+                return;
+            }
+            ui.postDelayed(() -> continueAfterCancel(candidate, action, attempt + 1), 150);
+            return;
+        }
+        action.run();
+    }
+
+    private void startCandidateService() {
+        if (checking || AdbPairingService.isPairingActive() || PrivKitShell.isStarting()) {
+            error("另一项授权操作正在执行，请完成或取消该操作");
+            return;
+        }
         if (AppPrefs.WIRELESS.equals(selected)) {
             if (prefs.pairingRejected() || (!prefs.adbPaired() && !PrivKitShell.hasStoredIdentity(this)))
                 beginPair(0);
@@ -488,18 +533,18 @@ public final class AuthActivity extends Ui {
             int port = parsePort(field.getText().toString());
             if (port == 0) { error("请输入有效连接端口"); return; }
             prefs.wirelessConnectPort(port);
-            checkShell();
+            confirmSwitch(this::checkShell);
         }, true);
         button(parent, "恢复自动发现并启动", () -> {
             prefs.wirelessConnectPort(0);
-            checkShell();
+            confirmSwitch(this::checkShell);
         }, false);
         button(parent, "打开无线调试设置", this::openWirelessForStart, false);
     }
 
     private void wirelessSteps(LinearLayout parent) {
         stepIn(parent, "配对", "打开系统的配对码页面，在通知栏输入六位数字。");
-        button(parent, "开始配对", () -> beginPair(0), false);
+        button(parent, "开始配对", () -> confirmSwitch(() -> beginPair(0)), false);
         // Optional manual pairing and connection ports share one advanced panel.
     }
 
@@ -519,7 +564,7 @@ public final class AuthActivity extends Ui {
         button(fallback, "指定端口开始配对", () -> {
             int port = parsePort(pairingPort.getText().toString());
             if (port == 0) { error("请输入有效配对端口"); return; }
-            beginPair(port);
+            confirmSwitch(() -> beginPair(port));
         }, false);
     }
 
@@ -568,7 +613,7 @@ public final class AuthActivity extends Ui {
             String address = host.getText().toString().trim();
             int number = parsePort(port.getText().toString());
             if (address.isEmpty() || number == 0) { error("主机地址或端口无效"); return; }
-            checkShell(address, number);
+            confirmSwitch(() -> checkShell(address, number));
         }, true);
     }
 
@@ -614,6 +659,10 @@ public final class AuthActivity extends Ui {
 
     private void beginPair(int manualPort) {
         if (checking || AdbPairingService.isPairingActive() || PrivKitShell.isStarting()) return;
+        if (PrivKitShell.isConnected() && AppPrefs.WIRELESS.equals(prefs.mode())) {
+            error("无线 ADB 已连接，无需重新配对；如果系统撤销了身份，再重新授权即可");
+            return;
+        }
         if (requestLocalNetworkIfNeeded(1, manualPort)) return;
         pendingPairPort = manualPort;
         if (Build.VERSION.SDK_INT < 30) {
@@ -643,6 +692,8 @@ public final class AuthActivity extends Ui {
         }
         try {
             AdbPairingService.begin(this, manualPort);
+            openedPairSettings = true;
+            leftForPairSettings = false;
             renderStatus();
             pendingPairPort = -1;
             openWirelessDebugging();
@@ -690,6 +741,7 @@ public final class AuthActivity extends Ui {
         ui.removeCallbacks(refresh);
         super.onPause();
         if (startAfterSettings) leftForSettings = true;
+        if (openedPairSettings) leftForPairSettings = true;
     }
 
     private void openWirelessDebugging() {
@@ -825,6 +877,14 @@ public final class AuthActivity extends Ui {
         refreshAuxiliaryPermissions();
         ui.removeCallbacks(refresh);
         ui.post(refresh);
+        if (openedPairSettings && leftForPairSettings) {
+            openedPairSettings = false;
+            leftForPairSettings = false;
+            if (AdbPairingService.isAwaitingInput()) {
+                AdbPairingService.stop(this);
+                error("未输入配对码，已自动取消本次配对；原有授权未改变");
+            }
+        }
         if (startAfterSettings && leftForSettings) {
             startAfterSettings = false;
             leftForSettings = false;
