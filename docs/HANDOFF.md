@@ -380,3 +380,8 @@ alpha.46（#44228259741）已通过 API 37.0 SDK 安装、依赖解析、原生�
 - 监控页面显示真实恢复决策、请求次数及最近结果，不再用一个笼统的等待提示掩盖不发广播的原因。
 - 独立验证分支 verify/fcm-recovery 的 [Actions #44253848951](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44253848951) 实际完成全部回归：Shell 语法、原生 GMS 模拟、无时长断联、跨休眠后恢复和确认、连接计时重置、权限异常、停止状态、冷却、守护分批、配对门控、监控显示及接入静态检查。该运行没有构建 APK、签名或发布；不是第三方授权真机或网络可达性实测。对应开发代码 957fbb8。
 - 上一构建 [#44253249415](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44253249415) 在 Ui.java:240 的 LinearLayout.setMinHeight 调用失败，未签名、未发布。已改为 View.setMinimumHeight，尚未执行完整 Android 编译。按用户要求继续集中审查，不触发新的 APK 构建或发布；不能依据模拟回归宣称 OriginOS 网络已修复，最终还需验证 GMS 实际路径、恢复请求是否生效及推送送达。
+
+
+### OriginOS 7 真机对照：广播未投递（2026-11-18）
+
+alpha.54 Shizuku UserService 实际 UID2000；前台 FcmMonitorService 正常，原生 GMS 状态为 Not connected。14:47:54 自动及 14:50:36 手动 GCM_RECONNECT 均写 requested，但系统广播摘要 enqueue=当时时间、dispatch=1970-01-01、finish=enqueue，无实际分发证据。14:55:02 Termux Root UID0 发同一 action，系统记录 DELIVERED 到 GMS UID10200，3ms 内投递，14:55:04 原生 connected=mtalk.google.com/108.177.98.188,port=5228，随后持续连接。确认当时网络可达，不能把 am result=0 当作接收成功。Shell 未分发的具体原因尚待检查动态接收器 requiredPermission/exported 及系统 Permission Denial/skip 日志；不能认定所有 Android 均需 Root，也不应绕过接收器安全边界。当前设备可通过现有 Root 模式（用户明确授权）验证闭环。另有 12841 秒及 136 秒采样间隔和 Vivo freeze 记录，应单独处理。当前未构建或发布新 APK。
