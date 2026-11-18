@@ -359,3 +359,6 @@ need 'disclosure(notificationCard, "通知与快捷功能", false)' "$src/AuthAc
 
 # No automatic ADB recovery when Android 17 local network authorization is absent.
 need 'PrivKitShell.localNetworkAllowed(context)' "$src/PrivilegeAccess.java"
+
+# Theme-aware toggle must use accessible Ui palette, not private Ui.dark.
+need 'toggleSurface.setColor(surface)' "$src/AuthActivity.java"

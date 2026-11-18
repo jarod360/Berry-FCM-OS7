@@ -97,7 +97,7 @@ public final class AuthActivity extends Ui {
         stateToggle.setScaleType(android.widget.ImageView.ScaleType.CENTER_INSIDE);
         stateToggle.setPadding(dp(13), dp(13), dp(13), dp(13));
         GradientDrawable toggleSurface = new GradientDrawable();
-        toggleSurface.setColor(dark ? 0xff2c3b58 : 0xffe9eef8);
+        toggleSurface.setColor(surface);
         toggleSurface.setCornerRadius(dp(14));
         stateToggle.setBackground(toggleSurface);
         stateToggle.setOnClickListener(v -> {
