@@ -89,7 +89,7 @@ final class PrivKitShell {
         startPrefs(context).edit().remove("elapsed").remove("wall").remove("boot").apply();
     }
 
-    private static PrivilegeAdbManager manager() { return KIT.createAdbManager(ADB_NAME); }
+    private static PrivilegeAdbManager manager() throws PrivilegeStartupException { return KIT.createAdbManager(ADB_NAME); }
 
     static int wirelessDebuggingState(Context context) {
         try { return Settings.Global.getInt(context.getContentResolver(), "adb_wifi_enabled", -1); }

@@ -495,3 +495,6 @@ alpha.46（#44228259741）已通过 API 37.0 SDK 安装、依赖解析、原生�
 - 实际 JDK 执行 PairingGateSmoke、LaunchCooldownSmoke 与原始及新增的 GuardOpsSmoke，均 PASS；源码/用例 Git blob SHA 与仓库逐一一致。新增分批守护 25 个目标 + GMS（6 批，每批至多5个、GMS仅一次）PASS。纠正已迁移到 AuthActivity 的磁贴图标静态断言。
 - 唯一集中构建提交 [e84dbb3](https://github.com/jarod360/Berry-FCM-OS7/commit/e84dbb342344d50e4c9e71604e8e84f3ca3dd241) 已推送 `build/native-fcm-batch`，与开发基线仅 workflow 不同。该提交的明确 [publish-test] 标识及分支限制代表本次用户授权；只有原生 Shell 回归、模块检查、完整 Gradle 编译、合并权限检查、固定签名和 Artifact 上传全部通过，发布 job 才会下载这一运行的同一 APK，再验签和包名/版本号，创建对应 commit 的 GitHub prerelease（双兼容 APK 名称，非 latest 稳定版）。发布不重新编译；不通过任何关卡就不发布。
 - 当前已核对分支更新成功，但未获取 CI 最终状态或 Release URL。不标记构建或发布成功。可通过 [Actions](https://github.com/jarod360/Berry-FCM-OS7/actions/workflows/build-apk.yml?query=branch%3Abuild%2Fnative-fcm-batch) 或提交状态 berryfcm/build、berryfcm/test-release 核对真实结果。原厂私有权限尚未验证的项由目标手机实测；无需等待稳定版发布才做测试升级。
+
+### 2026-11-18 集中构建失败修复
+- [Actions #44242562721](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44242562721)：SDK、原生 FCM 模拟以及完整 APK 模块/权限 scope 回归均实际通过；`compileDebugJavaWithJavac` 唯一报错 `PrivKitShell.java:92`，官方 `createAdbManager` 声明 checked `PrivilegeStartupException`，Java 包装方法遗漏 throws。已查明所有三处调用方已声明 throws Exception，直接向上透传原始异常供现有诊断，无额外捕获或授权逻辑变动。签名/发布未执行。只针对已确认的完整构建失败修正，仍以同一个通过产物自动发布用户已批准的测试 prerelease。
