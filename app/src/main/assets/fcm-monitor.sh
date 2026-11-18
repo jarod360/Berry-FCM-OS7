@@ -394,11 +394,21 @@ EOF_RESULT
                 record_event connection_restored 'GMS 原生状态确认连接成功（不保证每条消息送达）'
             fi
         fi
+        # The native GMS 00:00 can be real immediately after connection.
+        # Separately track a bounded sequence of online observations, NOT
+        # the precise connection lifetime. Reset after gaps or endpoint changes.
+        current_key="$new_remote"
+        if [ "$state" != connected ] || [ "$conn_key" != "$current_key" ] ||
+           [ "$conn_since_mono" -le 0 ] || [ "$nowm" -lt "$conn_since_mono" ] ||
+           [ "$sample_epoch" -le 0 ] || [ "$nowe" -lt "$sample_epoch" ] ||
+           [ $((nowe-sample_epoch)) -gt 45 ]; then
+            conn_since_mono="$nowm"
+        fi
+        conn_key="$current_key"
         state=connected; last_seen="$nowe"; missing_since=0; missing_epoch=0; down_observed=0; retry_streak=0
-        conn_since=0; conn_since_mono=0
+        conn_since=0
         if [ "$duration" -ge 0 ] && [ "$duration" -le "$nowe" ]; then
             conn_since=$((nowe-duration))
-            [ "$duration" -le "$nowm" ] && conn_since_mono=$((nowm-duration))
         fi
         ;;
       connecting|disconnected)
@@ -411,10 +421,10 @@ EOF_RESULT
             missing_epoch=$((nowe-duration))
             [ "$duration" -lt "$nowm" ] && missing_since=$((nowm-duration))
         fi
-        state="$observed"; last_down="$missing_epoch"; conn_since=0; conn_since_mono=0
+        state="$observed"; last_down="$missing_epoch"; conn_key=; conn_since=0; conn_since_mono=0
         ;;
       *)
-        state=unknown; missing_since=0; missing_epoch=0; conn_since=0; conn_since_mono=0; down_observed=0
+        state=unknown; conn_key=; missing_since=0; missing_epoch=0; conn_since=0; conn_since_mono=0; down_observed=0
         new_transport=; new_remote=
         ;;
     esac
@@ -506,13 +516,20 @@ status_json() {
     interval="$(retry_interval)"
     nowm="$(num "$(monotime)")"; retry_in=0
     if [ "$last_try_mono" -gt 0 ] && [ "$nowm" -ge "$last_try_mono" ] && [ $((nowm-last_try_mono)) -lt "$interval" ]; then retry_in=$((interval-nowm+last_try_mono)); fi
+    observed_up=-1
+    if [ "$state" = connected ] && [ -n "$conn_key" ] &&
+       [ "$conn_since_mono" -gt 0 ] && [ "$nowm" -ge "$conn_since_mono" ] &&
+       [ "$age" -ge 0 ]; then
+        observed_up=$((nowm-conn_since_mono-age))
+        [ "$observed_up" -ge 0 ] || observed_up=0
+    fi
     observed_seconds=-1
     if { [ "$state" = connecting ] || [ "$state" = disconnected ]; } && [ "$down_observed" -gt 0 ] && [ "$nowm" -ge "$down_observed" ] && [ "$age" -ge 0 ]; then
         observed_seconds=$((nowm-down_observed-age))
         [ "$observed_seconds" -ge 0 ] || observed_seconds=0
     fi
-    printf '{"fcm_state":"%s","fcm_source":"%s","fcm_transport":"%s","fcm_remote":"%s","fcm_connection_since":%s,"fcm_connected_seconds":%s,"fcm_disconnect_since":%s,"fcm_missing_seconds":%s,"fcm_native_duration":%s,"fcm_native_close_events":%s,"fcm_native_connected_events":%s,"fcm_last_close_code":"%s","fcm_tcp_hint":"%s","fcm_last_seen":%s,"fcm_last_restore":%s,"fcm_last_try":%s,"fcm_last_result":"%s","fcm_attempts":%s,"fcm_sample_time":%s,"fcm_sample_age_seconds":%s,"fcm_native_reason":"%s","fcm_auto":%s,"fcm_auto_gate":"%s","fcm_retry_in":%s,"fcm_retry_streak":%s,"fcm_observed_down_seconds":%s,"fcm_recovery_decision":"%s"}\n' \
-      "$state" "$source" "$transport" "$remote" "$conn_since" "$connected" "$last_down" "$missing" "$duration" "$closes" "$successes" "$close_code" "$tcp_hint" "$last_seen" "$last_restore" "$last_try_epoch" "$last_result" "$attempts" "$sample_epoch" "$age" "$native_reason" "$auto" "$gate" "$retry_in" "$retry_streak" "$observed_seconds" "$decision"
+    printf '{"fcm_state":"%s","fcm_source":"%s","fcm_transport":"%s","fcm_remote":"%s","fcm_connection_since":%s,"fcm_connected_seconds":%s,"fcm_disconnect_since":%s,"fcm_missing_seconds":%s,"fcm_native_duration":%s,"fcm_observed_up_seconds":%s,"fcm_native_close_events":%s,"fcm_native_connected_events":%s,"fcm_last_close_code":"%s","fcm_tcp_hint":"%s","fcm_last_seen":%s,"fcm_last_restore":%s,"fcm_last_try":%s,"fcm_last_result":"%s","fcm_attempts":%s,"fcm_sample_time":%s,"fcm_sample_age_seconds":%s,"fcm_native_reason":"%s","fcm_auto":%s,"fcm_auto_gate":"%s","fcm_retry_in":%s,"fcm_retry_streak":%s,"fcm_observed_down_seconds":%s,"fcm_recovery_decision":"%s"}\n' \
+      "$state" "$source" "$transport" "$remote" "$conn_since" "$connected" "$last_down" "$missing" "$duration" "$observed_up" "$closes" "$successes" "$close_code" "$tcp_hint" "$last_seen" "$last_restore" "$last_try_epoch" "$last_result" "$attempts" "$sample_epoch" "$age" "$native_reason" "$auto" "$gate" "$retry_in" "$retry_streak" "$observed_seconds" "$decision"
 }
 
 case "${1:-status}" in
