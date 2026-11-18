@@ -339,7 +339,13 @@ java -cp "$tmp_adb_port" top.zesun.berryfcm.AdbConnectPortSmoke
 rm -rf "$tmp_adb_port"
 
 # Compact authorization controls and selected method state.
-need 'detail.setText("当前来源：" + methodName(currentMode))' "$src/AuthActivity.java"
+need 'detail.setText("当前来源：" + methodName(currentMode)' "$src/AuthActivity.java"
+need 'pendingAction = "正在验证 "' "$src/AuthActivity.java"
+need 'pendingAction = "正在停止 "' "$src/AuthActivity.java"
+need 'pendingAction = "正在重启 "' "$src/AuthActivity.java"
+if grep -q 'busy ? "处理中"' "$src/AuthActivity.java"; then
+  echo 'Generic authorization processing status is prohibited' >&2; exit 1
+fi
 need 'if (isSelectedRunning()) stopSelectedService()' "$src/AuthActivity.java"
 need 'stateToggle.setContentDescription((running ? "停止" : "启动")' "$src/AuthActivity.java"
 need 'errorSummary.setText(displayed.replace' "$src/AuthActivity.java"
