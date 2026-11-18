@@ -108,8 +108,8 @@ public final class FcmMonitorService extends Service {
     }
     static String manualReconnect(Context context) {
         return start(context, RECONNECT)
-                ? "正在安排重连，请查看本次手动重连结果"
-                : "未安排重连，请检查监控开关和核心授权";
+                ? "正在检查是否需要发送恢复请求，请查看下方执行结果"
+                : "未安排恢复检查，请确认监控已开启且已授权";
     }
     static String manualReconnectResult(Context context) {
         SharedPreferences stored = context.getSharedPreferences(SNAPSHOT, MODE_PRIVATE);
@@ -500,8 +500,8 @@ public final class FcmMonitorService extends Service {
                 case "cooldown": message = "未发送广播：距上次请求不足60秒"; break;
                 case "gms_stopped_unknown": message = "未发送广播：GMS 停止状态未通过检查"; break;
                 case "network_gate": message = "未发送广播：当前无活动网络"; break;
-                case "not_disconnected": message = "未发送广播：" + ("connected".equals(reply.optString("fcm_state"))
-                        ? "GMS 已连接" : "GMS 当前状态无法确认"); break;
+                case "not_disconnected": message = "没有发送恢复请求：" + ("connected".equals(reply.optString("fcm_state"))
+                        ? "Google 推送当前已连接，不会产生新重连事件" : "Google 推送状态无法确认"); break;
                 default: message = "重连结果未确认，见恢复记录"; break;
             }
             saveManualResult(key, message);
@@ -511,8 +511,8 @@ public final class FcmMonitorService extends Service {
                 if (key.equals(p.connectionKey()) && "gms".equals(latest.optString("fcm_source"))
                         && "connected".equals(latest.optString("fcm_state"))
                         && sampleAgeSeconds(this) >= 0 && sampleAgeSeconds(this) <= 90
-                        && currentError(this).isEmpty()) {
-                    saveManualResult(key, message + "；随后检查 GMS 已连接");
+                        && currentError(this).isEmpty() && "requested".equals(decision)) {
+                    saveManualResult(key, message + "；随后检查已连接（不能证明由请求导致）");
                 }
             }
         } catch (Exception error) {
