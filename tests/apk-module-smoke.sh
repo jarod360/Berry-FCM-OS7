@@ -229,7 +229,12 @@ javac -d "$classes" "$src/PairingGate.java" "$root/tests/PairingGateSmoke.java"
 java -cp "$classes" top.zesun.berryfcm.PairingGateSmoke
 
 # No unsolicited tile or persistent first-run unauthorized monitoring.
-need 'android:enabled="false"' "$manifest"
+# Check the specific tile component, not an unrelated disabled component.
+awk '/android:name="\.FcmTileService"/ {tile=1; next} tile && /android:enabled="false"/ {ok=1; exit} tile && /<service|<intent-filter/ {exit} END {exit !ok}' "$manifest"
+# Neither authorization success nor service startup may opt in to the tile.
+if grep -n 'FcmTileService.setOffered' "$src/AuthActivity.java" "$src/AdbPairingService.java" "$src/FcmMonitorService.java" "$src/PrivKitShell.java" "$src/BerryFcmApp.java" "$src/BootReceiver.java"; then
+  echo 'Only an explicit user action may expose the Quick Settings tile' >&2; exit 1
+fi
 need 'FcmTileService.setOffered(this, true)' "$src/SettingsActivity.java"
 need 'Tile.STATE_UNAVAILABLE' "$src/FcmTileService.java"
 need 'canRunInBackground(context)' "$src/FcmMonitorService.java"
