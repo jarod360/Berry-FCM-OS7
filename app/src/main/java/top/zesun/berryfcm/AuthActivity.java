@@ -371,9 +371,9 @@ public final class AuthActivity extends Ui {
             }, true);
             return;
         }
-        boolean previous = prefs.adbPaired() && !prefs.pairingRejected();
+        boolean previous = (prefs.adbPaired() || PrivKitShell.hasStoredIdentity(this)) && !prefs.pairingRejected();
         if (previous) {
-            step("已有配对记录", "先尝试启动服务。只有系统撤销授权时才需要重新配对。");
+            step("已保存 ADB 身份", "自动尝试原身份；仅在系统拒绝时需要重新配对。");
             button(instructions, "启动服务", this::startWireless, true);
             LinearLayout repair = disclosure(instructions, "重新配对", false);
             wirelessSteps(repair);
@@ -752,12 +752,9 @@ public final class AuthActivity extends Ui {
                 return;
             }
         }
-        if (!automaticCheckDone && !checking && !AdbPairingService.isPairingActive()
-                && AppPrefs.WIRELESS.equals(selected) && !PrivKitShell.isConnected()
-                && prefs.adbPaired() && !prefs.pairingRejected() && PrivKitShell.wirelessDebuggingState(this) == 1) {
+        if (!automaticCheckDone && !checking && AppPrefs.WIRELESS.equals(selected)) {
             automaticCheckDone = true;
-            checkShell();
-            return;
+            PrivKitShell.recoverOnForeground(this);
         }
         if (!checking) {
             renderStatus();
