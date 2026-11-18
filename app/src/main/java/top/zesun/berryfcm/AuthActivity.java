@@ -197,26 +197,11 @@ public final class AuthActivity extends Ui {
         button(auxiliary, "刷新权限状态", this::refreshAuxiliaryPermissions, false);
         LinearLayout notificationCard = card(null, null);
         LinearLayout display = disclosure(notificationCard, "通知与快捷功能", false);
-        monitorNotificationRow = permissionRow(display, "运行通知设置", () -> BackgroundSettings.monitorNotifications(this, prefs.quietMonitor()));
+        monitorNotificationRow = permissionRow(display, "运行通知设置", () -> BackgroundSettings.monitorNotifications(this));
         TextView monitorTip = text("运行中的监控需要显示系统通知；它不是快捷设置开关。", 12, false, muted);
         monitorTip.setPadding(0, dp(6), 0, dp(6));
         display.addView(monitorTip);
-        android.widget.Switch quiet = new android.widget.Switch(this);
-        quiet.setText("通知不响铃（不影响监控）");
-        quiet.setTextColor(ink);
-        quiet.setMinHeight(dp(48));
-        quiet.setChecked(prefs.quietMonitor());
-        display.addView(quiet);
-        quiet.setOnCheckedChangeListener((v, enabled) -> {
-            if (bindingSwitches()) return;
-            prefs.quietMonitor(enabled);
-            // Update an already running foreground notification, never start or
-            // stop a task merely because the notification preference changed.
-            FcmMonitorService.refreshDisplay(this);
-            refreshAuxiliaryPermissions();
-        });
-        TextView quietTip = text("只是后台运行通知的提醒方式，不是 FCM 工作模式。运行通知和快捷磁贴互不相关。", 12, false, muted);
-        display.addView(quietTip);
+        display.addView(text("运行通知默认不响铃；是否显示或提醒由系统通知设置管理，关闭通知可能影响前台运行可见性。", 12, false, muted));
         tileRow = permissionRow(display, "快捷设置开关（非通知）", this::addTile);
         removeTileButton = button(display, "移除 FCM 快捷磁贴", () -> {
             if (tileRequestPending) { error("请先完成系统的磁贴添加确认"); return; }
@@ -251,7 +236,7 @@ public final class AuthActivity extends Ui {
         android.app.NotificationManager manager = getSystemService(android.app.NotificationManager.class);
         permissionText(notificationRow, "通知权限", manager == null ? "无法读取" :
                 manager.areNotificationsEnabled() ? "已开启" : "未开启");
-        permissionText(monitorNotificationRow, "运行通知设置", BackgroundSettings.monitorNotificationStatus(this, prefs.quietMonitor()));
+        permissionText(monitorNotificationRow, "运行通知设置", BackgroundSettings.monitorNotificationStatus(this));
         permissionText(tileRow, "FCM 快捷磁贴", FcmTileService.displayStatus(this));
         removeTileButton.setVisibility(FcmTileService.offered(this) ? View.VISIBLE : View.GONE);
     }
