@@ -283,7 +283,7 @@ fi
 # Shared state and UI lifecycle regression.
 need 'MonitorStatus.resolve' "$src/MainActivity.java"
 need 'MonitorStatus.resolve' "$src/MonitorActivity.java"
-need 'MonitorStatus.resolve' "$src/FcmMonitorService.java"
+need '后台监控运行中（连接详情请在应用内查看）' "$src/FcmMonitorService.java"
 need 'syncChecked(enabled, prefs.monitorEnabled())' "$src/MonitorActivity.java"
 need 'syncChecked(running, prefs.guardEnabled())' "$src/GuardActivity.java"
 need 'syncChecked(monitorSwitch, prefs.monitorEnabled())' "$src/BackgroundActivity.java"
@@ -369,8 +369,8 @@ need 'permissionText(autoStartRow, "自启动", "需在系统确认")' "$src/Aut
 need 'step("Root 授权"' "$src/AuthActivity.java"
 need 'step("Shizuku "' "$src/AuthActivity.java"
 need 'text(caption, 20, true, ink)' "$src/Ui.java"
-need '运行通知（普通）' "$src/FcmMonitorService.java"
-need '运行通知（静音）' "$src/FcmMonitorService.java"
+need '后台监控运行通知' "$src/FcmMonitorService.java"
+need '后台监控运行通知（无声）' "$src/FcmMonitorService.java"
 need 'setColor(android.graphics.Color.WHITE)' "$src/AdbPairingService.java"
 if grep -q 'readAutoStartPermission\|厂商权限检测诊断\|监控通知低干扰模式' "$src/AuthActivity.java"; then
   echo 'Misleading OEM status or excessive notification UI remains' >&2; exit 1
