@@ -85,15 +85,25 @@ final class AdbConnectionManager extends AbsAdbConnectionManager {
     synchronized boolean autoConnectLocal(Context context) throws Exception {
         if ("wireless".equals(activeTransport) && isConnected()) return true;
         disconnectSession();
-        boolean connected = connectTls(context.getApplicationContext(), 8000);
-        if (connected) activeTransport = "wireless";
-        return connected;
+        try {
+            setThrowOnUnauthorised(true);
+            boolean connected = connectTls(context.getApplicationContext(), 8000);
+            if (connected) activeTransport = "wireless";
+            return connected;
+        } catch (InterruptedException error) {
+            // libadb also reports mDNS timeout as InterruptedException.
+            // Do not confuse disappearance of adbd with loss of pairing.
+            if (Thread.currentThread().isInterrupted()) throw error;
+            throw new IOException("未发现本机无线 ADB 服务；请确认无线调试已开启", error);
+        }
     }
 
     synchronized boolean connectStatic(String host, int port) throws Exception {
         if ("static".equals(activeTransport) && port == staticPort
                 && host.equals(staticHost) && isConnected()) return true;
         disconnectSession();
+        // Legacy USB-to-TCP setup may legitimately need Android RSA approval.
+        setThrowOnUnauthorised(false);
         boolean connected = connect(host, port);
         if (connected) {
             activeTransport = "static";

@@ -90,7 +90,8 @@ public final class BackgroundActivity extends Ui {
         android.app.NotificationManager notifications =
                 getSystemService(android.app.NotificationManager.class);
         boolean notificationEnabled = notifications != null && notifications.areNotificationsEnabled();
-        policy.setText("忽略系统电池优化："
+        policy.setText("后台运行：" + FcmMonitorService.serviceStatus(this)
+                + "\n忽略系统电池优化："
                 + (BackgroundSettings.batteryExempt(this) ? "已确认" : "未开启／未确认")
                 + "\n通知权限：" + (notificationEnabled ? "已开启" : "未开启／未确认")
                 + "\n连接方式：" + (AppPrefs.WIRELESS.equals(prefs.mode())
@@ -147,6 +148,7 @@ public final class BackgroundActivity extends Ui {
 
     @Override protected void onResume() {
         super.onResume();
+        FcmMonitorService.resumeIfNeeded(this);
         renderPolicy();
     }
     @Override protected void onDestroy() { worker.shutdownNow(); super.onDestroy(); }

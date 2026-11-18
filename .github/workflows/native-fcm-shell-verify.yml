@@ -15,5 +15,6 @@ jobs:
           sh -n app/src/main/assets/fcm-monitor.sh
           sh -n tests/apk-native-fcm-smoke.sh
           sh tests/apk-native-fcm-smoke.sh
+          sh tests/apk-module-smoke.sh
           sh -n module/bin/fcm-monitor.sh
           sh tests/fcm-monitor-smoke.sh

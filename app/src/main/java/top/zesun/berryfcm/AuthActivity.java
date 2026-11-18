@@ -76,9 +76,9 @@ public final class AuthActivity extends Ui {
             params.rightMargin = dp(7);
             tabs.addView(tab, params);
             tab.setOnClickListener(v -> {
+                if (checking) return;
                 selected = mode;
-                // USB is documentation, not a usable Shell transport.
-                if (!AppPrefs.EXTERNAL.equals(mode)) prefs.mode(mode);
+                // Browsing connection methods must not interrupt the active monitor.
                 renderTabs();
                 renderInstructions();
                 renderStatus();
@@ -104,7 +104,11 @@ public final class AuthActivity extends Ui {
     private void wireless() {
         if (prefs.adbPaired()) {
             step("已保存配对身份", "正常不必再次配对，也不需要每两分钟手动验证。后台自动重连并采样。");
-            button(instructions, "启动 / 立即检查 FCM 监控", () -> {
+            button(instructions, AppPrefs.WIRELESS.equals(prefs.mode()) ? "启动 / 立即检查 FCM 监控" : "使用已配对的无线连接", () -> {
+                if (!AppPrefs.WIRELESS.equals(prefs.mode())) {
+                    checkShell();
+                    return;
+                }
                 prefs.monitorEnabled(true);
                 FcmMonitorService.start(this);
                 FcmMonitorService.checkNow(this);
@@ -170,10 +174,7 @@ public final class AuthActivity extends Ui {
             String address = host.getText().toString().trim();
             int number = parsePort(port.getText().toString());
             if (address.isEmpty() || number == 0) { error("主机地址或端口无效"); return; }
-            prefs.mode(AppPrefs.STATIC);
-            prefs.host(address);
-            prefs.staticPort(number);
-            checkShell();
+            checkShell(address, number);
         }, true);
     }
 
@@ -183,7 +184,6 @@ public final class AuthActivity extends Ui {
         step("返回 BerryFCM", "切换到 ADB TCP，填写本机 127.0.0.1 和实际开放的端口后验证。重启后可能失效。");
         button(instructions, "切换到 ADB TCP", () -> {
             selected = AppPrefs.STATIC;
-            prefs.mode(selected);
             renderTabs();
             renderInstructions();
             renderStatus();
@@ -284,22 +284,31 @@ public final class AuthActivity extends Ui {
     }
 
     private void checkShell() {
+        checkShell(prefs.host(), prefs.staticPort());
+    }
+
+    private void checkShell(String host, int port) {
         if (checking || AppPrefs.EXTERNAL.equals(selected)) return;
+        final String candidate = selected;
         checking = true;
-        status.setText("正在验证 Shell…");
-        detail.setText("正在执行 id 并检查实际身份。");
+        status.setText("正在检查候选连接…");
+        detail.setText("验证成功后才切换后台连接方式；失败保留原设置。");
         worker.execute(() -> {
-            try (PrivilegeShell shell = PrivilegeAccess.open(this)) {
+            try {
+                String identity = PrivilegeAccess.probe(this, candidate, host, port);
+                prefs.activateMode(candidate, host, port, identity);
+                if (AppPrefs.WIRELESS.equals(candidate)) prefs.monitorEnabled(true);
                 runOnUiThread(() -> {
                     checking = false;
+                    FcmMonitorService.resumeIfNeeded(this);
                     renderStatus();
                 });
             } catch (Exception ex) {
                 String message = ex.getMessage() == null ? "连接失败" : ex.getMessage();
-                prefs.shellFailed(message);
                 runOnUiThread(() -> {
                     checking = false;
-                    renderStatus();
+                    status.setText("候选连接未通过");
+                    detail.setText(message + "\n后台仍使用原有连接方式。");
                 });
             }
         });
@@ -313,6 +322,11 @@ public final class AuthActivity extends Ui {
             return;
         }
         String mode = prefs.mode();
+        if (!selected.equals(mode)) {
+            status.setText("当前使用：" + (AppPrefs.ROOT.equals(mode) ? "Root" : AppPrefs.STATIC.equals(mode) ? "ADB TCP" : "无线 ADB"));
+            detail.setText("这里是候选连接的设置，尚未切换后台连接方式。");
+            return;
+        }
         if (AppPrefs.WIRELESS.equals(selected) && prefs.adbPaired()) {
             status.setText("配对已完成");
             String monitorError = FcmMonitorService.lastError(this);
@@ -324,7 +338,7 @@ public final class AuthActivity extends Ui {
         } else if (prefs.shellRecentlyVerified()) {
             status.setText("Shell 已验证");
             detail.setText(mode + " · " + prefs.shellIdentity()
-                    + "\n此结果只证明近期 Shell 可用，GMS Socket 权限仍须单独验证。");
+                    + "\n此结果只证明近期 Shell 可用，GMS 原生状态读取权限仍须单独验证。");
         } else if (!prefs.shellError().isEmpty() && mode.equals(prefs.shellMode())) {
             status.setText("授权连接失败");
             detail.setText(prefs.shellError() + "\n" + prefs.pairingStatus());

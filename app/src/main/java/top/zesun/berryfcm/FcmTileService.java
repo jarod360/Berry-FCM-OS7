@@ -18,7 +18,7 @@ public final class FcmTileService extends TileService {
         boolean enabled = new AppPrefs(this).monitorEnabled();
         tile.setLabel("BerryFCM");
         if (Build.VERSION.SDK_INT >= 29)
-            tile.setSubtitle(enabled ? "监控中 · 点击检查" : "监控未开启");
+            tile.setSubtitle(enabled ? FcmMonitorService.serviceStatus(this) + " · 点击检查" : "监控未开启");
         tile.setState(enabled ? Tile.STATE_ACTIVE : Tile.STATE_INACTIVE);
         tile.updateTile();
     }

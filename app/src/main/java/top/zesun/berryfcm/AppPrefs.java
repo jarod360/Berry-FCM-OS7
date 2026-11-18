@@ -23,6 +23,16 @@ final class AppPrefs {
             p.edit().putString("mode", value).putLong("shell_verified_at", 0).apply();
         }
     }
+    void activateMode(String mode, String host, int port, String identity) {
+        p.edit().putString("mode", mode).putString("host", host).putInt("static_port", port)
+                .putLong("shell_verified_at", System.currentTimeMillis())
+                .putLong("shell_verified_elapsed", SystemClock.elapsedRealtime())
+                .putString("shell_mode", mode).putString("shell_identity", identity)
+                .remove("shell_error").apply();
+    }
+    String connectionKey() {
+        return STATIC.equals(mode()) ? STATIC + ":" + host() + ":" + staticPort() : mode();
+    }
     String host() { return p.getString("host", "127.0.0.1"); }
     void host(String value) { p.edit().putString("host", value).apply(); }
     int pairPort() { return p.getInt("pair_port", 0); }
@@ -79,7 +89,7 @@ final class AppPrefs {
     void shellFailed(String message) {
         String reason = message == null ? "Shell 连接失败" : message.trim();
         if (reason.contains("RSA routines") || reason.contains("SSL library")) {
-            reason = "TLS 握手失败；请核对配对端口，使用新版身份重新配对";
+            reason = "TLS 握手失败；请确认无线调试已开启，只有系统撤销配对身份时才重新配对";
         } else {
             reason = reason.replace('\r', ' ').replace('\n', ' ');
             if (reason.length() > 150) reason = reason.substring(0, 150) + "…";

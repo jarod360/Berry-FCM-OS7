@@ -162,4 +162,34 @@ printf '%s\n' 'No services match' > "$MCS_FIXTURE"
 export MCS_STOPPED=true
 j="$(run status)"; assert_json "$j" fcm_native_reason=gms_stopped
 run monitor; requests 4
+# Newer GMS may emit the same exact state and timing fields without the
+# legacy DeviceID heading. Accept the corroborated native structure.
+unset MCS_STOPPED
+cat > "$MCS_FIXTURE" <<'EOF'
+SERVICE com.google.android.gms/.gcm.GcmService abcd pid=1234
+  Client:
+    connected=mtalk.google.com/142.250.157.188,port=5228
+    connectTime=03:22/00:00
+    11-18 04:59:52.453 net=1: Close err:28 time:597
+EOF
+j="$(run status)"
+assert_json "$j" fcm_state=connected
+assert_json "$j" fcm_native_duration=202
+# State-looking text by itself, without a header or companion field, is not evidence.
+printf '%s\n' 'connected=mtalk.google.com/142.250.157.188,port=5228' > "$MCS_FIXTURE"
+j="$(run status)"
+assert_json "$j" fcm_state=unknown
+# Native fields in a conflicting state must not certify an online verdict.
+printf '%s\n' 'connected=mtalk.google.com/142.250.157.188,port=5228' 'disconnectTime=55:15/00:00' > "$MCS_FIXTURE"
+j="$(run status)"
+assert_json "$j" fcm_state=unknown
+printf '%s\n' 'connecting=alt7-mtalk.google.com:5228' 'disconnectTime=55:15/00:00' > "$MCS_FIXTURE"
+j="$(run status)"
+assert_json "$j" fcm_state=connecting
+assert_json "$j" fcm_native_duration=3315
+# A line that resembles a status but occurs after timestamped history cannot
+# send FCM to the online state.
+printf '%s\n' '11-18 06:25:43.757 net=1: Connected' 'connected=mtalk.google.com/142.250.157.188,port=5228' 'connectTime=03:22/00:00' > "$MCS_FIXTURE"
+j="$(run status)"
+assert_json "$j" fcm_state=unknown
 echo 'PASS: native MCS state, duration, deduplicated events, network gate, opt-out, 5/10/15-minute retry, recovery evidence, failed broadcasts, manual safety, permission and timeout handling'
