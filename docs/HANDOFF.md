@@ -285,3 +285,10 @@ alpha.46（#44228259741）已通过 API 37.0 SDK 安装、依赖解析、原生�
 - 下一动作：将本轮完整代码同步到 build/native-fcm-batch，核对实际工作流和最新 Artifact；继续解决编译/回归失败及非阻塞模块，之后才提供实测包。未获设备通过不发布 Release，不修改 main/KSU。
 
 **构建分支推进记录（本轮最后核对）**：代码批次对应 [8ba62c0](https://github.com/jarod360/Berry-FCM-OS7/commit/8ba62c04652597da23a158d59fd1ad40da317039)，已推送 `build/native-fcm-batch`；该提交与开发代码基线 1c878df 仅存在构建 workflow 触发配置差异。已实际查询历史 [#44228547705](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44228547705)：build 成功、签名与验签成功、Artifact alpha.47（14394306272）未过期，发布任务跳过。当前新提交尚无可确认的完成结果，不能推荐旧 alpha.47 作为已修复的授权版本。此后开发分支只追加文档记录，不因此重复触发构建。
+
+
+### 最新执行约束：停止碎片化 APK 构建，集中完成研发
+
+用户明确要求整体代码与功能基本完成后再统一编译，不再每次修改少量代码就触发 APK 构建或要求反复安装。即日起只在 dev/native-fcm-state 集中提交完整逻辑、回归用例及双文档，不更新 build/native-fcm-batch，不合并 main，不发布 Release。开发阶段可做源码检查、独立逻辑回归；集中完成授权、FCM、守护、保活、诊断、更新相关代码审查与修复后，才进行一次完整 Gradle 编译、固定签名与制品验签。构建错误需要针对性处理，不将新测试包的数量当作研发进度。
+
+本批源码 [835e945](https://github.com/jarod360/Berry-FCM-OS7/commit/835e9458919c2adadf3a31f07fd40e193e38cdb9)：复核 Priv Kit v0.20.0 官方启动文档及 Android 局域网权限文档（https://developer.android.com/privacy-and-security/local-network-permission）。当前 targetSdk=35，Android 17 的 ACCESS_LOCAL_NETWORK 强制运行时授权只适用于 targetSdk>=37，先不增加多余授权，不把这项变化判为现有故障根因。配对通知渠道禁用时明确跳转对应设置；自动发现失败约 15 秒后才提供通知栏端口:配对码的显式备用入口，正常仅输入六位码（手动端口仍受上游本机 loopback 支持限制）；防旧通知/重复回复，新增门控回归用例；保存实际启动日志到本地应用私有存储；Binder 延迟回传时首页恢复用户之前开启的任务。没有获得真机成功证据，不标为已解决 ADB。当前仅源码提交，未触发完整 APK 构建。下一步重点对照上游启动阶段、状态切换和真实失败诊断，继续非阻塞模块。此前已推送的构建分支保留，停发新增测试构建。
