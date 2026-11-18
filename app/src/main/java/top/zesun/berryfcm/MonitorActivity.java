@@ -149,15 +149,20 @@ public final class MonitorActivity extends Ui {
                 : FcmMonitorService.currentError(this).isEmpty()
                 ? "后台将持续检查；如长时间无数据，请检查通知及系统后台策略。"
                 : "后台正在自动重试，无需手动重复配对。";
+        String durationLine = "";
+        if (nativeState && "connected".equals(state))
+            durationLine = "\n" + MonitorStatus.connectedDuration(
+                    j.optLong("fcm_native_duration", -1),
+                    j.optLong("fcm_observed_up_seconds", -1));
+        else if (nativeState && ("connecting".equals(state) || "disconnected".equals(state))
+                && j.optLong("fcm_native_duration", -1) >= 0)
+            durationLine = "\n未连接计时：" + MonitorStatus.duration(j.optLong("fcm_native_duration"));
         current.setText("最近检查：" + (sample <= 0 ? "暂无" : time(sample)
                 + (age < 0 ? "（上次运行的记录）" : "（" + age + " 秒前）"))
                 + (prefs.monitorEnabled() && sample > 0 && age >= 0 && age <= 90
                     && !nativeState && lastError.isEmpty() ? "\n原因：" + nativeReason : "")
                 + "\n保留的连接关闭事件：" + j.optInt("fcm_native_close_events", 0) + " 条（不是独立断开次数）"
-                + (nativeState && !state.startsWith("unknown") && !state.equals("waiting")
-                    && !state.equals("stale") && j.optLong("fcm_native_duration", -1) >= 0
-                    ? "\n" + (state.equals("connected") ? "已连接：" : "未连接：")
-                        + MonitorStatus.duration(j.optLong("fcm_native_duration")) : "")
+                + durationLine
                 + (attempt > 0 ? "\n上次检查尝试：" + time(attempt / 1000) : "")
                 + (nativeState && ("connecting".equals(state) || "disconnected".equals(state))
                     ? "\n恢复策略：" + (!prefs.autoReconnect() ? "仅监测" : "settling".equals(gate)
