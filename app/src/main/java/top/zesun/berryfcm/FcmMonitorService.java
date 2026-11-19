@@ -19,6 +19,9 @@ import android.os.PowerManager;
 import android.os.SystemClock;
 import android.util.Base64;
 import java.io.InputStream;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -37,6 +40,8 @@ public final class FcmMonitorService extends Service {
     private static final String WATCHDOG_CHECK = "berryfcm.monitor.watchdog";
     private static final String RECONNECT = "berryfcm.monitor.reconnect";
     private static final String REFRESH_DISPLAY = "berryfcm.monitor.display";
+    private static final long RESCUE_GAP_MS = 90000L;
+    private static final long RESCUE_COOLDOWN_MS = 300000L;
     private final ScheduledExecutorService monitorWorker = Executors.newSingleThreadScheduledExecutor();
     private final ScheduledExecutorService guardWorker = Executors.newSingleThreadScheduledExecutor();
     private volatile boolean scheduled;
@@ -634,7 +639,25 @@ public final class FcmMonitorService extends Service {
                         + "; source=" + source
                         + "; requested=" + requested);
             }
-            try { runOnce(requested); }
+            try {
+                AppPrefs prefs = new AppPrefs(this);
+                boolean gapRescue = gap >= RESCUE_GAP_MS && prefs.monitorEnabled()
+                        && prefs.autoReconnect() && AppPrefs.WAKE_SMART.equals(prefs.wakeMode());
+                if (gapRescue) {
+                    // Sampling gap, not watchdog origin, controls the rescue.
+                    // First take a normal-status reading without poll auto_recovery.
+                    runOnce(true, false);
+                    JSONObject observed = lastSnapshot(this);
+                    if (sampleAgeSeconds(this) >= 0 && sampleAgeSeconds(this) <= 15
+                            && currentError(this).isEmpty()
+                            && "gms".equals(observed.optString("fcm_source"))
+                            && ("disconnected".equals(observed.optString("fcm_state"))
+                                || "connecting".equals(observed.optString("fcm_state")))) {
+                        runRescueEpisode(now + 105000L);
+                        runOnce(true, false);
+                    }
+                } else runOnce(requested);
+            }
             catch (RuntimeException error) {
                 if (scheduled && session.equals(activeSession)) recordFailure(error);
             }
@@ -673,7 +696,9 @@ public final class FcmMonitorService extends Service {
             default: return "未识别到原生状态";
         }
     }
-    private void runOnce(boolean requested) {
+    private void runOnce(boolean requested) { runOnce(requested, true); }
+
+    private void runOnce(boolean requested, boolean normalRecovery) {
         AppPrefs p = new AppPrefs(this);
         if ((!p.monitorEnabled() && !p.guardEnabled()) || !PrivilegeAccess.canRunInBackground(this)) {
             main.post(() -> stopIfIneligible(newestStartId));
@@ -698,7 +723,8 @@ public final class FcmMonitorService extends Service {
                 }
                 if (!p.monitorEnabled() || !key.equals(p.connectionKey())) return;
                 String prefix = monitorPrefix(p, mode);
-                String result = execute(p, mode, prefix + "monitor >/dev/null 2>&1 || exit 9; "
+                String result = execute(p, mode, prefix + (normalRecovery ? "monitor" : "status")
+                        + " >/dev/null 2>&1 || exit 9; 
                         + "echo BERRY_JSON_BEGIN; " + prefix + "snapshot; "
                         + "echo BERRY_EVENTS_BEGIN; " + prefix + "events; "
                         + "echo BERRY_RECOVERY_BEGIN; " + prefix + "recovery-events");
@@ -720,18 +746,151 @@ public final class FcmMonitorService extends Service {
                 json = parsed.toString();
                 failureStreak = 0;
                 nextAttemptElapsed = 0;
-                getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
+                SharedPreferences.Editor editor = getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
                         .putString("sample_session", session)
                         .putString("sample_mode", key)
                         .putLong("sample_elapsed", SystemClock.elapsedRealtime())
                         .putLong("next_attempt_elapsed", 0)
                         .putString("json", json).putString("events", events).putString("recovery_events", recovery)
-                        .remove("error").putString("attempt_state", "success").apply();
+                        .remove("error").putString("attempt_state", "success");
+                if ("gms".equals(parsed.optString("fcm_source"))
+                        && "connected".equals(parsed.optString("fcm_state")))
+                    editor.putString("last_connected_mcs_remote", parsed.optString("fcm_remote", ""));
+                editor.apply();
             } catch (Exception error) {
                 if (!Thread.currentThread().isInterrupted() && attemptKey.equals(p.connectionKey())
                         && scheduled && session.equals(activeSession) && p.monitorEnabled()) recordFailure(error);
                 installed = false;
             }
+        }
+    }
+
+
+    /** Independent opportunistic GMS rescue; never creates a new alarm. */
+    private void runRescueEpisode(long deadline) {
+        AppPrefs prefs = new AppPrefs(this);
+        long now = SystemClock.elapsedRealtime();
+        SharedPreferences stored = getSharedPreferences(SNAPSHOT, MODE_PRIVATE);
+        long last = stored.getLong("rescue_started_elapsed", -1);
+        if (last > 0 && now >= last && now - last < RESCUE_COOLDOWN_MS) {
+            logRuntime(this, "rescue_skipped", "cooldown_ms=" + (RESCUE_COOLDOWN_MS - (now - last)));
+            return;
+        }
+        String key = prefs.connectionKey();
+        if (!rescueAllowed(prefs, key)) return;
+        stored.edit().putLong("rescue_started_elapsed", now).apply();
+        int requests = 0;
+        boolean connected = false;
+        logRuntime(this, "rescue_started", "max_requests=3; deadline_ms=" + deadline);
+        try {
+            String mode = prefs.mode();
+            String prefix = monitorPrefix(prefs, mode);
+            for (int step = 1; step <= 3; step++) {
+                // A privileged command may block up to 45s; reserve enough CPU
+                // lease time or end this episode early rather than run unlocked.
+                if (!rescueAllowed(prefs, key)
+                        || SystemClock.elapsedRealtime() + 50000L >= deadline) break;
+                JSONObject outcome = readRescueStatus(prefs, mode,
+                        "BERRY_FCM_RESCUE_STEP=" + step + " " + prefix
+                        + "rescue >/dev/null 2>&1 || exit 9; ");
+                String decision = outcome.optString("fcm_recovery_decision");
+                if (nativeConnected(outcome)) { connected = true; break; }
+                if (!"requested".equals(decision) && !"request_failed".equals(decision)) {
+                    logRuntime(this, "rescue_stopped", "step=" + step + "; decision=" + decision);
+                    break;
+                }
+                requests++;
+                logRuntime(this, "rescue_request", "step=" + step + "; decision=" + decision);
+                Thread.sleep(8000L);
+                if (!rescueAllowed(prefs, key)
+                        || SystemClock.elapsedRealtime() + 50000L >= deadline) break;
+                JSONObject checked = readRescueStatus(prefs, mode,
+                        prefix + "status >/dev/null 2>&1 || exit 9; ");
+                if (nativeConnected(checked)) {
+                    connected = true;
+                    logRuntime(this, "rescue_restored", "step=" + step
+                            + "; request_causality=unproven");
+                    break;
+                }
+                String state = checked.optString("fcm_state");
+                if (!"gms".equals(checked.optString("fcm_source"))
+                        || (!"connecting".equals(state) && !"disconnected".equals(state))) {
+                    logRuntime(this, "rescue_stopped", "native_state=" + state);
+                    break;
+                }
+                if (step < 3) probeLastGmsEndpoint(checked);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logRuntime(this, "rescue_stopped", "interrupted");
+        } catch (Exception e) {
+            logRuntime(this, "rescue_failed", safeError(e));
+        } finally {
+            releaseConfirmationWakeLock();
+            logRuntime(this, "rescue_finished", "requests=" + requests
+                    + "; verified_connected=" + connected);
+        }
+    }
+
+    private boolean rescueAllowed(AppPrefs prefs, String key) {
+        return scheduled && session.equals(activeSession) && prefs.monitorEnabled()
+                && prefs.autoReconnect() && AppPrefs.WAKE_SMART.equals(prefs.wakeMode())
+                && key.equals(prefs.connectionKey())
+                && PrivilegeAccess.canRunInBackground(this)
+                && !Thread.currentThread().isInterrupted();
+    }
+
+    private static boolean nativeConnected(JSONObject value) {
+        return "gms".equals(value.optString("fcm_source"))
+                && "connected".equals(value.optString("fcm_state"));
+    }
+
+    private JSONObject readRescueStatus(AppPrefs prefs, String mode, String command) throws Exception {
+        String result = execute(prefs, mode, command + "echo BERRY_JSON_BEGIN; "
+                + monitorPrefix(prefs, mode) + "snapshot");
+        int start = result.indexOf("BERRY_JSON_BEGIN\\n");
+        if (start < 0) throw new IllegalStateException("未收到恢复状态快照");
+        JSONObject value = new JSONObject(result.substring(start + "BERRY_JSON_BEGIN\\n".length()).trim());
+        if (!value.has("fcm_source") || !value.has("fcm_recovery_decision"))
+            throw new IllegalStateException("恢复状态字段缺失");
+        return value;
+    }
+
+    /** Connect-only evidence on this application's route, never the GMS UID route. */
+    private void probeLastGmsEndpoint(JSONObject sample) {
+        String endpoint = sample.optString("fcm_remote", "");
+        if (!endpoint.contains("/"))
+            endpoint = getSharedPreferences(SNAPSHOT, MODE_PRIVATE)
+                    .getString("last_connected_mcs_remote", "");
+        int slash = endpoint.lastIndexOf('/');
+        int colon = endpoint.lastIndexOf(':');
+        if (slash < 0 || colon <= slash || colon >= endpoint.length() - 1) {
+            logRuntime(this, "rescue_tcp_probe", "ip=unavailable; result=unknown");
+            return;
+        }
+        try {
+            String[] octets = endpoint.substring(slash + 1, colon).split("\\.");
+            if (octets.length != 4) {
+                logRuntime(this, "rescue_tcp_probe", "ip=not_ipv4; result=unknown");
+                return;
+            }
+            byte[] addr = new byte[4];
+            for (int i = 0; i < 4; i++) {
+                int part = Integer.parseInt(octets[i]);
+                if (part < 0 || part > 255) throw new IllegalArgumentException("invalid IP");
+                addr[i] = (byte) part;
+            }
+            int port = Integer.parseInt(endpoint.substring(colon + 1));
+            if (port != 5228 && port != 5229 && port != 5230 && port != 443)
+                throw new IllegalArgumentException("invalid port");
+            try (Socket socket = new Socket()) {
+                socket.connect(new InetSocketAddress(InetAddress.getByAddress(addr), port), 1500);
+                logRuntime(this, "rescue_tcp_probe", "tcp=reachable; port=" + port
+                        + "; path=app_not_gms");
+            }
+        } catch (Exception e) {
+            logRuntime(this, "rescue_tcp_probe", "tcp=failed; reason="
+                    + e.getClass().getSimpleName() + "; path=app_not_gms");
         }
     }
 

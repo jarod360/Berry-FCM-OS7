@@ -54,7 +54,7 @@ load_state() {
     down_observed="$(num "${down_observed:-0}")"; retry_streak="$(num "${retry_streak:-0}")"
     case "$state" in connected|connecting|disconnected|unknown|never_seen) : ;; *) state=unknown;; esac
     case "$last_result" in none|requested|failed|restored) : ;; *) last_result=none;; esac
-    case "$last_try_reason" in none|auto|manual) : ;; *) last_try_reason=none;; esac
+    case "$last_try_reason" in none|auto|manual|rescue) : ;; *) last_try_reason=none;; esac
     if [ -n "$prev_b" ] && [ "$prev_b" != "$b" ]; then
         state=never_seen; conn_key=; conn_since=0; conn_since_mono=0; missing_since=0; missing_epoch=0
         last_try_mono=0; transport=; remote=; sample_epoch=0; down_observed=0; retry_streak=0
@@ -291,6 +291,8 @@ request_reconnect() {
     case "$state" in connecting|disconnected) :;; *) decision=not_disconnected; return 0;; esac
     interval="$(retry_interval)"
     [ "$reason" = manual ] && interval=60
+    # Short spacing is only for the finite Java rescue episode.
+    [ "$reason" = rescue ] && interval=8
     if [ "$last_try_mono" -gt 0 ] && [ "$nowm" -ge "$last_try_mono" ] && [ $((nowm-last_try_mono)) -lt "$interval" ]; then
         decision=cooldown
         if [ "$reason" = manual ]; then
@@ -545,6 +547,30 @@ case "${1:-status}" in
         auto_recovery || exit $?
         write_evidence
         ;;
+    rescue)
+        # Not a watchdog action and not the ordinary auto_recovery policy.
+        observe || exit $?
+        if ! auto_enabled; then
+            decision=disabled
+        elif [ "${BERRY_AUTO_GATE:-ready}" != ready ]; then
+            decision=network_gate
+        elif [ "$source" != gms ]; then
+            decision=not_disconnected
+        elif [ "$state" = connecting ] || [ "$state" = disconnected ]; then
+            [ "${BERRY_FCM_TEST_MODE:-0}" = 1 ] || sleep 2
+            observe || exit $?
+            if [ "$source" = gms ] &&
+               { [ "$state" = connecting ] || [ "$state" = disconnected ]; }; then
+                record_event rescue_confirmed "两次原生状态仍未连接，第 ${BERRY_FCM_RESCUE_STEP:-1} 次请求"
+                request_reconnect rescue
+            else
+                decision=confirmation_changed
+            fi
+        else
+            decision=not_disconnected
+        fi
+        write_evidence
+        ;;
     reconnect)
         observe || exit $?
         if [ "${BERRY_AUTO_GATE:-ready}" = offline ]; then
@@ -567,5 +593,5 @@ case "${1:-status}" in
     reset-history)
         : > "$EVENTS"; : > "$NATIVE_EVENTS"; echo 'FCM 事件历史已清空（连接状态未更改）'
         ;;
-    *) echo 'status|snapshot|monitor|reconnect|events|recovery-events|reset-history' >&2; exit 2;;
+    *) echo 'status|snapshot|monitor|rescue|reconnect|events|recovery-events|reset-history' >&2; exit 2;;
 esac

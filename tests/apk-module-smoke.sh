@@ -593,3 +593,25 @@ assert len(set(paths)) == len(icons), "icons share identical artwork"
 assert "symbol(symbolFor(label), accent, 22)" in ui
 print("PASS: heartbeat keepalive, battery-only battery, four distinct settings icons and valid vectors")
 PY_SEMANTIC_ICONS
+
+# Must stay independent from the watchdog, the regular monitor, and packaging.
+python3 - "$src/FcmMonitorService.java" "$root/app/src/main/assets/fcm-monitor.sh" <<'PY_RESCUE'
+from pathlib import Path
+import sys
+service, script = (Path(p).read_text(encoding="utf-8") for p in sys.argv[1:])
+run = service.split("private void runSafe(boolean requested, String source)",1)[1].split("private void recordFailure(",1)[0]
+episode = service.split("private void runRescueEpisode(",1)[1].split("private void runGuardSafe(",1)[0]
+assert 'gap >= RESCUE_GAP_MS' in run
+assert 'runRescueEpisode(now + 105000L)' in run and 'runOnce(true, false)' in run
+assert 'WATCHDOG_CHECK.equals(action)' not in run
+assert 'step <= 3' in episode and 'RESCUE_COOLDOWN_MS = 300000L' in service
+assert 'Thread.sleep(8000L)' in episode
+assert 'SystemClock.elapsedRealtime() + 50000L >= deadline' in episode
+assert 'probeLastGmsEndpoint(checked)' in episode
+assert 'releaseConfirmationWakeLock();' in episode
+assert 'path=app_not_gms' in episode
+assert '    rescue)' in script and 'request_reconnect rescue' in script
+assert 'interval=8' in script and '[ "$source" = gms ]' in script
+assert '(normalRecovery ? "monitor" : "status")' in service
+print("PASS: independent wake-gap rescue, three-attempt ceiling, bounded lease and IP:port diagnostics")
+PY_RESCUE
