@@ -602,6 +602,8 @@ service, script = (Path(p).read_text(encoding="utf-8") for p in sys.argv[1:])
 run = service.split("private void runSafe(boolean requested, String source)",1)[1].split("private void recordFailure(",1)[0]
 episode = service.split("private void runRescueEpisode(",1)[1].split("private void runGuardSafe(",1)[0]
 assert 'gap >= RESCUE_GAP_MS' in run
+assert 'getLong("sample_elapsed", -1L)' in service
+assert 'SystemClock.elapsedRealtime() + 50000L < now + 120000L' in run
 assert 'runRescueEpisode(now + 105000L)' in run and 'runOnce(true, false)' in run
 assert 'WATCHDOG_CHECK.equals(action)' not in run
 assert 'step <= 3' in episode and 'RESCUE_COOLDOWN_MS = 300000L' in service

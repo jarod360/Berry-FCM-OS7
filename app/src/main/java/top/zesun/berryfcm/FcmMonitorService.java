@@ -616,7 +616,11 @@ public final class FcmMonitorService extends Service {
         if (Thread.currentThread().isInterrupted() || !scheduled || !session.equals(activeSession)) return;
         long now = SystemClock.elapsedRealtime();
         long uptimeNow = SystemClock.uptimeMillis();
-        long gap = lastCheckElapsed > 0 ? now - lastCheckElapsed : -1;
+        // A newly recreated service can still recover a sampling gap from
+        // the previous service session; a monotonic clock rewind is ignored.
+        long previousSample = lastCheckElapsed > 0 ? lastCheckElapsed
+                : getSharedPreferences(SNAPSHOT, MODE_PRIVATE).getLong("sample_elapsed", -1L);
+        long gap = previousSample >= 0 && now >= previousSample ? now - previousSample : -1;
         long uptimeGap = lastCheckUptime > 0 ? uptimeNow - lastCheckUptime : -1;
         lastCheckElapsed = now;
         lastCheckUptime = uptimeNow;
@@ -654,7 +658,11 @@ public final class FcmMonitorService extends Service {
                             && ("disconnected".equals(observed.optString("fcm_state"))
                                 || "connecting".equals(observed.optString("fcm_state")))) {
                         runRescueEpisode(now + 105000L);
-                        runOnce(true, false);
+                        // A final Shell call may block 45s. Never outlive the
+                        // 120s sample lease just to refresh the display.
+                        if (!Thread.currentThread().isInterrupted()
+                                && SystemClock.elapsedRealtime() + 50000L < now + 120000L)
+                            runOnce(true, false);
                     }
                 } else runOnce(requested);
             }

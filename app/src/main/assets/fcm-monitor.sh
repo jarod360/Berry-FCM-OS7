@@ -552,7 +552,8 @@ case "${1:-status}" in
         observe || exit $?
         if ! auto_enabled; then
             decision=disabled
-        elif [ "${BERRY_AUTO_GATE:-ready}" != ready ]; then
+        elif [ "${BERRY_AUTO_GATE:-ready}" = offline ] ||
+             [ "${BERRY_AUTO_GATE:-ready}" = unavailable ]; then
             decision=network_gate
         elif [ "$source" != gms ]; then
             decision=not_disconnected
