@@ -449,3 +449,13 @@ Removed the full `cmd appops get top.zesun.berryfcm` dump incorrectly labeled as
 - **下次修复的风格/范围标准**：以原生 BerryFCM 盾牌心电波和新的心跳图标为基准，统一应用内 UI 图标为 **24×24、线框、线宽约 1.8–2.0、圆端/圆角**，统一随浅色/深色主题 tint；同一底部导航不能部分实心部分线框，选中态通过统一胶囊底色和 tint 表示。使用已有 Android VectorDrawable 即可，不增加运行时图标依赖。**不触及**已选 launcher PNG、通知栏单色图标 `ic_berry_fcm_mono`、第三方 APP 自带图标、任何后台/FCM 功能代码。
 - **下一轮验收**：逐页核对概览/监控/守护/设置、授权、诊断、保活、更新页；逐资源校验存在性、颜色由 tint 驱动、同尺寸描边以及导航风格一致；按标签语义核对无不当 `ic_bf_fcm` 兜底；实际对照浅色/深色界面截图并运行 `tests/apk-module-smoke.sh`、完整固定签名构建/覆盖安装验证。编译成功不能替代视觉对照。
 - **版本状态补记**：同日开发分支构建 [Actions #44452714293](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44452714293) 已通过原生恢复模拟、模块/权限检查、Debug/稳定签名 Release 构建及签名验证，上传测试 Artifact `BerryFCM-v0.1.0-alpha.98`；**未正式发布 Release，未作 OriginOS 真机恢复与图标全面验收**。历史上方“未编译”标记记录的是该构建之前的阶段，不代表当前状态。
+
+
+### 2026-11-19 alpha.98 通知中心 GMS 连接计时（下一版待办）
+
+- **用户截图与目标**：OriginOS 7 通知中心中 BerryFCM 前台服务通知当前文案为“后台监控运行中（连接详情请在应用内查看）”。下一版将该位置改为直接展示**当前 GMS 原生连接状态与计时**，例如 `FCM 已连接 · GMS 计时：10分0秒`；不是新增第二条通知，不改通知渠道的重要性、常驻服务的启动/停止原则，也不代表心跳或收信成功。
+- **实现入口**：`app/src/main/java/top/zesun/berryfcm/FcmMonitorService.java` 的 `notificationText()` / `refreshNotification()`；目前返回固定文字，且 `lastNotificationText` 去重使它不会因采样自动变化。复用 `MonitorStatus.resolve()`、`MonitorStatus.connectedDuration()` 和原有 `lastSnapshot()` / `sampleAgeSeconds()`，不得为通知新增独立 GMS dumpsys、定时 WakeLock、常驻秒级线程或网络请求。
+- **状态约束**：仅在监控开启、授权有效、采样属于当前会话且足够新鲜、`fcm_source=gms`、`fcm_state=connected` 时显示 `GMS 计时`。如果 GMS 原生 `fcm_native_duration` 为 0 或 -1，则遵照 `MonitorStatus.connectedDuration()` 的判定显示“已观察在线”或“计时待确认”，不得把观察在线长度冒充精确连接总时长。断开/连接中显示对应状态（可展示原生断开时长），Shell 授权失效、后台监控关闭、检查失败、数据超过 90 秒等分别显示明确非实时状态，不沿用旧“已连接”倒计时。
+- **刷新与功耗**：仅复用已有采样成功、状态改变和现有通知更新时机；避免因每秒增长而持续 `NotificationManager.notify()`、导致通知横幅/耗电/闪动。优先分钟级文字精度或 Android 系统时间展示能力，具体实现需在 OriginOS 7 真机确认系统通知中心样式和实际计时行为；不能在停止监控时显示持续累加的 GMS 时间。
+- **验收**：同一签名升级后验证亮屏/息屏、智能省电/持续唤醒、在线/断开/连接中/unknown、原生时长0、采样停滞、服务重启/授权失效、深浅主题、通知折叠/展开；对照应用内“GMS 计时”来源一致；不增加额外高频后台唤醒。与此前“14个矢量图标风格统一”一起排入下一版集中 UI 改造，但分别测试。
+- **本次处理范围**：只在开发分支的交接文档登记，不修改 App Java/XML 或测试 APK、不触发构建/发布；当前 alpha.98 通知行为保持不变。
