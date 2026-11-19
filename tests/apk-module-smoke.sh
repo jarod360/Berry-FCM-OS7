@@ -296,7 +296,8 @@ fi
 # Shared state and UI lifecycle regression.
 need 'MonitorStatus.resolve' "$src/MainActivity.java"
 need 'MonitorStatus.resolve' "$src/MonitorActivity.java"
-need '后台监控运行中（连接详情请在应用内查看）' "$src/FcmMonitorService.java"
+need 'Notification.DecoratedCustomViewStyle()' "$src/FcmMonitorService.java"
+need 'MonitorStatus.resolve(true, true, isRunning(), age,' "$src/FcmMonitorService.java"
 need 'syncChecked(enabled, prefs.monitorEnabled())' "$src/MonitorActivity.java"
 need 'syncChecked(running, prefs.guardEnabled())' "$src/GuardActivity.java"
 need 'syncChecked(monitorSwitch, prefs.monitorEnabled())' "$src/BackgroundActivity.java"
