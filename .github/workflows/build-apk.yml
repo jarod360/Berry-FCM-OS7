@@ -1,4 +1,5 @@
 name: Build Android APK
+# Test APK promotion: alpha.96 from signed CI run 44437313535.
 
 on:
   push:
