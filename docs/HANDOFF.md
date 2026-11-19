@@ -470,3 +470,10 @@ Removed the full `cmd appops get top.zesun.berryfcm` dump incorrectly labeled as
 - 基于 alpha.98 的恢复逻辑保持不变，统一 ic_bf 系列实心图标为与原 FCM/心跳图标相同的 24dp、1.8–2dp 线框样式，保留独立语义的 GitHub/反馈/版本/设备图标；补充网络、休眠、刷新、添加、折叠箭头；关键按钮选择性显示同主题图标。卡片统一圆角与内间距，列表触摸区、折叠箭头、守护应用搜索框做小幅统一。**不更改 launcher、通知系统图标或 app icon**。
 - GMS 通知：保留 `setSmallIcon(ic_berry_fcm_mono)`、标题 BerryFCM 和原有静音渠道；利用 Android `Notification.DecoratedCustomViewStyle` 的内嵌 `RemoteViews` 在通知正文放 `ic_bf_heartbeat`，折叠/展开复用。仅用现有当前会话 GMS 原生采样与 `MonitorStatus.resolve()`，计时按分钟量化以减少频繁通知更新；状态未知、采样过期、未授权不延续在线计时。OriginOS7 能否在通知中心正确渲染装饰式布局**必须真机验证**，系统可能改变其展示。
 - 发布前约束：新 `tests/apk-module-smoke.sh` 视觉/通知静态门禁及原有 Shell 模拟全部通过，Android Debug + 固定证书 Release 编译、签名校验后才产生测试 prerelease。主分支与 KernelSU 不动；真机再核验深浅主题、小屏横屏、通知 icon 原样、计时更新频率、折叠展开与 FCM 恢复行为。
+
+### 2026-11-19 alpha.101 预发布与严格前置验证结果
+- 发布页面：[v0.1.0-alpha.101](https://github.com/jarod360/Berry-FCM-OS7/releases/tag/v0.1.0-alpha.101)，`prerelease=true`，`draft=false`。固定签名 APK `BerryFCM-v0.1.0-alpha.101.apk` 和旧版兼容别名均为 8,284,459 bytes，SHA-256 为 `1559504b284f7d5539e3ea0ab7c1420eb9e22e9815b66326fe1499abe0c986af`；原始构建源码 SHA `77f4bcae41459719aa3a342b155320e0a53dcb8d`，没有修改 main/KSU。
+- 独立前置门禁：[Actions #44485453484](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44485453484) `success`；包含原生 GMS/Root/UID2000 模拟、休眠独立兜底及冷却、Shell 语法、权限与生命周期、19枚矢量图标及布局、通知 app icon 保留与正文心跳、XML 解析和源码差异空白审查。为保证**编译前**真正完成测试，将 dev 分支暂时移出构建 workflow push 触发器，仅由独立门禁运行；门禁全绿后再恢复构建触发器。
+- 后续 [Actions #44485709324](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44485709324) `success`：重跑原生/模块门禁，Android Debug 编译、实际编译产物的启动及心跳图标/通知布局资源验证、合并权限、固定证书 SHA-256 核验、Release 编译、apksigner 验证、版本号/单证书核验、直接从该成功构建产物发布 prerelease（没有二次构建）。
+- 本批功能：14个原先图标与5枚新增图标统一为 24dp 线框，改正休眠/网络等图标语义；卡片/按钮间距与导航箭头协调；通知标题仍为 BerryFCM、系统原小图标/程序 launcher 均不动，仅通知正文通过 DecoratedCustomViewStyle + RemoteViews 增加原后台保活心跳图标和带采样鲜度保护的 GMS 分钟级计时；alpha.98 已有的正常巡检和独立最多三次休眠兜底恢复算法保留。
+- **未完成的真机验证，不得写成已通过**：OriginOS7 折叠/展开通知及深浅模式对比、心跳图标可见与字体对比、计时是否随采样刷新且过期后清除、主题对比/小屏字体、ADB UID2000 在真实断网后触发与连续恢复、断联恢复时 CPU 持锁上限和耗电。用户将在晚间实测。建议仅从 GitHub Release 的签名 APK 覆盖安装，保留原有数据与授权，出现异常导出完整 BerryFCM 状态诊断日志。
