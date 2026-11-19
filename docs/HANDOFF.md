@@ -438,3 +438,14 @@ Removed the full `cmd appops get top.zesun.berryfcm` dump incorrectly labeled as
 - 兜底采用现有授权 UID 的定向命令：UID2000 交替 MCS_HEARTBEAT / ACTION_HEARTBEAT_NOW；UID0 才使用 GCM_RECONNECT。每次新鲜原生状态两次确认，发广播后持锁最多12秒等待再查原生状态；GMS 已 connected 立即终止，否则仅尝试剩余次数，整轮最多三次；每轮之间至少300秒，失败或系统中断释放事务锁。Shell 单调用45秒最坏超时与120秒事务锁配合，总事务留15秒余量，必要时少于三次便退出。
 - 非 Root 广播在2026-11-18的UID2000实验中仅证实可投递；实机断联恢复有效性未证实。应用网络路径的上次成功 GMS IPv4 端点最多1.5秒TCP探测只能做诊断，不能视为 GMS UID 真实路由，也不会阻断下一次受控恢复；无可靠IP时记录unknown，不臆测DNS与网络通畅。若Doze停止网络或限制持锁，仍可能只执行部分事务，不能保证确切唤醒/恢复时间。
 - 本增量位于 `dev/issues-1-2-wake-ui-20261119`，含源码/单元模拟用例及静态约束。仅完成 GitHub 源码审阅与编辑时的静态核对，尚无 Shell 用例实际执行证据、Android Java编译、签名APK或目标OriginOS7实测；不能说已通过验收。待集中运行 `sh -n app/src/main/assets/fcm-monitor.sh`、`sh tests/apk-native-fcm-smoke.sh`、`sh tests/apk-module-smoke.sh`，再进行一次完整CI和真机断联对照后才考虑测试版发布。UI心跳保活图标与四项设置图标的改动也在同一开发分支。
+
+
+### 2026-11-19 alpha.98 界面图标风格审计与下次统一修复待办
+
+- 来源：用户提供的 alpha.98 首页截图（12:42）。截图中的顶部 BerryFCM / FCM 监控盾牌和“后台保活”心形心电波为**线框样式**；同一常用功能卡片的“应用守护”实心盾牌、“网络诊断”实心统计柱、“授权管理”实心钥匙明显不统一。该问题经开发分支 `app/src/main/res/drawable/ic_bf_*.xml` 与 `Ui.java` 源码对照确认，并非颜色主题本身异常。此条只登记，下次 UI 修复时一起处理；本次**不修改任何图标、代码、签名或 APK**。
+- **完整资源盘点（14 个）**：当前 8 个**实心**图标为 `ic_bf_guard`、`ic_bf_diagnostics`、`ic_bf_auth`、`ic_bf_home`、`ic_bf_settings`、`ic_bf_update`、`ic_bf_battery`、`ic_bf_alert`；6 个**线框**图标为 `ic_bf_fcm`、`ic_bf_heartbeat`、`ic_bf_code`、`ic_bf_feedback`、`ic_bf_info`、`ic_bf_device`。实心旧图标主要来自 Material Icons，线框图标已使用 24dp 视窗、约 1.8–2dp 描边。应用标题、列表和底部导航使用相同 `symbol()` 着色入口，问题是 SVG 矢量造型混搭。
+- **各页面复查结果**：①首页“应用守护/网络诊断/授权管理”三处确定不一致，需优先修；②底部导航的“概览/守护/设置”为实心，“监控”为线框，四项同级不一致；③应用守护、网络诊断、授权管理、设置、版本更新等页面标题经 `symbolFor()` 引用同一批实心图标，存在同类问题（次级页面标题没有独立头图标时以其列表入口/导航为准）；④旧电池、更新和提示图标仍为实心，需在实际使用位置统一，且电池仅表示电池设置，不得再映射“后台保活”；⑤设置页新增“项目主页/反馈问题/当前版本/适配范围”四枚已经是线框，继续保持独立语义，不要重新回退成同一枚 FCM 图标。
+- **另外发现的图标语义错误**：`Ui.symbolFor(String label)` 依赖中文关键字匹配，未命中时默认返回 `ic_bf_fcm`。例如后台页的“添加休眠豁免/撤销休眠豁免”、更新页“查看 GitHub Releases”会错误地显示 FCM 盾牌；“允许后台计量流量/撤销后台流量放行”因包含“后台”而显示心电图。下次修复不应只替换三张 SVG，要逐项审核页面的图标语义；建议改为各入口显式指定资源（或严格映射表），避免修改文案时发生隐式图标变化。
+- **下次修复的风格/范围标准**：以原生 BerryFCM 盾牌心电波和新的心跳图标为基准，统一应用内 UI 图标为 **24×24、线框、线宽约 1.8–2.0、圆端/圆角**，统一随浅色/深色主题 tint；同一底部导航不能部分实心部分线框，选中态通过统一胶囊底色和 tint 表示。使用已有 Android VectorDrawable 即可，不增加运行时图标依赖。**不触及**已选 launcher PNG、通知栏单色图标 `ic_berry_fcm_mono`、第三方 APP 自带图标、任何后台/FCM 功能代码。
+- **下一轮验收**：逐页核对概览/监控/守护/设置、授权、诊断、保活、更新页；逐资源校验存在性、颜色由 tint 驱动、同尺寸描边以及导航风格一致；按标签语义核对无不当 `ic_bf_fcm` 兜底；实际对照浅色/深色界面截图并运行 `tests/apk-module-smoke.sh`、完整固定签名构建/覆盖安装验证。编译成功不能替代视觉对照。
+- **版本状态补记**：同日开发分支构建 [Actions #44452714293](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44452714293) 已通过原生恢复模拟、模块/权限检查、Debug/稳定签名 Release 构建及签名验证，上传测试 Artifact `BerryFCM-v0.1.0-alpha.98`；**未正式发布 Release，未作 OriginOS 真机恢复与图标全面验收**。历史上方“未编译”标记记录的是该构建之前的阶段，不代表当前状态。
