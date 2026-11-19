@@ -655,7 +655,8 @@ assert 'Notification.DecoratedCustomViewStyle()' in service
 assert 'setCustomContentView(body)' in service
 assert 'sampleAgeSeconds(this)' in service
 assert 'MonitorStatus.resolve(' in service
-assert 'seconds / 60 * 60' in service
+assert 'MonitorStatus.notificationDuration(seconds)' in service
+assert 'MonitorStatus.duration(' not in service
 assert 'R.drawable.ic_bf_heartbeat' not in service
 layout = ET.parse(res / "layout/berry_fcm_notification_status.xml").getroot()
 assert layout.tag == "LinearLayout"
@@ -663,5 +664,5 @@ body = list(layout)
 assert [c.tag for c in body] == ["ImageView", "TextView"]
 assert body[0].attrib[a+"src"] == "@drawable/ic_bf_heartbeat"
 assert body[1].attrib[a+"id"] == "@+id/berry_status_text"
-print("PASS: 19 outlined vector assets, consistent actions and preserved app icon with inline heartbeat")
+print("PASS: outlined vector assets, minute-only notification and preserved app icon with inline heartbeat")
 PY_VISUAL
