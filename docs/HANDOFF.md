@@ -465,3 +465,8 @@ Removed the full `cmd appops get top.zesun.berryfcm` dump incorrectly labeled as
 - 下次改造的是**通知正文**：在“FCM 已连接 · GMS 计时：10分0秒”这类状态/计时文案**前方增加现有后台保活心跳图标 `ic_bf_heartbeat`**，形成“[心跳图标] FCM 已连接 · GMS 计时：10分0秒”的视觉效果；断开、连接中、未知等状态亦保持相同图标位置与风格。
 - 技术约束：`Notification.Builder.setContentText()` 只能接受文本，不能在文案中直接嵌入 VectorDrawable。下次应优先核实 Android/OriginOS 原生通知布局是否有保持原通知样式同时增加正文前置图标的可靠方案；如需 `RemoteViews`，必须验证折叠/展开、暗色/浅色、系统字体缩放、前台服务显示与后台耗电，不应擅自替换 `setSmallIcon` 或强行插入不一致的心形 Unicode/emoji 充数。若受系统通知模板限制，应明确反馈适配限制再选择替代显示位置。
 - 与此前通知 GMS 计时及全部应用内图标统一一起列入下一版需求，**当前仅记录，不修改代码、不构建、不发布**。
+
+### 2026-11-19 alpha.99+ 汇总 UI / 通知改造实施与验收
+- 基于 alpha.98 的恢复逻辑保持不变，统一 ic_bf 系列实心图标为与原 FCM/心跳图标相同的 24dp、1.8–2dp 线框样式，保留独立语义的 GitHub/反馈/版本/设备图标；补充网络、休眠、刷新、添加、折叠箭头；关键按钮选择性显示同主题图标。卡片统一圆角与内间距，列表触摸区、折叠箭头、守护应用搜索框做小幅统一。**不更改 launcher、通知系统图标或 app icon**。
+- GMS 通知：保留 `setSmallIcon(ic_berry_fcm_mono)`、标题 BerryFCM 和原有静音渠道；利用 Android `Notification.DecoratedCustomViewStyle` 的内嵌 `RemoteViews` 在通知正文放 `ic_bf_heartbeat`，折叠/展开复用。仅用现有当前会话 GMS 原生采样与 `MonitorStatus.resolve()`，计时按分钟量化以减少频繁通知更新；状态未知、采样过期、未授权不延续在线计时。OriginOS7 能否在通知中心正确渲染装饰式布局**必须真机验证**，系统可能改变其展示。
+- 发布前约束：新 `tests/apk-module-smoke.sh` 视觉/通知静态门禁及原有 Shell 模拟全部通过，Android Debug + 固定证书 Release 编译、签名校验后才产生测试 prerelease。主分支与 KernelSU 不动；真机再核验深浅主题、小屏横屏、通知 icon 原样、计时更新频率、折叠展开与 FCM 恢复行为。

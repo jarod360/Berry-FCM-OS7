@@ -617,3 +617,44 @@ assert 'interval=12' in script and '[ "$source" = gms ]' in script
 assert '(normalRecovery ? "monitor" : "status")' in service
 print("PASS: independent wake-gap rescue, three-attempt ceiling, bounded lease and IP:port diagnostics")
 PY_RESCUE
+
+# Consolidated UI and decorated notification contract: all native glyphs use
+# the same outline family; the notification keeps its original app identity.
+python3 - "$src/Ui.java" "$src/FcmMonitorService.java" "$root/app/src/main/res" <<'PY_VISUAL'
+from pathlib import Path
+import sys
+import xml.etree.ElementTree as ET
+ui, service = (Path(p).read_text(encoding="utf-8") for p in sys.argv[1:3])
+res = Path(sys.argv[3])
+a = "{http://schemas.android.com/apk/res/android}"
+icons = sorted((res / "drawable").glob("ic_bf_*.xml"))
+assert len(icons) >= 19, len(icons)
+for path in icons:
+    root = ET.parse(path).getroot()
+    assert root.tag == "vector", path
+    assert (root.attrib[a+"viewportWidth"],root.attrib[a+"viewportHeight"]) == ("24","24"), path
+    assert list(root), path
+    for shape in root:
+        assert shape.attrib[a+"fillColor"] == "#00000000", path
+        assert shape.attrib[a+"strokeColor"] == "#FFFFFFFF", path
+        assert 1.5 <= float(shape.attrib[a+"strokeWidth"]) <= 2.1, path
+assert 'ic_bf_chevron' in ui and 'ic_bf_heartbeat' in ui
+assert 'return R.drawable.ic_bf_info;' in ui
+assert 'setCompoundDrawablesRelative(icon, null, null, null)' in ui
+assert 'arrow.setRotation(opening ? 180f : 0f)' in ui
+assert '.setSmallIcon(R.drawable.ic_berry_fcm_mono)' in service
+assert '.setContentTitle("BerryFCM")' in service
+assert 'Notification.DecoratedCustomViewStyle()' in service
+assert 'setCustomContentView(body)' in service
+assert 'sampleAgeSeconds(this)' in service
+assert 'MonitorStatus.resolve(' in service
+assert 'seconds / 60 * 60' in service
+assert 'R.drawable.ic_bf_heartbeat' not in service
+layout = ET.parse(res / "layout/berry_fcm_notification_status.xml").getroot()
+assert layout.tag == "LinearLayout"
+body = list(layout)
+assert [c.tag for c in body] == ["ImageView", "TextView"]
+assert body[0].attrib[a+"src"] == "@drawable/ic_bf_heartbeat"
+assert body[1].attrib[a+"id"] == "@+id/berry_status_text"
+print("PASS: 19 outlined vector assets, consistent actions and preserved app icon with inline heartbeat")
+PY_VISUAL

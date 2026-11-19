@@ -3,6 +3,7 @@ package top.zesun.berryfcm;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.widget.RemoteViews;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
@@ -287,24 +288,53 @@ public final class FcmMonitorService extends Service {
         PendingIntent open = PendingIntent.getActivity(this, 0,
                 new Intent(this, MainActivity.class),
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        return new Notification.Builder(this, CHANNEL)
+        String status = notificationText();
+        Notification.Builder builder = new Notification.Builder(this, CHANNEL)
                 .setSmallIcon(R.drawable.ic_berry_fcm_mono)
                 .setColor(0xff365ed6)
                 .setContentTitle("BerryFCM")
-                .setContentText(notificationText())
+                .setContentText(status)
                 .setOnlyAlertOnce(true)
                 .setContentIntent(open)
                 .setCategory(Notification.CATEGORY_SERVICE)
-                .setOngoing(true).build();
+                .setOngoing(true);
+        // Decorate only the notification body. The system keeps the original
+        // app icon, notification header, and foreground-service behavior.
+        RemoteViews body = new RemoteViews(getPackageName(), R.layout.berry_fcm_notification_status);
+        body.setTextViewText(R.id.berry_status_text, status);
+        builder.setStyle(new Notification.DecoratedCustomViewStyle())
+                .setCustomContentView(body)
+                .setCustomBigContentView(body);
+        return builder.build();
     }
 
     private String notificationText() {
         if (!PrivilegeAccess.readyForUserAction(this)) return "正在恢复授权服务，暂未监控";
         AppPrefs prefs = new AppPrefs(this);
         if (!prefs.monitorEnabled()) return "应用守护已开启";
-        // A persistent foreground-service notification is not a Quick Settings tile.
-        // Keep actual FCM diagnostics in the application, not as an always-on headline.
-        return "后台监控运行中（连接详情请在应用内查看）";
+        JSONObject snapshot = lastSnapshot(this);
+        long age = sampleAgeSeconds(this);
+        boolean nativeState = "gms".equals(snapshot.optString("fcm_source"));
+        MonitorStatus.State state = MonitorStatus.resolve(true, true, isRunning(), age,
+                !currentError(this).isEmpty(), nativeState,
+                snapshot.optString("fcm_state", "unknown"));
+        if (state == MonitorStatus.State.CONNECTED) {
+            long seconds = snapshot.optLong("fcm_native_duration", -1);
+            if (seconds > 0)
+                return "FCM 已连接 · GMS 计时：" + (seconds < 60
+                        ? "不足1分钟" : MonitorStatus.duration(seconds / 60 * 60));
+            if (seconds == 0) return "FCM 已连接 · GMS 计时待确认";
+            long observed = snapshot.optLong("fcm_observed_up_seconds", -1);
+            return "FCM 已连接 · " + (observed >= 60
+                    ? "已观察在线：" + MonitorStatus.duration(observed / 60 * 60)
+                    : "连接时长待确认");
+        }
+        if (state == MonitorStatus.State.DISCONNECTED || state == MonitorStatus.State.CONNECTING) {
+            long seconds = snapshot.optLong("fcm_native_duration", -1);
+            if (seconds >= 60)
+                return state.label + " · 持续：" + MonitorStatus.duration(seconds / 60 * 60);
+        }
+        return state.label;
     }
 
     private void refreshNotification() {
