@@ -477,3 +477,10 @@ Removed the full `cmd appops get top.zesun.berryfcm` dump incorrectly labeled as
 - 后续 [Actions #44485709324](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44485709324) `success`：重跑原生/模块门禁，Android Debug 编译、实际编译产物的启动及心跳图标/通知布局资源验证、合并权限、固定证书 SHA-256 核验、Release 编译、apksigner 验证、版本号/单证书核验、直接从该成功构建产物发布 prerelease（没有二次构建）。
 - 本批功能：14个原先图标与5枚新增图标统一为 24dp 线框，改正休眠/网络等图标语义；卡片/按钮间距与导航箭头协调；通知标题仍为 BerryFCM、系统原小图标/程序 launcher 均不动，仅通知正文通过 DecoratedCustomViewStyle + RemoteViews 增加原后台保活心跳图标和带采样鲜度保护的 GMS 分钟级计时；alpha.98 已有的正常巡检和独立最多三次休眠兜底恢复算法保留。
 - **未完成的真机验证，不得写成已通过**：OriginOS7 折叠/展开通知及深浅模式对比、心跳图标可见与字体对比、计时是否随采样刷新且过期后清除、主题对比/小屏字体、ADB UID2000 在真实断网后触发与连续恢复、断联恢复时 CPU 持锁上限和耗电。用户将在晚间实测。建议仅从 GitHub Release 的签名 APK 覆盖安装，保留原有数据与授权，出现异常导出完整 BerryFCM 状态诊断日志。
+
+### 2026-11-19 alpha.101 网络诊断页面图标语义遗漏（下一批修复）
+- 用户 16:26 的 OriginOS7 alpha.101 截图：网络诊断页面“更多诊断”中的 `Google FCM Diagnostics` 与 `监控记录` 两行仍为**相同的 FCM 心电盾牌**，而非对应功能图标。此前版本已把 19 枚 UI VectorDrawable 统一为线框，截图反映的是**语义选图遗漏**，并非图标资源没有更新或覆盖安装失败。
+- 已按源码确认：`DiagnosticsActivity.java` 通过公共 `line(...)` 绘制两行，`Ui.symbolFor(String label)` 只匹配中文“诊断”，英文 `Google FCM Diagnostics` 会因包含 `FCM` 落入 `ic_bf_fcm`；`监控记录` 会因包含“监控”进入相同分支。因此这两行产生完全一致的盾牌。这不是用户误操作，也不是浅色/深色主题着色问题。
+- **下次统一改，不在本次立即打包**：`Google FCM Diagnostics` 明确显示诊断/分析的线框图标（可复用 `ic_bf_diagnostics`）；`监控记录` 使用单独“历史/列表/时间轴”线框图标（必要时只新增一个 24dp VectorDrawable）。避免靠文案 `contains("FCM")` 等宽泛规则分配；可为关键列表入口显式传递资源 ID，其他页面沿用当前图标语义。复查 `Ui.java` 其他 `line()`、导航、二级页面中英文混排，避免同级不同功能入口仍共享默认 FCM 图标。
+- **预构建验收补充**：在 `tests/apk-module-smoke.sh` 增加网络诊断页面的入口图标映射与两枚资源确实不同的约束；复核浅色/深色状态、尺寸/线宽、触摸与折叠区、OriginOS7 真机截图。保留现有固定签名和 UID2000/GMS 恢复测试。等用户集中指示下一次 UI 修复时合并处理，不因为单个图标问题单独编译/发布。
+- **本次只追加待办文档**，保持已发布 `v0.1.0-alpha.101` 和现有开发源码不变，不启动 Actions、构建或 Release。
