@@ -302,7 +302,7 @@ need 'syncChecked(running, prefs.guardEnabled())' "$src/GuardActivity.java"
 need 'syncChecked(monitorSwitch, prefs.monitorEnabled())' "$src/BackgroundActivity.java"
 need 'finally { syncingSwitches = previous; }' "$src/Ui.java"
 need 'watchFuture.cancel(true)' "$src/GuardActivity.java"
-need 'runSafe(manual)' "$src/FcmMonitorService.java"
+need 'runSafe(manual, source)' "$src/FcmMonitorService.java"
 need 'key.equals(p.connectionKey())' "$src/FcmMonitorService.java"
 need 'tileRequestPending' "$src/AuthActivity.java"
 # Old private/OEM or duplicate settings assertion removed.
@@ -528,3 +528,25 @@ must('android.permission.WAKE_LOCK' in manifest
      and 'android:name=".MonitorWatchdog"' in manifest, "Manifest permissions")
 print("PASS: issues 1/2 pre-build policy, lifecycle, UI and Android permissions")
 PY_WAKE_UI
+
+# The check's CPU lock evidence must be sampled after acquisition, and
+# the watchdog and manual paths must remain distinguishable.
+python3 - "$src/FcmMonitorService.java" "$src/DiagnosticsActivity.java" <<'PY_TRIGGER'
+from pathlib import Path
+import sys
+service = Path(sys.argv[1]).read_text(encoding="utf-8")
+diagnostics = Path(sys.argv[2]).read_text(encoding="utf-8")
+monitor = service[service.index('private void runSafe(boolean requested, String source)') :
+                  service.index('private void recordFailure(')]
+assert monitor.index('new TransactionLock("sample", 120000L)') < monitor.index('"check_started"')
+assert 'transaction_lock=" + lease.isHeld()' in monitor
+assert 'source=" + source' in monitor
+assert 'runSafe(false, "periodic")' in service
+assert 'runSafe(true, "manual_followup")' in service
+assert 'queueCheck(false, "network")' in service
+assert 'queueCheck(true, WATCHDOG_CHECK.equals(action) ? "watchdog" : "manual")' in service
+assert 'queueCheck(false, PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED.equals(action)' in service
+assert 'start(context, WATCHDOG_CHECK)' in service
+assert 'FcmMonitorService.currentError(this).isEmpty()' in diagnostics
+print("PASS: trigger provenance, correct CPU lock observation and active error state")
+PY_TRIGGER
