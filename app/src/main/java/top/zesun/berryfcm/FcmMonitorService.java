@@ -20,9 +20,6 @@ import android.os.PowerManager;
 import android.os.SystemClock;
 import android.util.Base64;
 import java.io.InputStream;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -60,7 +57,10 @@ public final class FcmMonitorService extends Service {
     private long lastLoggedCheckElapsed;
     private long nextAttemptElapsed;
     private int failureStreak;
-    private final AtomicBoolean checkQueued = new AtomicBoolean();
+    private boolean checkQueued;
+    private boolean pendingRequested;
+    private String pendingSource;
+    private ScheduledFuture<?> networkRecheck;
     private final AtomicBoolean reconnectQueued = new AtomicBoolean();
     private String installedMode;
     private String lastAttemptKey = "";
@@ -321,18 +321,17 @@ public final class FcmMonitorService extends Service {
         if (state == MonitorStatus.State.CONNECTED) {
             long seconds = snapshot.optLong("fcm_native_duration", -1);
             if (seconds > 0)
-                return "FCM 已连接 · GMS 计时：" + (seconds < 60
-                        ? "不足1分钟" : MonitorStatus.duration(seconds / 60 * 60));
+                return "FCM 已连接 · GMS 计时：" + MonitorStatus.notificationDuration(seconds);
             if (seconds == 0) return "FCM 已连接 · GMS 计时待确认";
             long observed = snapshot.optLong("fcm_observed_up_seconds", -1);
             return "FCM 已连接 · " + (observed >= 60
-                    ? "已观察在线：" + MonitorStatus.duration(observed / 60 * 60)
+                    ? "已观察在线：" + MonitorStatus.notificationDuration(observed)
                     : "连接时长待确认");
         }
         if (state == MonitorStatus.State.DISCONNECTED || state == MonitorStatus.State.CONNECTING) {
             long seconds = snapshot.optLong("fcm_native_duration", -1);
             if (seconds >= 60)
-                return state.label + " · 持续：" + MonitorStatus.duration(seconds / 60 * 60);
+                return state.label + " · 持续：" + MonitorStatus.notificationDuration(seconds);
         }
         return state.label;
     }
@@ -595,10 +594,13 @@ public final class FcmMonitorService extends Service {
                 @Override public void onAvailable(Network network) { onNetworkChange(); }
                 @Override public void onLost(Network network) { onNetworkChange(); }
                 private String lastTransport = "";
+                private boolean lastValidated;
                 @Override public void onCapabilitiesChanged(Network network, NetworkCapabilities caps) {
                     String transport = transportName(caps);
-                    if (!transport.equals(lastTransport)) {
+                    boolean validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+                    if (!transport.equals(lastTransport) || validated != lastValidated) {
                         lastTransport = transport;
+                        lastValidated = validated;
                         onNetworkChange();
                     }
                 }
@@ -611,14 +613,17 @@ public final class FcmMonitorService extends Service {
                     // Screen and idle transitions schedule a check only while
                     // this process is running; they are not cold-start wake sources.
                     String action = intent == null ? "" : intent.getAction();
-                    queueCheck(false, PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED.equals(action)
-                            ? "idle_transition" : "screen_transition");
+                    String source = "screen_transition";
+                    if (PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED.equals(action)) source = "idle_transition";
+                    if (PowerManager.ACTION_POWER_SAVE_MODE_CHANGED.equals(action)) source = "power_save_transition";
+                    queueCheck(false, source);
                 }
             };
             IntentFilter filter = new IntentFilter(Intent.ACTION_USER_PRESENT);
             filter.addAction(Intent.ACTION_SCREEN_ON);
             filter.addAction(Intent.ACTION_SCREEN_OFF);
             filter.addAction(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED);
+            filter.addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED);
             if (Build.VERSION.SDK_INT >= 33)
                 registerReceiver(resumeReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
             else registerReceiver(resumeReceiver, filter);
@@ -630,16 +635,46 @@ public final class FcmMonitorService extends Service {
         queueCheck(false, "network");
     }
 
-    private void queueCheck(boolean manual, String source) {
-        if (!scheduled || !new AppPrefs(this).monitorEnabled() || !checkQueued.compareAndSet(false, true)) return;
+    private synchronized void queueCheck(boolean requested, String source) {
+        if (!scheduled || !new AppPrefs(this).monitorEnabled()) return;
+        if (requested || !pendingRequested) pendingSource = source;
+        pendingRequested |= requested;
+        if (!checkQueued) schedulePendingCheck(0);
+    }
+
+    private synchronized void schedulePendingCheck(long delayMs) {
+        checkQueued = true;
         try {
-            monitorWorker.execute(() -> {
-                try {
-                    if (manual || SystemClock.elapsedRealtime() - lastCheckElapsed >= 5000)
-                        runSafe(manual, source);
-                } finally { checkQueued.set(false); }
-            });
-        } catch (RejectedExecutionException ignored) { checkQueued.set(false); }
+            monitorWorker.schedule(this::runPendingCheck, delayMs, TimeUnit.MILLISECONDS);
+        } catch (RejectedExecutionException ignored) {
+            checkQueued = false;
+            pendingSource = null;
+            pendingRequested = false;
+        }
+    }
+
+    private void runPendingCheck() {
+        String source;
+        boolean requested;
+        synchronized (this) {
+            long delay = lastCheckElapsed + 5000L - SystemClock.elapsedRealtime();
+            if (scheduled && !pendingRequested && delay > 0) {
+                schedulePendingCheck(delay);
+                return;
+            }
+            source = pendingSource;
+            requested = pendingRequested;
+            pendingSource = null;
+            pendingRequested = false;
+        }
+        try {
+            if (scheduled && new AppPrefs(this).monitorEnabled()) runSafe(requested, source);
+        } finally {
+            synchronized (this) {
+                checkQueued = false;
+                if (scheduled && pendingSource != null) schedulePendingCheck(0);
+            }
+        }
     }
 
     private void runSafe(boolean requested, String source) {
@@ -682,17 +717,13 @@ public final class FcmMonitorService extends Service {
                     // First take a normal-status reading without poll auto_recovery.
                     runOnce(true, false);
                     JSONObject observed = lastSnapshot(this);
-                    if (sampleAgeSeconds(this) >= 0 && sampleAgeSeconds(this) <= 15
+                    if ("ready".equals(recoveryGate())
+                            && sampleAgeSeconds(this) >= 0 && sampleAgeSeconds(this) <= 15
                             && currentError(this).isEmpty()
                             && "gms".equals(observed.optString("fcm_source"))
                             && ("disconnected".equals(observed.optString("fcm_state"))
                                 || "connecting".equals(observed.optString("fcm_state")))) {
-                        runRescueEpisode(now + 105000L);
-                        // A final Shell call may block 45s. Never outlive the
-                        // 120s sample lease just to refresh the display.
-                        if (!Thread.currentThread().isInterrupted()
-                                && SystemClock.elapsedRealtime() + 50000L < now + 120000L)
-                            runOnce(true, false);
+                        runRescueEpisode(now + 120000L);
                     }
                 } else runOnce(requested);
             }
@@ -784,17 +815,13 @@ public final class FcmMonitorService extends Service {
                 json = parsed.toString();
                 failureStreak = 0;
                 nextAttemptElapsed = 0;
-                SharedPreferences.Editor editor = getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
+                getSharedPreferences(SNAPSHOT, MODE_PRIVATE).edit()
                         .putString("sample_session", session)
                         .putString("sample_mode", key)
                         .putLong("sample_elapsed", SystemClock.elapsedRealtime())
                         .putLong("next_attempt_elapsed", 0)
                         .putString("json", json).putString("events", events).putString("recovery_events", recovery)
-                        .remove("error").putString("attempt_state", "success");
-                if ("gms".equals(parsed.optString("fcm_source"))
-                        && "connected".equals(parsed.optString("fcm_state")))
-                    editor.putString("last_connected_mcs_remote", parsed.optString("fcm_remote", ""));
-                editor.apply();
+                        .remove("error").putString("attempt_state", "success").apply();
             } catch (Exception error) {
                 if (!Thread.currentThread().isInterrupted() && attemptKey.equals(p.connectionKey())
                         && scheduled && session.equals(activeSession) && p.monitorEnabled()) recordFailure(error);
@@ -804,9 +831,13 @@ public final class FcmMonitorService extends Service {
     }
 
 
-    /** Independent opportunistic GMS rescue; never creates a new alarm. */
+    /** Make one bounded request after a long sampling gap. The normal monitor
+     * handles subsequent retries using its existing backoff. */
     private void runRescueEpisode(long deadline) {
         AppPrefs prefs = new AppPrefs(this);
+        String key = prefs.connectionKey();
+        if (!rescueAllowed(prefs, key) || SystemClock.elapsedRealtime() + 50000L >= deadline) return;
+
         long now = SystemClock.elapsedRealtime();
         SharedPreferences stored = getSharedPreferences(SNAPSHOT, MODE_PRIVATE);
         long last = stored.getLong("rescue_started_elapsed", -1);
@@ -814,59 +845,23 @@ public final class FcmMonitorService extends Service {
             logRuntime(this, "rescue_skipped", "cooldown_ms=" + (RESCUE_COOLDOWN_MS - (now - last)));
             return;
         }
-        String key = prefs.connectionKey();
-        if (!rescueAllowed(prefs, key)) return;
-        stored.edit().putLong("rescue_started_elapsed", now).apply();
-        int requests = 0;
-        boolean connected = false;
-        logRuntime(this, "rescue_started", "max_requests=3; deadline_ms=" + deadline);
         try {
             String mode = prefs.mode();
-            String prefix = monitorPrefix(prefs, mode);
-            for (int step = 1; step <= 3; step++) {
-                // A privileged command may block up to 45s; reserve enough CPU
-                // lease time or end this episode early rather than run unlocked.
-                if (!rescueAllowed(prefs, key)
-                        || SystemClock.elapsedRealtime() + 50000L >= deadline) break;
-                JSONObject outcome = readRescueStatus(prefs, mode,
-                        "BERRY_FCM_RESCUE_STEP=" + step + " " + prefix
-                        + "rescue >/dev/null 2>&1 || exit 9; ");
-                String decision = outcome.optString("fcm_recovery_decision");
-                if (nativeConnected(outcome)) { connected = true; break; }
-                if (!"requested".equals(decision) && !"request_failed".equals(decision)) {
-                    logRuntime(this, "rescue_stopped", "step=" + step + "; decision=" + decision);
-                    break;
-                }
-                requests++;
-                logRuntime(this, "rescue_request", "step=" + step + "; decision=" + decision);
-                Thread.sleep(12000L);
-                if (!rescueAllowed(prefs, key)
-                        || SystemClock.elapsedRealtime() + 50000L >= deadline) break;
-                JSONObject checked = readRescueStatus(prefs, mode,
-                        prefix + "status >/dev/null 2>&1 || exit 9; ");
-                if (nativeConnected(checked)) {
-                    connected = true;
-                    logRuntime(this, "rescue_restored", "step=" + step
-                            + "; request_causality=unproven");
-                    break;
-                }
-                String state = checked.optString("fcm_state");
-                if (!"gms".equals(checked.optString("fcm_source"))
-                        || (!"connecting".equals(state) && !"disconnected".equals(state))) {
-                    logRuntime(this, "rescue_stopped", "native_state=" + state);
-                    break;
-                }
-                if (step < 3) probeLastGmsEndpoint(checked);
+            JSONObject outcome = readRescueStatus(prefs, mode,
+                    monitorPrefix(prefs, mode) + "rescue >/dev/null 2>&1 || exit 9; ");
+            String decision = outcome.optString("fcm_recovery_decision");
+            logRuntime(this, "rescue_finished", "decision=" + decision
+                    + "; native_connected=" + nativeConnected(outcome));
+            if ("requested".equals(decision) || "request_failed".equals(decision)) {
+                stored.edit().putLong("rescue_started_elapsed", now).apply();
+                monitorWorker.schedule(() -> {
+                    if (rescueAllowed(prefs, key)) queueCheck(false, "rescue_followup");
+                }, 12, TimeUnit.SECONDS);
             }
-        } catch (InterruptedException e) {
+        } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
-            logRuntime(this, "rescue_stopped", "interrupted");
-        } catch (Exception e) {
-            logRuntime(this, "rescue_failed", safeError(e));
-        } finally {
-            releaseConfirmationWakeLock();
-            logRuntime(this, "rescue_finished", "requests=" + requests
-                    + "; verified_connected=" + connected);
+        } catch (Exception error) {
+            logRuntime(this, "rescue_failed", safeError(error));
         }
     }
 
@@ -892,44 +887,6 @@ public final class FcmMonitorService extends Service {
         if (!value.has("fcm_source") || !value.has("fcm_recovery_decision"))
             throw new IllegalStateException("恢复状态字段缺失");
         return value;
-    }
-
-    /** Connect-only evidence on this application's route, never the GMS UID route. */
-    private void probeLastGmsEndpoint(JSONObject sample) {
-        String endpoint = sample.optString("fcm_remote", "");
-        if (!endpoint.contains("/"))
-            endpoint = getSharedPreferences(SNAPSHOT, MODE_PRIVATE)
-                    .getString("last_connected_mcs_remote", "");
-        int slash = endpoint.lastIndexOf('/');
-        int colon = endpoint.lastIndexOf(':');
-        if (slash < 0 || colon <= slash || colon >= endpoint.length() - 1) {
-            logRuntime(this, "rescue_tcp_probe", "ip=unavailable; result=unknown");
-            return;
-        }
-        try {
-            String[] octets = endpoint.substring(slash + 1, colon).split("\\.");
-            if (octets.length != 4) {
-                logRuntime(this, "rescue_tcp_probe", "ip=not_ipv4; result=unknown");
-                return;
-            }
-            byte[] addr = new byte[4];
-            for (int i = 0; i < 4; i++) {
-                int part = Integer.parseInt(octets[i]);
-                if (part < 0 || part > 255) throw new IllegalArgumentException("invalid IP");
-                addr[i] = (byte) part;
-            }
-            int port = Integer.parseInt(endpoint.substring(colon + 1));
-            if (port != 5228 && port != 5229 && port != 5230 && port != 443)
-                throw new IllegalArgumentException("invalid port");
-            try (Socket socket = new Socket()) {
-                socket.connect(new InetSocketAddress(InetAddress.getByAddress(addr), port), 1500);
-                logRuntime(this, "rescue_tcp_probe", "tcp=reachable; port=" + port
-                        + "; path=app_not_gms");
-            }
-        } catch (Exception e) {
-            logRuntime(this, "rescue_tcp_probe", "tcp=failed; reason="
-                    + e.getClass().getSimpleName() + "; path=app_not_gms");
-        }
     }
 
     private void runGuardSafe() {
@@ -1119,7 +1076,13 @@ public final class FcmMonitorService extends Service {
                 observedNetwork = current;
                 networkChangedAt = now;
             }
-            return now - networkChangedAt >= 45000 ? "ready" : "settling";
+            long remaining = 45000L - (now - networkChangedAt);
+            if (remaining <= 0) return "ready";
+            if (networkRecheck == null || networkRecheck.isDone()) {
+                networkRecheck = monitorWorker.schedule(
+                        () -> queueCheck(false, "network_settled"), remaining, TimeUnit.MILLISECONDS);
+            }
+            return "settling";
         } catch (RuntimeException error) {
             return "unavailable";
         }

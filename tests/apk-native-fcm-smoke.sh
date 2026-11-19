@@ -354,17 +354,23 @@ export BERRY_FCM_ADB_SHELL=1 BERRY_FCM_AUTO=1 BERRY_AUTO_GATE=ready
 unset MCS_AM_CONNECTED_FIXTURE MCS_NEXT_FIXTURE MCS_AM_FAIL
 settime 20000
 printf '%s\n' 'DeviceID: [fixture]' 'Not connected' > "$MCS_FIXTURE"
+export BERRY_AUTO_GATE=settling
+run rescue; requests 0
+j="$(run snapshot)"; assert_json "$j" fcm_recovery_decision=network_gate
+export BERRY_AUTO_GATE=ready
 run rescue; requests 1
 j="$(run snapshot)"; assert_json "$j" fcm_recovery_decision=requested
 test "$(tail -n 1 "$MCS_AM_LOG")" = 'broadcast --user 0 -a com.google.android.intent.action.MCS_HEARTBEAT -p com.google.android.gms'
 run rescue; requests 1
 j="$(run snapshot)"; assert_json "$j" fcm_recovery_decision=cooldown
 settime 20012
+run rescue; requests 1
+settime 20300
 run rescue; requests 2
 test "$(tail -n 1 "$MCS_AM_LOG")" = 'broadcast --user 0 -a com.google.android.gms.gcm.ACTION_HEARTBEAT_NOW -p com.google.android.gms'
-settime 20024
+settime 20900
 run rescue; requests 3
-settime 20036
+settime 20912
 printf '%s\n' 'DeviceID: [fixture]' 'connected=mtalk.google.com/192.179.26.188,port=5228' 'connectTime=00:02/00:00' > "$MCS_FIXTURE"
 run rescue; requests 3
 j="$(run snapshot)"; assert_json "$j" fcm_state=connected

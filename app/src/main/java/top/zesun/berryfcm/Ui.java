@@ -250,11 +250,15 @@ abstract class Ui extends Activity {
         return 0;
     }
     protected void line(LinearLayout box, String label, String detail, Runnable action) {
+        line(box, label, detail, symbolFor(label), action);
+    }
+
+    protected void line(LinearLayout box, String label, String detail, int iconRes, Runnable action) {
         LinearLayout entry = new LinearLayout(this);
         entry.setGravity(Gravity.CENTER_VERTICAL);
         entry.setOrientation(LinearLayout.HORIZONTAL);
         entry.setPadding(dp(4), dp(13), dp(4), dp(13));
-        ImageView icon = symbol(symbolFor(label), accent, 22);
+        ImageView icon = symbol(iconRes, accent, 22);
         LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(dp(22), dp(22));
         ip.rightMargin = dp(12);
         entry.addView(icon, ip);

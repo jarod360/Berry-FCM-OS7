@@ -26,8 +26,10 @@ public final class DiagnosticsActivity extends Ui {
         network.addView(results);
 
         LinearLayout diagnostics = card("更多诊断", "系统策略检测需要已授权的 Root / ADB Shell。");
-        line(diagnostics, "Google FCM Diagnostics", "打开系统原生连接诊断", () -> openGoogle(this));
-        line(diagnostics, "监控记录", "查看 GMS 原生连接状态、断联与恢复记录", () -> go(MonitorActivity.class));
+        line(diagnostics, "Google FCM Diagnostics", "打开系统原生连接诊断",
+                R.drawable.ic_bf_diagnostics, () -> openGoogle(this));
+        line(diagnostics, "监控记录", "查看 GMS 原生连接状态、断联与恢复记录",
+                R.drawable.ic_bf_history, () -> go(MonitorActivity.class));
         LinearLayout extra = disclosure(diagnostics, "高级 · 策略检查 / 分享日志", false);
         button(extra, "检查 GMS Doze / 后台网络 / 通知策略", this::checkPolicies, false);
         button(extra, "分享监控事件与错误", this::shareEvents, false);

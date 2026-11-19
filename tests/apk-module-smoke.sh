@@ -546,7 +546,11 @@ assert 'runSafe(false, "periodic")' in service
 assert 'runSafe(true, "manual_followup")' in service
 assert 'queueCheck(false, "network")' in service
 assert 'queueCheck(true, WATCHDOG_CHECK.equals(action) ? "watchdog" : "manual")' in service
-assert 'queueCheck(false, PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED.equals(action)' in service
+assert 'PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED.equals(action)' in service
+assert 'filter.addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)' in service
+assert 'validated != lastValidated' in service
+assert 'if (scheduled && pendingSource != null) schedulePendingCheck(0);' in service
+assert '() -> queueCheck(false, "network_settled")' in service
 assert 'start(context, WATCHDOG_CHECK)' in service
 assert 'FcmMonitorService.currentError(this).isEmpty()' in diagnostics
 print("PASS: trigger provenance, correct CPU lock observation and active error state")
@@ -591,7 +595,11 @@ for name in icons:
     assert shapes and all(shapes), name
     paths.append(shapes)
 assert len(set(paths)) == len(icons), "icons share identical artwork"
-assert "symbol(symbolFor(label), accent, 22)" in ui
+assert "line(box, label, detail, symbolFor(label), action)" in ui
+diagnostics = (Path(sys.argv[1]).parent / "DiagnosticsActivity.java").read_text(encoding="utf-8")
+assert re.search(r'"Google FCM Diagnostics"[^;]+R\.drawable\.ic_bf_diagnostics', diagnostics)
+assert re.search(r'"监控记录"[^;]+R\.drawable\.ic_bf_history', diagnostics)
+assert ET.parse(res / "ic_bf_history.xml").find("path").attrib[android+"pathData"] != ET.parse(res / "ic_bf_diagnostics.xml").find("path").attrib[android+"pathData"]
 print("PASS: heartbeat keepalive, battery-only battery, four distinct settings icons and valid vectors")
 PY_SEMANTIC_ICONS
 
@@ -604,19 +612,17 @@ run = service.split("private void runSafe(boolean requested, String source)",1)[
 episode = service.split("private void runRescueEpisode(",1)[1].split("private void runGuardSafe(",1)[0]
 assert 'gap >= RESCUE_GAP_MS' in run
 assert 'getLong("sample_elapsed", -1L)' in service
-assert 'SystemClock.elapsedRealtime() + 50000L < now + 120000L' in run
-assert 'runRescueEpisode(now + 105000L)' in run and 'runOnce(true, false)' in run
+assert 'runRescueEpisode(now + 120000L)' in run and 'runOnce(true, false)' in run
 assert 'WATCHDOG_CHECK.equals(action)' not in run
-assert 'step <= 3' in episode and 'RESCUE_COOLDOWN_MS = 300000L' in service
-assert 'Thread.sleep(12000L)' in episode
+assert 'RESCUE_COOLDOWN_MS = 300000L' in service
+assert 'Thread.sleep' not in episode
 assert 'SystemClock.elapsedRealtime() + 50000L >= deadline' in episode
-assert 'probeLastGmsEndpoint(checked)' in episode
-assert 'releaseConfirmationWakeLock();' in episode
-assert 'path=app_not_gms' in episode
+assert 'queueCheck(false, "rescue_followup")' in episode
+assert episode.index('if ("requested".equals(decision)') < episode.index('.putLong("rescue_started_elapsed"')
 assert '    rescue)' in script and 'request_reconnect rescue' in script
-assert 'interval=12' in script and '[ "$source" = gms ]' in script
+assert '[ "${BERRY_AUTO_GATE:-ready}" != ready ]' in script and '[ "$source" = gms ]' in script
 assert '(normalRecovery ? "monitor" : "status")' in service
-print("PASS: independent wake-gap rescue, three-attempt ceiling, bounded lease and IP:port diagnostics")
+print("PASS: single wake-gap request, shared backoff and nonblocking follow-up")
 PY_RESCUE
 
 # Consolidated UI and decorated notification contract: all native glyphs use

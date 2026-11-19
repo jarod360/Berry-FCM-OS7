@@ -19,6 +19,12 @@ public final class MonitorStatusSmoke {
         expect(MonitorStatus.State.UNKNOWN,true,true,true,10,false,true,"unknown");
         if (!"6分 40秒".equals(MonitorStatus.duration(400))) throw new AssertionError("duration");
         if (!"1天 1小时 1分 1秒".equals(MonitorStatus.duration(90061))) throw new AssertionError("duration days");
+        long[] notificationSeconds = {0, 59, 60, 3599, 3600, 5794};
+        String[] notificationLabels = {"不足1分钟", "不足1分钟", "1分钟", "59分钟", "1小时0分钟", "1小时36分钟"};
+        for (int i = 0; i < notificationSeconds.length; i++) {
+            if (!notificationLabels[i].equals(MonitorStatus.notificationDuration(notificationSeconds[i])))
+                throw new AssertionError("notification duration: " + notificationSeconds[i]);
+        }
         if (!"GMS 计时：0 秒（待后续采样确认）".equals(MonitorStatus.connectedDuration(0, 0)))
             throw new AssertionError("native zero may be genuine");
         if (!"已观察在线：15秒（GMS 计时仍为 0，非实际总时长）"

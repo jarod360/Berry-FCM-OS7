@@ -291,8 +291,6 @@ request_reconnect() {
     case "$state" in connecting|disconnected) :;; *) decision=not_disconnected; return 0;; esac
     interval="$(retry_interval)"
     [ "$reason" = manual ] && interval=60
-    # Short spacing is only for the finite Java rescue episode.
-    [ "$reason" = rescue ] && interval=12
     if [ "$last_try_mono" -gt 0 ] && [ "$nowm" -ge "$last_try_mono" ] && [ $((nowm-last_try_mono)) -lt "$interval" ]; then
         decision=cooldown
         if [ "$reason" = manual ]; then
@@ -552,8 +550,7 @@ case "${1:-status}" in
         observe || exit $?
         if ! auto_enabled; then
             decision=disabled
-        elif [ "${BERRY_AUTO_GATE:-ready}" = offline ] ||
-             [ "${BERRY_AUTO_GATE:-ready}" = unavailable ]; then
+        elif [ "${BERRY_AUTO_GATE:-ready}" != ready ]; then
             decision=network_gate
         elif [ "$source" != gms ]; then
             decision=not_disconnected
@@ -562,7 +559,7 @@ case "${1:-status}" in
             observe || exit $?
             if [ "$source" = gms ] &&
                { [ "$state" = connecting ] || [ "$state" = disconnected ]; }; then
-                record_event rescue_confirmed "两次原生状态仍未连接，第 ${BERRY_FCM_RESCUE_STEP:-1} 次请求"
+                record_event rescue_confirmed '两次原生状态仍未连接，准备请求恢复'
                 request_reconnect rescue
             else
                 decision=confirmation_changed

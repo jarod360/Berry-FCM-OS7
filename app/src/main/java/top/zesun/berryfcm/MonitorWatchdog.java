@@ -41,10 +41,9 @@ public final class MonitorWatchdog extends BroadcastReceiver {
         finally { handoff = null; }
     }
 
-    private static PendingIntent operation(Context context) {
+    private static PendingIntent operation(Context context, int flags) {
         Intent intent = new Intent(context, MonitorWatchdog.class).setAction(ACTION);
-        return PendingIntent.getBroadcast(context, 7313, intent,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        return PendingIntent.getBroadcast(context, 7313, intent, flags | PendingIntent.FLAG_IMMUTABLE);
     }
 
     static void schedule(Context context) {
@@ -57,15 +56,22 @@ public final class MonitorWatchdog extends BroadcastReceiver {
         if (alarms == null) return;
         // Request 60 seconds, never claim it fires in 60 seconds under Doze.
         long due = SystemClock.elapsedRealtime() + DELAY_MS;
-        context.getSharedPreferences("berry_fcm_watchdog", Context.MODE_PRIVATE)
-                .edit().putLong("due_elapsed", due).apply();
+        android.content.SharedPreferences state =
+                context.getSharedPreferences("berry_fcm_watchdog", Context.MODE_PRIVATE);
+        if (operation(context, PendingIntent.FLAG_NO_CREATE) != null
+                && state.getLong("due_elapsed", -1L) > 0) return;
         alarms.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                due, operation(context));
+                due, operation(context, PendingIntent.FLAG_UPDATE_CURRENT));
+        state.edit().putLong("due_elapsed", due).apply();
     }
 
     static void cancel(Context context) {
         AlarmManager alarms = context.getSystemService(AlarmManager.class);
-        if (alarms != null) alarms.cancel(operation(context));
+        PendingIntent pending = operation(context, PendingIntent.FLAG_NO_CREATE);
+        if (pending != null) {
+            if (alarms != null) alarms.cancel(pending);
+            pending.cancel();
+        }
         context.getSharedPreferences("berry_fcm_watchdog", Context.MODE_PRIVATE)
                 .edit().remove("due_elapsed").apply();
     }
@@ -82,6 +88,8 @@ public final class MonitorWatchdog extends BroadcastReceiver {
                 .getLong("due_elapsed", -1L);
         long lateness = due > 0 ? SystemClock.elapsedRealtime() - due : -1L;
         // Re-arm before attempting any Shell, Binder, or foreground service.
+        context.getSharedPreferences("berry_fcm_watchdog", Context.MODE_PRIVATE)
+                .edit().remove("due_elapsed").apply();
         schedule(context);
         long sampleAge = FcmMonitorService.sampleAgeSeconds(context);
         boolean missing = !FcmMonitorService.isRunning();

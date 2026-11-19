@@ -37,6 +37,13 @@ final class MonitorStatus {
                 : "连接时长：无法确认";
     }
 
+    static String notificationDuration(long seconds) {
+        long minutes = seconds / 60;
+        if (minutes == 0) return "不足1分钟";
+        if (minutes < 60) return minutes + "分钟";
+        return minutes / 60 + "小时" + minutes % 60 + "分钟";
+    }
+
     static String duration(long seconds) {
         if (seconds < 0) return "未知";
         long days = seconds / 86400, hours = seconds / 3600 % 24;
