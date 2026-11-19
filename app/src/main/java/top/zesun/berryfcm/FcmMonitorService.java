@@ -34,6 +34,7 @@ public final class FcmMonitorService extends Service {
     private static final String CHANNEL = "berry_fcm_monitor_quiet";
     private static final int NOTIFICATION_ID = 7212;
     private static final String CHECK = "berryfcm.monitor.check";
+    private static final String WATCHDOG_CHECK = "berryfcm.monitor.watchdog";
     private static final String RECONNECT = "berryfcm.monitor.reconnect";
     private static final String REFRESH_DISPLAY = "berryfcm.monitor.display";
     private final ScheduledExecutorService monitorWorker = Executors.newSingleThreadScheduledExecutor();
@@ -157,7 +158,7 @@ public final class FcmMonitorService extends Service {
         return "后台服务运行中";
     }
     static void checkNow(Context context) { start(context, CHECK); }
-    static boolean startFromWatchdog(Context context) { return start(context, CHECK); }
+    static boolean startFromWatchdog(Context context) { return start(context, WATCHDOG_CHECK); }
     static void refreshDisplay(Context context) {
         if (!isRunning()) return;
         try { context.startService(new Intent(context, FcmMonitorService.class).setAction(REFRESH_DISPLAY)); }
@@ -337,7 +338,9 @@ public final class FcmMonitorService extends Service {
                     .putString("attempt_state", "pending").apply();
             scheduled = true;
             logRuntime(this, "service_started", "pid=" + android.os.Process.myPid()
-                    + "; mode=" + prefs.mode());
+                    + "; mode=" + prefs.mode()
+                    + "; source=" + (intent != null && WATCHDOG_CHECK.equals(intent.getAction())
+                            ? "watchdog" : "service_start"));
         }
         updatePersistentWakeLock(prefs.monitorEnabled());
         // The guard may continue after FCM monitoring is disabled. A pending
@@ -346,7 +349,8 @@ public final class FcmMonitorService extends Service {
         updatePeriodicSchedules(prefs);
         MonitorWatchdog.schedule(this);
         String action = intent == null ? null : intent.getAction();
-        if (CHECK.equals(action) && !firstStart) queueCheck(true);
+        if (!firstStart && (CHECK.equals(action) || WATCHDOG_CHECK.equals(action)))
+            queueCheck(true, WATCHDOG_CHECK.equals(action) ? "watchdog" : "manual");
         if (RECONNECT.equals(action) && reconnectQueued.compareAndSet(false, true)) {
             saveManualResult(prefs.connectionKey(), "正在读取 GMS 并检查重连条件…");
             monitorWorker.execute(() -> {
@@ -362,7 +366,8 @@ public final class FcmMonitorService extends Service {
     private void updatePeriodicSchedules(AppPrefs prefs) {
         if (prefs.monitorEnabled()) {
             if (periodic == null || periodic.isCancelled() || periodic.isDone())
-                periodic = monitorWorker.scheduleWithFixedDelay(() -> runSafe(false), 0, 15, TimeUnit.SECONDS);
+                periodic = monitorWorker.scheduleWithFixedDelay(
+                        () -> runSafe(false, "periodic"), 0, 15, TimeUnit.SECONDS);
         } else if (periodic != null) {
             periodic.cancel(false);
             periodic = null;
@@ -506,6 +511,7 @@ public final class FcmMonitorService extends Service {
                 logRuntime(FcmMonitorService.this, "wake_lock_failed", purpose + ": " + safeError(error));
             }
         }
+        boolean isHeld() { return lock != null && lock.isHeld(); }
         @Override public void close() {
             if (lock == null) return;
             boolean expired = !lock.isHeld();
@@ -567,10 +573,11 @@ public final class FcmMonitorService extends Service {
         try {
             resumeReceiver = new BroadcastReceiver() {
                 @Override public void onReceive(Context context, Intent intent) {
-                    PowerManager power = getSystemService(PowerManager.class);
-                    // Doze and screen transitions are scheduling opportunities;
-                    // callbacks cannot wake a process that was killed.
-                    queueCheck(false);
+                    // Screen and idle transitions schedule a check only while
+                    // this process is running; they are not cold-start wake sources.
+                    String action = intent == null ? "" : intent.getAction();
+                    queueCheck(false, PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED.equals(action)
+                            ? "idle_transition" : "screen_transition");
                 }
             };
             IntentFilter filter = new IntentFilter(Intent.ACTION_USER_PRESENT);
@@ -585,22 +592,22 @@ public final class FcmMonitorService extends Service {
 
     private void onNetworkChange() {
         networkSignal = SystemClock.elapsedRealtime();
-        queueCheck(false);
+        queueCheck(false, "network");
     }
 
-    private void queueCheck(boolean manual) {
+    private void queueCheck(boolean manual, String source) {
         if (!scheduled || !new AppPrefs(this).monitorEnabled() || !checkQueued.compareAndSet(false, true)) return;
         try {
             monitorWorker.execute(() -> {
                 try {
                     if (manual || SystemClock.elapsedRealtime() - lastCheckElapsed >= 5000)
-                        runSafe(manual);
+                        runSafe(manual, source);
                 } finally { checkQueued.set(false); }
             });
         } catch (RejectedExecutionException ignored) { checkQueued.set(false); }
     }
 
-    private void runSafe(boolean requested) {
+    private void runSafe(boolean requested, String source) {
         if (Thread.currentThread().isInterrupted() || !scheduled || !session.equals(activeSession)) return;
         long now = SystemClock.elapsedRealtime();
         long uptimeNow = SystemClock.uptimeMillis();
@@ -610,27 +617,31 @@ public final class FcmMonitorService extends Service {
         lastCheckUptime = uptimeNow;
         boolean trace = lastLoggedCheckElapsed == 0 || now - lastLoggedCheckElapsed >= 60000
                 || gap > 30000;
-        if (trace) {
-            lastLoggedCheckElapsed = now;
-            PowerManager power = getSystemService(PowerManager.class);
-            logRuntime(this, "check_started", "gap_ms=" + gap
-                    + "; suspend_ms=" + (gap < 0 || uptimeGap < 0 ? -1 : Math.max(0, gap - uptimeGap))
-                    + "; screen=" + (power != null && power.isInteractive() ? "on" : "off")
-                    + "; idle=" + (power != null && power.isDeviceIdleMode())
-                    + "; wake_lock=" + isCpuWakeLockHeld()
-                    + "; wake_mode=" + new AppPrefs(this).wakeMode()
-                    + "; requested=" + requested);
-        }
         try (TransactionLock lease = new TransactionLock("sample", 120000L)) {
+            // Log after obtaining the bounded lease. Previously this always
+            // reported wake_lock=false for smart mode, even during active work.
             MonitorWatchdog.releaseHandoff();
+            if (trace || !"periodic".equals(source)) {
+                lastLoggedCheckElapsed = now;
+                PowerManager power = getSystemService(PowerManager.class);
+                logRuntime(this, "check_started", "gap_ms=" + gap
+                        + "; suspend_ms=" + (gap < 0 || uptimeGap < 0 ? -1 : Math.max(0, gap - uptimeGap))
+                        + "; screen=" + (power != null && power.isInteractive() ? "on" : "off")
+                        + "; idle=" + (power != null && power.isDeviceIdleMode())
+                        + "; wake_lock=" + isCpuWakeLockHeld()
+                        + "; transaction_lock=" + lease.isHeld()
+                        + "; wake_mode=" + new AppPrefs(this).wakeMode()
+                        + "; source=" + source
+                        + "; requested=" + requested);
+            }
             try { runOnce(requested); }
             catch (RuntimeException error) {
                 if (scheduled && session.equals(activeSession)) recordFailure(error);
             }
         } finally {
             long duration = SystemClock.elapsedRealtime() - now;
-            if (trace || duration > 15000)
-                logRuntime(this, "check_finished", "duration_ms=" + duration
+            if (trace || !"periodic".equals(source) || duration > 15000)
+                logRuntime(this, "check_finished", "source=" + source + "; duration_ms=" + duration
                         + "; result=" + lastAttemptState(this)
                         + "; error=" + (currentError(this).isEmpty() ? "none" : "present"));
             if (PrivilegeAccess.canRunInBackground(this)) refreshNotification();
@@ -795,7 +806,7 @@ public final class FcmMonitorService extends Service {
             }
             saveManualResult(key, message);
             if (key.equals(p.connectionKey())) {
-                runSafe(true);
+                runSafe(true, "manual_followup");
                 JSONObject latest = lastSnapshot(this);
                 if (key.equals(p.connectionKey()) && "gms".equals(latest.optString("fcm_source"))
                         && "connected".equals(latest.optString("fcm_state"))

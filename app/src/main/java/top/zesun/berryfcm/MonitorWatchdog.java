@@ -11,7 +11,8 @@ import android.os.PowerManager;
 /**
  * Backup wake-up path when a foreground monitor process stops or stalls.
  * In Doze, Android may throttle a 60-second request for several minutes.
- * The service's CPU wake lock and in-process checks are the primary path.
+ * In smart mode, an already-dispatched check receives a bounded CPU lease;
+ * in continuous mode the service also holds a long-lived CPU lease.
  */
 public final class MonitorWatchdog extends BroadcastReceiver {
     private static final String ACTION = "top.zesun.berryfcm.MONITOR_WATCHDOG";
