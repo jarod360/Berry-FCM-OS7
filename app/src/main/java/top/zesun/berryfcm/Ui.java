@@ -146,10 +146,17 @@ abstract class Ui extends Activity {
         header.addView(row);
     }
     private int symbolFor(String label) {
+        // Match intent before generic keywords: settings links must not all
+        // fall back to the FCM glyph or overload the battery symbol.
+        if (label.contains("项目主页")) return R.drawable.ic_bf_code;
+        if (label.contains("反馈问题")) return R.drawable.ic_bf_feedback;
+        if (label.contains("当前版本")) return R.drawable.ic_bf_info;
+        if (label.contains("适配范围")) return R.drawable.ic_bf_device;
         if (label.contains("诊断")) return R.drawable.ic_bf_diagnostics;
         if (label.contains("更新") || label.contains("升级")) return R.drawable.ic_bf_update;
         if (label.contains("授权") || label.contains("配对")) return R.drawable.ic_bf_auth;
-        if (label.contains("保活") || label.contains("电池") || label.contains("后台")) return R.drawable.ic_bf_battery;
+        if (label.contains("电池")) return R.drawable.ic_bf_battery;
+        if (label.contains("保活") || label.contains("后台")) return R.drawable.ic_bf_heartbeat;
         if (label.contains("守护")) return R.drawable.ic_bf_guard;
         if (label.contains("设置") || label.contains("主题")) return R.drawable.ic_bf_settings;
         if (label.contains("FCM") || label.contains("监控") || label.contains("连接")) return R.drawable.ic_bf_fcm;
