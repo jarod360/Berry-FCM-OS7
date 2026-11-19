@@ -303,7 +303,7 @@ need 'syncChecked(running, prefs.guardEnabled())' "$src/GuardActivity.java"
 need 'syncChecked(monitorSwitch, prefs.monitorEnabled())' "$src/BackgroundActivity.java"
 need 'finally { syncingSwitches = previous; }' "$src/Ui.java"
 need 'watchFuture.cancel(true)' "$src/GuardActivity.java"
-need 'runSafe(manual, source)' "$src/FcmMonitorService.java"
+need 'runSafe(requested, source)' "$src/FcmMonitorService.java"
 need 'key.equals(p.connectionKey())' "$src/FcmMonitorService.java"
 need 'tileRequestPending' "$src/AuthActivity.java"
 # Old private/OEM or duplicate settings assertion removed.

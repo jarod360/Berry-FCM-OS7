@@ -24,6 +24,7 @@ import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.json.JSONObject;
@@ -64,8 +65,8 @@ public final class FcmMonitorService extends Service {
     private final AtomicBoolean reconnectQueued = new AtomicBoolean();
     private String installedMode;
     private String lastAttemptKey = "";
-    private java.util.concurrent.ScheduledFuture<?> periodic;
-    private java.util.concurrent.ScheduledFuture<?> guardPeriodic;
+    private ScheduledFuture<?> periodic;
+    private ScheduledFuture<?> guardPeriodic;
     // Held across checks while monitoring/guard is enabled, not just inside a sample.
     private PowerManager.WakeLock persistentWakeLock;
     private static volatile boolean wakeLockHeld;
