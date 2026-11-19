@@ -550,3 +550,46 @@ assert 'start(context, WATCHDOG_CHECK)' in service
 assert 'FcmMonitorService.currentError(this).isEmpty()' in diagnostics
 print("PASS: trigger provenance, correct CPU lock observation and active error state")
 PY_TRIGGER
+
+# Pre-build semantic icon contract: runtime labels must not silently fall back
+# to one FCM icon, and keepalive must not be represented by a battery.
+python3 - "$src/Ui.java" "$root/app/src/main/res/drawable" <<'PY_SEMANTIC_ICONS'
+import re, sys
+import xml.etree.ElementTree as ET
+from pathlib import Path
+ui = Path(sys.argv[1]).read_text(encoding="utf-8")
+res = Path(sys.argv[2])
+selector = ui.split("private int symbolFor(String label) {", 1)[1].split("private ImageView symbol(", 1)[0]
+branches = re.findall(r'if \(([^\n]+)\) return R\.drawable\.(\w+);', selector)
+assert branches, "icon mapping missing"
+def icon_for(label):
+    for expression, icon in branches:
+        if any(word in label for word in re.findall(r'label\.contains\("([^"]+)"\)', expression)):
+            return icon
+    return "ic_bf_fcm"
+expected = {
+    "后台保活": "ic_bf_heartbeat",
+    "后台保活设置": "ic_bf_heartbeat",
+    "放宽后台限制": "ic_bf_heartbeat",
+    "电池优化": "ic_bf_battery",
+    "项目主页": "ic_bf_code",
+    "反馈问题": "ic_bf_feedback",
+    "当前版本": "ic_bf_info",
+    "适配范围": "ic_bf_device",
+}
+for label, icon in expected.items():
+    assert icon_for(label) == icon, (label, icon_for(label), icon)
+icons = ["ic_bf_heartbeat", "ic_bf_code", "ic_bf_feedback", "ic_bf_info", "ic_bf_device"]
+paths = []
+android = "{http://schemas.android.com/apk/res/android}"
+for name in icons:
+    root = ET.parse(res / (name + ".xml")).getroot()
+    assert root.tag == "vector" and root.attrib[android+"viewportWidth"] == "24"
+    assert root.attrib[android+"viewportHeight"] == "24"
+    shapes = tuple(p.attrib[android+"pathData"] for p in root)
+    assert shapes and all(shapes), name
+    paths.append(shapes)
+assert len(set(paths)) == len(icons), "icons share identical artwork"
+assert "symbol(symbolFor(label), accent, 22)" in ui
+print("PASS: heartbeat keepalive, battery-only battery, four distinct settings icons and valid vectors")
+PY_SEMANTIC_ICONS
