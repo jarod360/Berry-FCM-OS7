@@ -1,4 +1,7 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
-<!-- Google Material Icons, Apache-2.0 -->
-<path android:fillColor="#FFFFFFFF" android:pathData="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#00000000" android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8" android:strokeLineCap="round"
+        android:strokeLineJoin="round" android:pathData="M3,10.5 L12,3 L21,10.5 V20 H15 V14 H9 V20 H3 Z"/>
 </vector>

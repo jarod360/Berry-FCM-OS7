@@ -84,6 +84,13 @@ public final class GuardActivity extends Ui {
         filter.setHint("搜索应用名称或包名");
         filter.setTextColor(ink);
         filter.setHintTextColor(muted);
+        filter.setMinHeight(dp(52));
+        filter.setPadding(dp(12), dp(9), dp(12), dp(9));
+        android.graphics.drawable.GradientDrawable search = new android.graphics.drawable.GradientDrawable();
+        search.setColor(panel);
+        search.setCornerRadius(dp(12));
+        search.setStroke(dp(1), muted);
+        filter.setBackground(search);
         picker.addView(filter);
         filter.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) {}

@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.content.res.Configuration;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
+import android.graphics.drawable.Drawable;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
@@ -152,6 +153,10 @@ abstract class Ui extends Activity {
         if (label.contains("反馈问题")) return R.drawable.ic_bf_feedback;
         if (label.contains("当前版本")) return R.drawable.ic_bf_info;
         if (label.contains("适配范围")) return R.drawable.ic_bf_device;
+        if (label.contains("GitHub")) return R.drawable.ic_bf_code;
+        if (label.contains("豁免") || label.contains("休眠")) return R.drawable.ic_bf_moon;
+        if (label.contains("恢复原有后台设置")) return R.drawable.ic_bf_refresh;
+        if (label.contains("计量流量") || label.contains("后台流量")) return R.drawable.ic_bf_network;
         if (label.contains("诊断")) return R.drawable.ic_bf_diagnostics;
         if (label.contains("更新") || label.contains("升级")) return R.drawable.ic_bf_update;
         if (label.contains("授权") || label.contains("配对")) return R.drawable.ic_bf_auth;
@@ -161,7 +166,7 @@ abstract class Ui extends Activity {
         if (label.contains("设置") || label.contains("主题")) return R.drawable.ic_bf_settings;
         if (label.contains("FCM") || label.contains("监控") || label.contains("连接")) return R.drawable.ic_bf_fcm;
         if (label.contains("概览") || label.contains("首页")) return R.drawable.ic_bf_home;
-        return R.drawable.ic_bf_fcm;
+        return R.drawable.ic_bf_info;
     }
     private ImageView symbol(int drawable, int tint, int size) {
         ImageView image = new ImageView(this);
@@ -183,14 +188,14 @@ abstract class Ui extends Activity {
     protected LinearLayout card(String heading, String description) {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(14), dp(14), dp(14), dp(14));
+        box.setPadding(dp(16), dp(16), dp(16), dp(16));
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(panel);
-        drawable.setCornerRadius(dp(18));
+        drawable.setCornerRadius(dp(20));
         drawable.setStroke(dp(1), dark ? 0xff28354c : 0xffe4e9f2);
         box.setBackground(drawable);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.bottomMargin = dp(10);
+        lp.bottomMargin = dp(12);
         content.addView(box, lp);
         if (heading != null) {
             box.addView(text(heading, 16, true, ink));
@@ -210,26 +215,45 @@ abstract class Ui extends Activity {
         b.setTextColor(primary ? (dark ? 0xff0c1323 : Color.WHITE) : ink);
         GradientDrawable shape = new GradientDrawable();
         shape.setColor(primary ? accent : (dark ? 0xff2c3b58 : 0xffe9eef8));
-        shape.setCornerRadius(dp(12));
+        shape.setCornerRadius(dp(14));
         b.setBackground(new RippleDrawable(ColorStateList.valueOf(dark ? 0x55ffffff : 0x22000000),
                 shape, null));
         b.setStateListAnimator(null);
         b.setElevation(0);
         b.setMinimumHeight(0);
         b.setMinHeight(0);
-        b.setMinHeight(dp(48));
-        b.setPadding(dp(12), dp(8), dp(12), dp(8));
+        b.setMinHeight(dp(52));
+        b.setPadding(dp(14), dp(9), dp(14), dp(9));
+        int iconId = actionIconFor(title);
+        if (iconId != 0) {
+            Drawable icon = getDrawable(iconId);
+            if (icon != null) {
+                icon = icon.mutate();
+                icon.setTint(primary ? (dark ? 0xff0c1323 : Color.WHITE) : ink);
+                icon.setBounds(0, 0, dp(18), dp(18));
+                b.setCompoundDrawablePadding(dp(8));
+                b.setCompoundDrawablesRelative(icon, null, null, null);
+            }
+        }
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
         params.topMargin = dp(8);
         box.addView(b, params);
         b.setOnClickListener(v -> action.run());
         return b;
     }
+    private int actionIconFor(String label) {
+        if (label.equals("选择应用") || label.equals("添加守护应用")) return R.drawable.ic_bf_add;
+        if (label.equals("检查新版本")) return R.drawable.ic_bf_update;
+        if (label.equals("刷新候选应用") || label.equals("检查所选应用")
+                || label.equals("检测 mtalk.google.com 连接")
+                || label.equals("恢复已停止的应用")) return R.drawable.ic_bf_refresh;
+        return 0;
+    }
     protected void line(LinearLayout box, String label, String detail, Runnable action) {
         LinearLayout entry = new LinearLayout(this);
         entry.setGravity(Gravity.CENTER_VERTICAL);
         entry.setOrientation(LinearLayout.HORIZONTAL);
-        entry.setPadding(dp(2), dp(11), dp(2), dp(11));
+        entry.setPadding(dp(4), dp(13), dp(4), dp(13));
         ImageView icon = symbol(symbolFor(label), accent, 22);
         LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(dp(22), dp(22));
         ip.rightMargin = dp(12);
@@ -244,9 +268,11 @@ abstract class Ui extends Activity {
         }
         entry.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
         if (action != null) {
-            TextView arrow = text("›", 21, false, muted);
-            arrow.setPadding(dp(8), 0, 0, 0);
-            entry.addView(arrow);
+            ImageView arrow = symbol(R.drawable.ic_bf_chevron, muted, 18);
+            arrow.setRotation(-90f);
+            LinearLayout.LayoutParams arrowParams = new LinearLayout.LayoutParams(dp(18), dp(18));
+            arrowParams.leftMargin = dp(10);
+            entry.addView(arrow, arrowParams);
         }
         box.addView(entry);
         if (action != null) {
@@ -268,8 +294,8 @@ abstract class Ui extends Activity {
                 dark ? 0x33ffffff : 0x12000000), null, null));
         TextView heading = text(caption, 16, true, ink);
         trigger.addView(heading, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView arrow = text(expanded ? "⌃" : "⌄", 22, true, accent);
-        arrow.setGravity(Gravity.CENTER);
+        ImageView arrow = symbol(R.drawable.ic_bf_chevron, accent, 22);
+        arrow.setRotation(expanded ? 180f : 0f);
         trigger.addView(arrow, new LinearLayout.LayoutParams(dp(30), dp(34)));
         trigger.setContentDescription(caption + (expanded ? "，点击收起" : "，点击展开"));
         parent.addView(trigger);
@@ -280,7 +306,7 @@ abstract class Ui extends Activity {
         trigger.setOnClickListener(v -> {
             boolean opening = details.getVisibility() != View.VISIBLE;
             details.setVisibility(opening ? View.VISIBLE : View.GONE);
-            arrow.setText(opening ? "⌃" : "⌄");
+            arrow.setRotation(opening ? 180f : 0f);
             trigger.setContentDescription(caption + (opening ? "，点击收起" : "，点击展开"));
         });
         return details;
