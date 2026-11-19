@@ -359,12 +359,12 @@ j="$(run snapshot)"; assert_json "$j" fcm_recovery_decision=requested
 test "$(tail -n 1 "$MCS_AM_LOG")" = 'broadcast --user 0 -a com.google.android.intent.action.MCS_HEARTBEAT -p com.google.android.gms'
 run rescue; requests 1
 j="$(run snapshot)"; assert_json "$j" fcm_recovery_decision=cooldown
-settime 20008
+settime 20012
 run rescue; requests 2
 test "$(tail -n 1 "$MCS_AM_LOG")" = 'broadcast --user 0 -a com.google.android.gms.gcm.ACTION_HEARTBEAT_NOW -p com.google.android.gms'
-settime 20016
-run rescue; requests 3
 settime 20024
+run rescue; requests 3
+settime 20036
 printf '%s\n' 'DeviceID: [fixture]' 'connected=mtalk.google.com/192.179.26.188,port=5228' 'connectTime=00:02/00:00' > "$MCS_FIXTURE"
 run rescue; requests 3
 j="$(run snapshot)"; assert_json "$j" fcm_state=connected
@@ -378,3 +378,17 @@ run rescue; requests 0
 j="$(run snapshot)"; assert_json "$j" fcm_recovery_decision=confirmation_changed
 unset MCS_NEXT_FIXTURE
 echo 'PASS: rescue UID2000, anti-spam, native double-confirmation and early exit'
+
+# Offline and unknown are never reclassified as recoverable disconnections.
+rm -f "$BERRY_FCM_DATA"/mcs-monitor.state "$BERRY_FCM_DATA"/mcs-evidence
+: > "$MCS_AM_LOG"
+settime 22000
+export BERRY_AUTO_GATE=offline
+printf '%s\n' 'DeviceID: [fixture]' 'Not connected' > "$MCS_FIXTURE"
+run rescue; requests 0
+j="$(run snapshot)"; assert_json "$j" fcm_recovery_decision=network_gate
+export BERRY_AUTO_GATE=ready
+printf '%s\n' 'Permission Denial' > "$MCS_FIXTURE"
+run rescue; requests 0
+j="$(run snapshot)"; assert_json "$j" fcm_state=unknown
+echo 'PASS: rescue does not broadcast without a live native state or active network'

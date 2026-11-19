@@ -809,7 +809,7 @@ public final class FcmMonitorService extends Service {
                 }
                 requests++;
                 logRuntime(this, "rescue_request", "step=" + step + "; decision=" + decision);
-                Thread.sleep(8000L);
+                Thread.sleep(12000L);
                 if (!rescueAllowed(prefs, key)
                         || SystemClock.elapsedRealtime() + 50000L >= deadline) break;
                 JSONObject checked = readRescueStatus(prefs, mode,

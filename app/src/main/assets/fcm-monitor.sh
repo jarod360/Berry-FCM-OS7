@@ -292,7 +292,7 @@ request_reconnect() {
     interval="$(retry_interval)"
     [ "$reason" = manual ] && interval=60
     # Short spacing is only for the finite Java rescue episode.
-    [ "$reason" = rescue ] && interval=8
+    [ "$reason" = rescue ] && interval=12
     if [ "$last_try_mono" -gt 0 ] && [ "$nowm" -ge "$last_try_mono" ] && [ $((nowm-last_try_mono)) -lt "$interval" ]; then
         decision=cooldown
         if [ "$reason" = manual ]; then

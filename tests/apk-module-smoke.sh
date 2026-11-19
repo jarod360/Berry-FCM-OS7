@@ -607,13 +607,13 @@ assert 'SystemClock.elapsedRealtime() + 50000L < now + 120000L' in run
 assert 'runRescueEpisode(now + 105000L)' in run and 'runOnce(true, false)' in run
 assert 'WATCHDOG_CHECK.equals(action)' not in run
 assert 'step <= 3' in episode and 'RESCUE_COOLDOWN_MS = 300000L' in service
-assert 'Thread.sleep(8000L)' in episode
+assert 'Thread.sleep(12000L)' in episode
 assert 'SystemClock.elapsedRealtime() + 50000L >= deadline' in episode
 assert 'probeLastGmsEndpoint(checked)' in episode
 assert 'releaseConfirmationWakeLock();' in episode
 assert 'path=app_not_gms' in episode
 assert '    rescue)' in script and 'request_reconnect rescue' in script
-assert 'interval=8' in script and '[ "$source" = gms ]' in script
+assert 'interval=12' in script and '[ "$source" = gms ]' in script
 assert '(normalRecovery ? "monitor" : "status")' in service
 print("PASS: independent wake-gap rescue, three-attempt ceiling, bounded lease and IP:port diagnostics")
 PY_RESCUE

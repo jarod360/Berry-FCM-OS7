@@ -431,3 +431,10 @@ Removed the full `cmd appops get top.zesun.berryfcm` dump incorrectly labeled as
 - 发布 Tag 指向源快照 `087bc8febf9d3b51329227bfb454e156b272d507`，它比原始构建提交只多一个 CI 工作流修正提交，应用/测试源码完全一致；两份 workflow 与 main 相同。旧签名四项 Secret 保持不变，无新增 PAT；原 alpha.89 发布包和 KernelSU 均未改。
 - 修正：关闭 FCM 但继续守护时，立即释放有界的 GMS 异常确认锁；`tests/apk-module-smoke.sh` 增加该组合断言。说明本期 alpha.94 才包含此安全修复；先前 alpha.91 构建不用于测试发布。
 - 下阶段 **必须实机观察**：原地在线升级/授权身份保留；模式切换确认和取消，强制停止或 Binder 断开，15 秒巡检间隔分布、异常确认窗口/冷却、两种模式至少各两轮 1–2 小时的耗电和温度；通知中心图标与快捷磁贴、深浅主题和小屏字体。物理 CPU 深睡、60 秒内恢复和广播实际效果尚未有新版本的证据。不要将编译成功视为验收成功。
+
+
+### 2026-11-19 Issue #2 独立休眠兜底恢复源码增量（未编译、未实机验证）
+- 用户纠正：兜底恢复属于独立事务，与 MonitorWatchdog 定时器及正常巡检的自动恢复逻辑解耦；正常巡检继续调用原有 `monitor → auto_recovery`。兜底只在智能模式的相邻采样空档至少90秒（服务重建时读取上次本机单调采样时间）且最新 GMS 原生状态确认为 connecting/disconnected 时启动。
+- 兜底采用现有授权 UID 的定向命令：UID2000 交替 MCS_HEARTBEAT / ACTION_HEARTBEAT_NOW；UID0 才使用 GCM_RECONNECT。每次新鲜原生状态两次确认，发广播后持锁最多12秒等待再查原生状态；GMS 已 connected 立即终止，否则仅尝试剩余次数，整轮最多三次；每轮之间至少300秒，失败或系统中断释放事务锁。Shell 单调用45秒最坏超时与120秒事务锁配合，总事务留15秒余量，必要时少于三次便退出。
+- 非 Root 广播在2026-11-18的UID2000实验中仅证实可投递；实机断联恢复有效性未证实。应用网络路径的上次成功 GMS IPv4 端点最多1.5秒TCP探测只能做诊断，不能视为 GMS UID 真实路由，也不会阻断下一次受控恢复；无可靠IP时记录unknown，不臆测DNS与网络通畅。若Doze停止网络或限制持锁，仍可能只执行部分事务，不能保证确切唤醒/恢复时间。
+- 本增量位于 `dev/issues-1-2-wake-ui-20261119`，含源码/单元模拟用例及静态约束。仅完成 GitHub 源码审阅与编辑时的静态核对，尚无 Shell 用例实际执行证据、Android Java编译、签名APK或目标OriginOS7实测；不能说已通过验收。待集中运行 `sh -n app/src/main/assets/fcm-monitor.sh`、`sh tests/apk-native-fcm-smoke.sh`、`sh tests/apk-module-smoke.sh`，再进行一次完整CI和真机断联对照后才考虑测试版发布。UI心跳保活图标与四项设置图标的改动也在同一开发分支。
