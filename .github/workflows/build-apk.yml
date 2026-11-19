@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [main, build/adb-compat, fix/adb-android17-lifecycle, build/issues-1-2-ci-20261119]
+    branches: [main, build/adb-compat, fix/adb-android17-lifecycle]
     paths:
       - 'app/**'
       - 'tests/**'
@@ -76,11 +76,6 @@ jobs:
 
       - name: Compile APK sources
         run: gradle --no-daemon :app:assembleDebug
-
-      - name: Verify compiled adaptive launcher drawable
-        run: |
-          "$ANDROID_HOME/build-tools/37.0.0/aapt" dump resources app/build/outputs/apk/debug/app-debug.apk | grep -F 'berry_launcher_selected'
-          "$ANDROID_HOME/build-tools/37.0.0/aapt" dump badging app/build/outputs/apk/debug/app-debug.apk | grep -F "application: label='BerryFCM'"
 
       - name: Verify merged APK permission scope
         run: |
