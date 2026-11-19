@@ -22,6 +22,8 @@ jobs:
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
       - name: Verify GMS monitoring shell syntax and native recovery behavior
         run: |
           set -eu
