@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [main, build/adb-compat, fix/adb-android17-lifecycle]
+    branches: [main, build/adb-compat, fix/adb-android17-lifecycle, dev/issues-1-2-wake-ui-20261119]
     paths:
       - 'app/**'
       - 'tests/**'
@@ -81,6 +81,14 @@ jobs:
         run: |
           "$ANDROID_HOME/build-tools/37.0.0/aapt" dump resources app/build/outputs/apk/debug/app-debug.apk | grep -F 'berry_launcher_selected'
           "$ANDROID_HOME/build-tools/37.0.0/aapt" dump badging app/build/outputs/apk/debug/app-debug.apk | grep -F "application: label='BerryFCM'"
+
+      - name: Verify compiled heartbeat notification resources
+        run: |
+          set -e
+          "$ANDROID_HOME/build-tools/37.0.0/aapt" dump resources app/build/outputs/apk/debug/app-debug.apk > "$RUNNER_TEMP/berry-resources.txt"
+          grep -F 'berry_fcm_notification_status' "$RUNNER_TEMP/berry-resources.txt"
+          grep -F 'ic_bf_heartbeat' "$RUNNER_TEMP/berry-resources.txt"
+          grep -F 'ic_bf_guard' "$RUNNER_TEMP/berry-resources.txt"
 
       - name: Verify merged APK permission scope
         run: |
@@ -363,7 +371,7 @@ jobs:
   publish_test_release:
     name: Publish explicitly approved test prerelease (same run, no rebuild)
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/build/adb-compat' && contains(github.event.head_commit.message, '[publish-test]') && needs.build.result == 'success'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/build/adb-compat' || github.ref == 'refs/heads/dev/issues-1-2-wake-ui-20261119') && contains(github.event.head_commit.message, '[publish-test]') && needs.build.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -420,7 +428,7 @@ jobs:
           cp "$apk" "$legacy"
           gh release create "$tag" "$apk" "$legacy" --target "$TARGET_SHA" --prerelease --latest=false \
             --title "BerryFCM Guardian ${tag}" \
-            --notes "Fixed-signature prerelease from the original successful Actions run $RUN_ID. See docs/HANDOFF.md for device validation. Prerelease is not a stable release."
+            --notes "2026-11-19 BerryFCM 测试版：统一 19 个应用内线框图标与按钮/卡片布局；通知正文增加后台保活心跳图标、GMS 原生连接状态和分钟级计时（程序/状态栏图标不变）；保留独立休眠兜底最多三次受控恢复。源代码先经独立前置门禁，随后同一次工作流完成固定签名 APK 编译、验签与上传。今晚请验证 OriginOS 7 通知折叠/深浅主题、界面、小屏与熄屏断联行为。来自 Actions $RUN_ID，不是稳定正式版。"
 
       - name: Record test prerelease result
         if: always()
