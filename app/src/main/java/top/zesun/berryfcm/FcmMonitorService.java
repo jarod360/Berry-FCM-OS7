@@ -724,7 +724,7 @@ public final class FcmMonitorService extends Service {
                 if (!p.monitorEnabled() || !key.equals(p.connectionKey())) return;
                 String prefix = monitorPrefix(p, mode);
                 String result = execute(p, mode, prefix + (normalRecovery ? "monitor" : "status")
-                        + " >/dev/null 2>&1 || exit 9; 
+                        + " >/dev/null 2>&1 || exit 9; "
                         + "echo BERRY_JSON_BEGIN; " + prefix + "snapshot; "
                         + "echo BERRY_EVENTS_BEGIN; " + prefix + "events; "
                         + "echo BERRY_RECOVERY_BEGIN; " + prefix + "recovery-events");
@@ -848,9 +848,9 @@ public final class FcmMonitorService extends Service {
     private JSONObject readRescueStatus(AppPrefs prefs, String mode, String command) throws Exception {
         String result = execute(prefs, mode, command + "echo BERRY_JSON_BEGIN; "
                 + monitorPrefix(prefs, mode) + "snapshot");
-        int start = result.indexOf("BERRY_JSON_BEGIN\\n");
+        int start = result.indexOf("BERRY_JSON_BEGIN\n");
         if (start < 0) throw new IllegalStateException("未收到恢复状态快照");
-        JSONObject value = new JSONObject(result.substring(start + "BERRY_JSON_BEGIN\\n".length()).trim());
+        JSONObject value = new JSONObject(result.substring(start + "BERRY_JSON_BEGIN\n".length()).trim());
         if (!value.has("fcm_source") || !value.has("fcm_recovery_decision"))
             throw new IllegalStateException("恢复状态字段缺失");
         return value;
