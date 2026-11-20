@@ -59,7 +59,7 @@ jobs:
           mkdir -p dist
           version="$(sed -n 's/^version=//p' module/module.prop)"
           test -n "$version"
-          printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+          printf '%s\n' "$version" | grep -Eq '^[0-9]+(\.[0-9]+){1,2}(-[0-9A-Za-z.-]+)?$'
           code="$(sed -n 's/^versionCode=//p' module/module.prop)"
           printf '%s\n' "$code" | grep -Eq '^[1-9][0-9]*$'
           echo "name=BerryFCM-KSU-v$version" >> "$GITHUB_OUTPUT"
