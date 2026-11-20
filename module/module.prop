@@ -1,6 +1,6 @@
 id=berry_fcm_ksu
 name=Berry-FCM KSU (OriginOS)
-version=0.5.5-test
-versionCode=10
+version=0.5.6-test
+versionCode=11
 author=OpenAI (based on Berry-FCM by miuiadmin)
 description=OriginOS FCM push protection with KernelSU root and WebUI; no Shizuku. GMS native MCS observation and bounded Root reconnect.

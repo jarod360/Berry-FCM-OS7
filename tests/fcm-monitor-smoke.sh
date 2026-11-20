@@ -124,3 +124,21 @@ echo "PASS: stopped GMS, opt-out, non-root rejection and failed-broadcast classi
 ) 9>"$BERRY_FCM_DATA/mcs-monitor.lock"
 requests 4
 echo "PASS: daemon and WebUI share a single lock"
+# A manager-provided BusyBox can exist while omitting the flock applet.
+# With no system flock on PATH, the same monitor must still read GMS.
+mkdir -p "$TMP/compatible"
+for bin in awk cat cp cut grep head mkdir mv rmdir tail tr wc; do
+    ln -s "$(command -v "$bin")" "$TMP/compatible/$bin"
+done
+cat > "$TMP/bin/busybox-minimal" <<'MOCK'
+#!/bin/sh
+[ "$1" = --list ] && printf '%s\n' awk mkdir
+MOCK
+chmod +x "$TMP/bin/busybox-minimal"
+export BERRY_KSU_BUSYBOX="$TMP/bin/busybox-minimal"
+printf '%s\n' 'DeviceID: [fixture]' 'connected=mtalk.google.com/142.250.157.188,port=5228' 'connectTime=00:30/00:00' > "$MCS_FIXTURE"
+settime 11630
+j="$(PATH="$TMP/bin:$TMP/compatible" /bin/sh "$MON" status)"
+assert_json "$j" fcm_state=connected
+[ ! -e "$BERRY_FCM_DATA/mcs-monitor-test-boot.lockdir" ]
+echo "PASS: native reading works with a KernelSU BusyBox lacking flock"

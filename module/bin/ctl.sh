@@ -143,13 +143,20 @@ check() {
         comma=','
     done
     auto="$(cat "$ENABLED" 2>/dev/null)"; [ "$auto" = 1 ] || auto=0
-    native="$(sh "$MODDIR/bin/fcm-monitor.sh" status)" || native='{"fcm_state":"unknown","fcm_source":"unavailable"}'
+    native="$(sh "$MODDIR/bin/fcm-monitor.sh" status)"
+    monitor_rc=$?
+    if [ "$monitor_rc" -eq 13 ]; then
+        native="$(sh "$MODDIR/bin/fcm-monitor.sh" snapshot)"
+    fi
+    if [ -z "$native" ] || { [ "$monitor_rc" -ne 0 ] && [ "$monitor_rc" -ne 13 ]; }; then
+        native='{"fcm_state":"unknown","fcm_source":"unavailable","fcm_native_reason":"backend_failed"}'
+    fi
     case "$native" in
       *'{"fcm_state":"connected",'*) mc=1;;
       *'{"fcm_state":"disconnected",'*|*'{"fcm_state":"connecting",'*) mc=0;;
       *) mc=-1;;
     esac
-    printf '{"probe":%s,"gms_installed":%s,"gms_stopped":%s,"gcm_persistent":%s,"mcs":%s,"receivers":%s,"guard":%s,"doze":%s,"doze_owned":%s,"data_saver":%s,"net_allowed":%s,"net_owned":%s,"notification":%s,"targets":[%s],%s\n' "$probe" "$g" "$s" "$proc" "$mc" "$recv" "$auto" "$dz" "$dz_owned" "$ns" "$na" "$na_owned" "$nt" "$items" "${native#\{}"
+    printf '{"probe":%s,"gms_installed":%s,"gms_stopped":%s,"gcm_persistent":%s,"mcs":%s,"receivers":%s,"guard":%s,"doze":%s,"doze_owned":%s,"data_saver":%s,"net_allowed":%s,"net_owned":%s,"notification":%s,"fcm_check_exit":%s,"targets":[%s],%s\n' "$probe" "$g" "$s" "$proc" "$mc" "$recv" "$auto" "$dz" "$dz_owned" "$ns" "$na" "$na_owned" "$nt" "$monitor_rc" "$items" "${native#\{}"
 }
 heartbeat() {
     ok=0

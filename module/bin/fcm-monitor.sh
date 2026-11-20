@@ -18,6 +18,8 @@ CMD_BIN="${BERRY_CMD_BIN:-cmd}"
 PM_BIN="${BERRY_PM_BIN:-pm}"
 DUMPSYS_BIN="${BERRY_DUMPSYS_BIN:-dumpsys}"
 AM_BIN="${BERRY_AM_BIN:-am}"
+if [ -x /system/bin/dumpsys ] && [ -z "${BERRY_DUMPSYS_BIN:-}" ]; then DUMPSYS_BIN=/system/bin/dumpsys; fi
+if [ -x /system/bin/am ] && [ -z "${BERRY_AM_BIN:-}" ]; then AM_BIN=/system/bin/am; fi
 UPTIME_FILE="${BERRY_UPTIME_FILE:-/proc/uptime}"
 BOOT_ID_FILE="${BERRY_BOOT_ID_FILE:-/proc/sys/kernel/random/boot_id}"
 
@@ -493,21 +495,41 @@ status_json() {
         observed_seconds=$((nowm-down_observed-age))
         [ "$observed_seconds" -ge 0 ] || observed_seconds=0
     fi
-    printf '{"fcm_state":"%s","fcm_source":"%s","fcm_transport":"%s","fcm_remote":"%s","fcm_connection_since":%s,"fcm_connected_seconds":%s,"fcm_disconnect_since":%s,"fcm_missing_seconds":%s,"fcm_native_duration":%s,"fcm_observed_up_seconds":%s,"fcm_native_close_events":%s,"fcm_native_connected_events":%s,"fcm_last_close_code":"%s","fcm_tcp_hint":"%s","fcm_last_seen":%s,"fcm_last_restore":%s,"fcm_last_try":%s,"fcm_last_result":"%s","fcm_attempts":%s,"fcm_outages":%s,"fcm_sample_time":%s,"fcm_sample_age_seconds":%s,"fcm_native_reason":"%s","fcm_auto":%s,"fcm_retry_in":%s,"fcm_retry_streak":%s,"fcm_observed_down_seconds":%s,"fcm_recovery_decision":"%s"}\n' \
-      "$state" "$source" "$transport" "$remote" "$conn_since" "$connected" "$last_down" "$missing" "$duration" "$observed_up" "$closes" "$successes" "$close_code" "$tcp_hint" "$last_seen" "$last_restore" "$last_try_epoch" "$last_result" "$attempts" "$outages" "$sample_epoch" "$age" "$native_reason" "$auto" "$retry_in" "$retry_streak" "$observed_seconds" "$decision"
+    printf '{"fcm_state":"%s","fcm_source":"%s","fcm_transport":"%s","fcm_remote":"%s","fcm_connection_since":%s,"fcm_connected_seconds":%s,"fcm_disconnect_since":%s,"fcm_missing_seconds":%s,"fcm_native_duration":%s,"fcm_observed_up_seconds":%s,"fcm_native_close_events":%s,"fcm_native_connected_events":%s,"fcm_last_close_code":"%s","fcm_tcp_hint":"%s","fcm_last_seen":%s,"fcm_last_restore":%s,"fcm_last_try":%s,"fcm_last_try_reason":"%s","fcm_last_result":"%s","fcm_attempts":%s,"fcm_outages":%s,"fcm_sample_time":%s,"fcm_sample_age_seconds":%s,"fcm_native_reason":"%s","fcm_auto":%s,"fcm_retry_in":%s,"fcm_retry_streak":%s,"fcm_observed_down_seconds":%s,"fcm_recovery_decision":"%s"}\n' \
+      "$state" "$source" "$transport" "$remote" "$conn_since" "$connected" "$last_down" "$missing" "$duration" "$observed_up" "$closes" "$successes" "$close_code" "$tcp_hint" "$last_seen" "$last_restore" "$last_try_epoch" "$last_try_reason" "$last_result" "$attempts" "$outages" "$sample_epoch" "$age" "$native_reason" "$auto" "$retry_in" "$retry_streak" "$observed_seconds" "$decision"
+}
+
+lock_monitor() {
+    busybox="${BERRY_KSU_BUSYBOX:-/data/adb/ksu/bin/busybox}"
+    if [ -x "$busybox" ] && "$busybox" --list 2>/dev/null | grep -qx flock; then
+        exec 9>>"$DATA/mcs-monitor.lock" || return 11
+        "$busybox" flock -xn 9 || return 13
+    elif command -v flock >/dev/null 2>&1; then
+        exec 9>>"$DATA/mcs-monitor.lock" || return 11
+        flock -xn 9 || return 13
+    else
+        # Some KernelSU forks omit the flock applet. mkdir is atomic and
+        # the boot-specific path discards locks from an earlier boot.
+        lock_boot="$(boot_id | tr -cd 'A-Za-z0-9-')"
+        [ -n "$lock_boot" ] || return 11
+        lock_dir="$DATA/mcs-monitor-$lock_boot.lockdir"
+        mkdir "$lock_dir" 2>/dev/null || return 13
+        trap 'rmdir "$lock_dir" 2>/dev/null || :' EXIT
+        trap 'exit 130' HUP INT TERM
+    fi
 }
 
 case "${1:-status}" in
     status|monitor|reconnect|reset-history)
-        # KernelSU bundles BusyBox. Use its flock where available so concurrent
-        # WebUI and daemon requests share the same observation and cooldown.
-        exec 9>"$DATA/mcs-monitor.lock" || exit 11
-        if [ -x /data/adb/ksu/bin/busybox ]; then
-            /data/adb/ksu/bin/busybox flock -xn 9 || exit 13
-        elif command -v flock >/dev/null 2>&1; then
-            flock -xn 9 || exit 13
-        else
-            echo "ERROR: KernelSU flock 不可用" >&2; exit 13
+        lock_monitor
+        rc=$?
+        if [ "$rc" -ne 0 ]; then
+            if [ "$rc" -eq 13 ]; then
+                echo "后台正在检查 GMS，请稍后重试" >&2
+            else
+                echo "无法打开监控状态目录" >&2
+            fi
+            exit "$rc"
         fi
         ;;
 esac
