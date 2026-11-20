@@ -499,41 +499,7 @@ status_json() {
       "$state" "$source" "$transport" "$remote" "$conn_since" "$connected" "$last_down" "$missing" "$duration" "$observed_up" "$closes" "$successes" "$close_code" "$tcp_hint" "$last_seen" "$last_restore" "$last_try_epoch" "$last_try_reason" "$last_result" "$attempts" "$outages" "$sample_epoch" "$age" "$native_reason" "$auto" "$retry_in" "$retry_streak" "$observed_seconds" "$decision"
 }
 
-lock_monitor() {
-    busybox="${BERRY_KSU_BUSYBOX:-/data/adb/ksu/bin/busybox}"
-    if [ -x "$busybox" ] && "$busybox" --list 2>/dev/null | grep -qx flock; then
-        exec 9>>"$DATA/mcs-monitor.lock" || return 11
-        "$busybox" flock -xn 9 || return 13
-    elif command -v flock >/dev/null 2>&1; then
-        exec 9>>"$DATA/mcs-monitor.lock" || return 11
-        flock -xn 9 || return 13
-    else
-        # Some KernelSU forks omit the flock applet. mkdir is atomic and
-        # the boot-specific path discards locks from an earlier boot.
-        lock_boot="$(boot_id | tr -cd 'A-Za-z0-9-')"
-        [ -n "$lock_boot" ] || return 11
-        lock_dir="$DATA/mcs-monitor-$lock_boot.lockdir"
-        mkdir "$lock_dir" 2>/dev/null || return 13
-        trap 'rmdir "$lock_dir" 2>/dev/null || :' EXIT
-        trap 'exit 130' HUP INT TERM
-    fi
-}
-
-case "${1:-status}" in
-    status|monitor|reconnect|reset-history)
-        lock_monitor
-        rc=$?
-        if [ "$rc" -ne 0 ]; then
-            if [ "$rc" -eq 13 ]; then
-                echo "后台正在检查 GMS，请稍后重试" >&2
-            else
-                echo "无法打开监控状态目录" >&2
-            fi
-            exit "$rc"
-        fi
-        ;;
-esac
-
+run_monitor_command() {
 case "${1:-status}" in
     status)
         observe || exit $?
@@ -574,4 +540,47 @@ case "${1:-status}" in
         : > "$EVENTS"; : > "$NATIVE_EVENTS"; echo 'FCM 事件历史已清空（连接状态未更改）'
         ;;
     *) echo 'status|snapshot|monitor|reconnect|events|native-events|reset-history' >&2; exit 2;;
+esac
+}
+
+with_flock() {
+    # Android mksh closes descriptors allocated by exec before launching
+    # an external command. Attach the descriptor to this function call.
+    lock_error="$("$@" -xn 9 2>&1)"
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+        if [ -z "$lock_error" ] && [ "$rc" -eq 1 ]; then
+            echo "后台正在检查 GMS，请稍后重试" >&2
+            return 13
+        fi
+        printf "无法取得 GMS 检查锁：%s\n" "${lock_error:-退出码 $rc}" >&2
+        return 14
+    fi
+    run_monitor_command "$command"
+}
+
+command="${1:-status}"
+case "$command" in
+    status|monitor|reconnect|reset-history)
+        busybox="${BERRY_KSU_BUSYBOX:-/data/adb/ksu/bin/busybox}"
+        if [ -x /system/bin/flock ]; then
+            with_flock /system/bin/flock 9>>"$DATA/mcs-monitor.lock"
+        elif [ -x "$busybox" ] && "$busybox" --list 2>/dev/null | grep -qx flock; then
+            with_flock "$busybox" flock 9>>"$DATA/mcs-monitor.lock"
+        elif command -v flock >/dev/null 2>&1; then
+            with_flock flock 9>>"$DATA/mcs-monitor.lock"
+        else
+            lock_boot="$(boot_id | tr -cd 'A-Za-z0-9-')"
+            [ -n "$lock_boot" ] || exit 11
+            lock_dir="$DATA/mcs-monitor-$lock_boot.lockdir"
+            if ! mkdir "$lock_dir" 2>/dev/null; then
+                echo "后台正在检查 GMS，请稍后重试" >&2
+                exit 13
+            fi
+            trap 'rmdir "$lock_dir" 2>/dev/null || :' EXIT
+            trap 'exit 130' HUP INT TERM
+            run_monitor_command "$command"
+        fi
+        ;;
+    *) run_monitor_command "$command";;
 esac
