@@ -13,7 +13,32 @@ if ! mkdir "$LOCK" 2>/dev/null; then
     mkdir "$LOCK" 2>/dev/null || exit 0
 fi
 echo $$ > "$LOCK/pid"
-trap 'rm -rf "$LOCK"' EXIT HUP INT TERM
+wait_pid=
+mode_changed=0
+stop_wait() {
+    [ -z "$wait_pid" ] || kill "$wait_pid" 2>/dev/null || :
+}
+stop_service() {
+    stop_wait
+    exit 0
+}
+refresh_mode() {
+    mode_changed=1
+    stop_wait
+}
+trap 'rm -rf "$LOCK"' EXIT
+trap stop_service HUP INT TERM
+trap refresh_mode USR1
+echo $$ > "$LOCK/wake-pid"
+wait_for() {
+    "$@" &
+    wait_pid=$!
+    [ "$mode_changed" != 1 ] || stop_wait
+    wait "$wait_pid"
+    wait_rc=$?
+    wait_pid=
+    return "$wait_rc"
+}
 # Wait for complete startup, no hard dependency on Shizuku.
 n=0
 while [ "$(getprop sys.boot_completed)" != 1 ] && [ "$n" -lt 120 ]; do
@@ -21,7 +46,13 @@ while [ "$(getprop sys.boot_completed)" != 1 ] && [ "$n" -lt 120 ]; do
 done
 # The 30s sleep does not wake a suspended CPU. Resume with a fresh GMS read.
 last_fix=0
+wake_event=0
+timer_failed=0
 while [ -e "$MODDIR/module.prop" ]; do
+    if [ "$mode_changed" = 1 ]; then
+        mode_changed=0
+        timer_failed=0
+    fi
     if [ "$(cat "$DATA/enabled" 2>/dev/null)" = 1 ]; then
         now="$(awk '{print int($1)}' /proc/uptime)"
         case "$now" in ''|*[!0-9]*) now=0 ;; esac
@@ -32,6 +63,9 @@ while [ -e "$MODDIR/module.prop" ]; do
         fi
         # Read the native GMS state; TCP sockets are auxiliary evidence.
         # It never restarts/kills GMS and never changes DNS/VPN/proxy/routing.
+        if [ "$wake_event" = 1 ]; then
+            printf '[%s] 3 分钟定时器触发，检查 GMS 原生状态\n' "$(date '+%F %T')" >> "$DATA/guard.log"
+        fi
         result="$(sh "$MODDIR/bin/fcm-monitor.sh" monitor 2>&1)"
         [ -z "$result" ] || printf '[%s] %s\n' "$(date '+%F %T')" "$result" >> "$DATA/guard.log"
         bytes="$(wc -c < "$DATA/guard.log" 2>/dev/null)"
@@ -40,5 +74,22 @@ while [ -e "$MODDIR/module.prop" ]; do
             tail -n 160 "$DATA/guard.log" > "$DATA/guard.log.tmp" && mv -f "$DATA/guard.log.tmp" "$DATA/guard.log"
         fi
     fi
-    sleep 30
+    wake_event=0
+    [ "$mode_changed" != 1 ] || continue
+    if [ "$(cat "$DATA/enabled" 2>/dev/null)" = 1 ] && [ "$(cat "$DATA/wake-mode" 2>/dev/null)" = timed ]; then
+        if [ "$timer_failed" = 0 ]; then
+            echo timed > "$DATA/wake-status"
+            if wait_for "$MODDIR/bin/wake-timer-arm64" > "$DATA/wake-timer.log" 2>&1; then
+                wake_event=1
+                continue
+            fi
+            [ "$mode_changed" != 1 ] || continue
+            timer_failed=1
+            printf '[%s] 定时器失败，切回随系统唤醒：%s\n' "$(date '+%F %T')" "$(tail -n 1 "$DATA/wake-timer.log")" >> "$DATA/guard.log"
+        fi
+        echo fallback > "$DATA/wake-status"
+    else
+        echo passive > "$DATA/wake-status"
+    fi
+    wait_for sleep 30
 done

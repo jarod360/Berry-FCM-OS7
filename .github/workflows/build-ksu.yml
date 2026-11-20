@@ -5,6 +5,7 @@ on:
     branches: [main, dev/ksu-native-fcm]
     paths:
       - 'module/**'
+      - 'module-src/**'
       - 'tests/**'
       - '.github/workflows/build-ksu.yml'
   workflow_dispatch:
@@ -26,6 +27,7 @@ jobs:
         run: |
           for script in module/*.sh module/bin/*.sh; do sh -n "$script"; done
           sh tests/fcm-monitor-smoke.sh
+          sh tests/ksu-wake-smoke.sh
       - name: Validate embedded WebUI JavaScript
         run: |
           python3 - <<'PY'
@@ -38,6 +40,18 @@ jobs:
           Path('/tmp/berryfcm-webui.js').write_text('\n'.join(scripts), encoding='utf-8')
           PY
           node --check /tmp/berryfcm-webui.js
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.3'
+          cache: false
+      - name: Build ARM64 wake timer
+        env:
+          GOOS: linux
+          GOARCH: arm64
+          CGO_ENABLED: 0
+        run: |
+          go build -trimpath -ldflags '-s -w' -o module/bin/wake-timer-arm64 module-src/wake-timer.go
+          test -x module/bin/wake-timer-arm64
       - name: Package KernelSU module
         id: package
         run: |

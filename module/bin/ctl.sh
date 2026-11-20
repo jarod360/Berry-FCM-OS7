@@ -40,6 +40,20 @@ persistent() {
     pidof "$GMS" >/dev/null 2>&1 && { echo 1; return; }
     echo 0
 }
+wake_mode() {
+    if [ "$(cat "$DATA/wake-mode" 2>/dev/null)" = timed ]; then echo timed; else echo passive; fi
+}
+refresh_guard() {
+    pid="$(cat "$DATA/service.lock/wake-pid" 2>/dev/null)"
+    case "$pid" in ''|*[!0-9]*) pid=0;; esac
+    if [ "$pid" -gt 1 ] && [ "$(cat "$DATA/service.lock/pid" 2>/dev/null)" = "$pid" ] &&
+        tr '\000' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -q '/berry_fcm_ksu/service.sh '; then
+        kill -USR1 "$pid" 2>/dev/null && return 0
+    fi
+    if [ "$(cat "$ENABLED" 2>/dev/null)" = 1 ]; then
+        sh "$MODDIR/service.sh" </dev/null >/dev/null 2>&1 &
+    fi
+}
 # Extended checks inspired by fcmfix-coloros17. Pure Android public shell commands;
 # vendor-specific ColorOS hooks are NOT present or implied.
 gms_uid() {
@@ -156,7 +170,9 @@ check() {
       *'{"fcm_state":"disconnected",'*|*'{"fcm_state":"connecting",'*) mc=0;;
       *) mc=-1;;
     esac
-    printf '{"probe":%s,"gms_installed":%s,"gms_stopped":%s,"gcm_persistent":%s,"mcs":%s,"receivers":%s,"guard":%s,"doze":%s,"doze_owned":%s,"data_saver":%s,"net_allowed":%s,"net_owned":%s,"notification":%s,"fcm_check_exit":%s,"targets":[%s],%s\n' "$probe" "$g" "$s" "$proc" "$mc" "$recv" "$auto" "$dz" "$dz_owned" "$ns" "$na" "$na_owned" "$nt" "$monitor_rc" "$items" "${native#\{}"
+    wake_status="$(cat "$DATA/wake-status" 2>/dev/null)"
+    case "$wake_status" in timed|fallback|passive) :;; *) wake_status=passive;; esac
+    printf '{"probe":%s,"gms_installed":%s,"gms_stopped":%s,"gcm_persistent":%s,"mcs":%s,"receivers":%s,"guard":%s,"doze":%s,"doze_owned":%s,"data_saver":%s,"net_allowed":%s,"net_owned":%s,"notification":%s,"fcm_check_exit":%s,"wake_mode":"%s","wake_status":"%s","targets":[%s],%s\n' "$probe" "$g" "$s" "$proc" "$mc" "$recv" "$auto" "$dz" "$dz_owned" "$ns" "$na" "$na_owned" "$nt" "$monitor_rc" "$(wake_mode)" "$wake_status" "$items" "${native#\{}"
 }
 heartbeat() {
     ok=0
@@ -279,15 +295,24 @@ case "${1:-}" in
             *) echo 'targets list|add|remove|reset' >&2; exit 2 ;;
         esac
         ;;
+    wake-mode)
+        case "${2:-}" in
+            passive|timed)
+                printf '%s\n' "$2" > "$DATA/wake-mode.$$" &&
+                    mv -f "$DATA/wake-mode.$$" "$DATA/wake-mode" || exit 1
+                refresh_guard ;;
+            *) echo 'wake-mode passive|timed' >&2; exit 2 ;;
+        esac
+        ;;
     guard)
         case "${2:-}" in
             on)
                 echo 1 > "$ENABLED"
                 # Service may be absent until next boot; launch after a user enables guard.
-                sh "$MODDIR/service.sh" </dev/null >/dev/null 2>&1 &
-                echo '自动守护已开启（约 30 秒巡检 GMS，双重确认后限频恢复）'
+                refresh_guard
+                echo '自动守护已开启'
                 ;;
-            off) echo 0 > "$ENABLED"; echo '自动守护已关闭' ;;
+            off) echo 0 > "$ENABLED"; refresh_guard; echo '自动守护已关闭' ;;
             status) cat "$ENABLED" ;;
             *) echo 'guard on|off|status' >&2; exit 2 ;;
         esac
@@ -295,5 +320,5 @@ case "${1:-}" in
     policy) policy "${2:-}" "${3:-}" ;;
     links) link "${2:-}" "${3:-}" ;;
     log) [ -f "$DATA/guard.log" ] && tail -n 100 "$DATA/guard.log" || echo '暂无守护日志' ;;
-    *) echo 'check|netdiag|fcm-monitor|reconnect|fix|watch|targets|guard|policy|links|log' >&2; exit 2 ;;
+    *) echo 'check|netdiag|fcm-monitor|reconnect|fix|watch|targets|guard|wake-mode|policy|links|log' >&2; exit 2 ;;
 esac
