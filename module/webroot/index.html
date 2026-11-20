@@ -47,7 +47,22 @@ footer{padding-bottom:18px}
 
 body{padding-bottom:calc(78px + env(safe-area-inset-bottom))}
 .page-header{padding:10px 4px 19px}.page-header h1{font-size:27px;line-height:1.22}.page-header .small{margin-top:5px}
-.hero{padding:21px;background:var(--verdict)}.hero h2{font-size:22px;margin-top:4px}.hero p{min-height:20px;margin:5px 0 15px}
+
+.fcm-headline{font-size:23px;font-weight:750;line-height:1.4;margin:12px 0 4px}
+.fcm-headline[data-state="good"]{color:var(--good)}.fcm-headline[data-state="bad"]{color:var(--bad)}.fcm-headline[data-state="warn"]{color:var(--warn)}
+#verdict.fcm-headline{background:none;padding:0;border:0;border-radius:0;font-size:23px}
+.fcm-copy{white-space:pre-line;overflow-wrap:anywhere;margin:0 0 14px;color:var(--muted);font-size:13px;line-height:1.6}
+.fcm-actions{display:grid;gap:8px}.fcm-actions button{width:100%}
+.fcm-link{display:flex;justify-content:space-between;align-items:center;gap:10px;text-align:left;width:100%;margin-top:9px;padding:10px 2px;border:0;border-radius:0;background:transparent}
+.fcm-link + .fcm-link{margin-top:0;border-top:1px solid var(--line)}
+.fcm-link span{display:block}.fcm-link .small{font-weight:400}.fcm-link::after{content:"›";font-size:20px;color:var(--muted)}
+.native-events{list-style:none;margin:12px 0 0;padding:0;font-size:13px}
+.native-events li{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:3px 8px;padding:8px 0;border-bottom:1px solid var(--line)}
+.native-events li:last-child{border-bottom:0}
+.native-events .event-detail{grid-column:1/-1;color:var(--muted);overflow-wrap:anywhere}
+.native-events time{color:var(--muted);font-size:12px}
+[hidden]{display:none!important}
+
 .section-gap{margin-top:12px}.card h2{font-size:16px}
 .bottom-nav{position:fixed;z-index:10;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--line);padding:5px 10px calc(5px + env(safe-area-inset-bottom))}
 .nav-inner{max-width:660px;margin:auto;display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
@@ -69,11 +84,11 @@ body{padding-bottom:calc(78px + env(safe-area-inset-bottom))}
 <header class="page-header"><h1 id="pageTitle">BerryFCM</h1><div id="pageSubtitle" class="small">For OriginOS7 · KernelSU Root</div></header>
 <main>
 <section id="page-overview">
-  <article class="card hero"><div class="small">FCM 监控</div><h2 id="overviewStatus" aria-live="polite">等待有效检查</h2><p class="small" id="overviewMeta">正在读取 GMS 原生状态…</p><div class="button-row"><button class="primary" id="check">立即检查</button><button data-open="monitor">查看连接详情</button></div></article>
-  <article class="card"><h2>常用功能</h2><div class="button-row section-gap"><button data-open="guard">应用守护</button><button data-open="settings">网络诊断</button></div></article>
+  <article class="card"><h2>FCM 监控</h2><p class="hint">检查 Google 推送连接是否正常</p><div class="fcm-headline" id="overviewStatus" aria-live="polite">等待有效检查</div><p class="fcm-copy" id="overviewMeta">正在读取 GMS 原生状态…</p><div class="fcm-actions"><button class="primary" id="check">立即检查</button></div><button class="fcm-link" data-open="monitor"><span>监控详情<span class="small">连接状态与断开记录</span></span></button></article>
+  <article class="card"><h2>常用功能</h2><button class="fcm-link" data-open="guard"><span>应用守护<span class="small">所选应用检查与恢复</span></span></button><button class="fcm-link" data-open="settings"><span>网络诊断<span class="small">Google 原生诊断和 TCP 可达性</span></span></button></article>
 </section>
 <section id="page-monitor" hidden>
-<section class="card"><h2>当前状态</h2><div id="verdict" aria-live="polite">等待有效检查</div><p class="conn-note" id="connNote">正在读取 GMS 原生状态…</p><div class="button-row"><button class="primary" id="reconnect">请求重连</button><button id="monitorCheck">立即检查</button></div><details><summary>连接详情</summary>
+<section class="card"><h2>当前状态</h2><p class="hint">在后台检查 FCM 连接是否正常。</p><div id="verdict" class="fcm-headline" aria-live="polite">等待有效检查</div><p class="fcm-copy" id="connNote">正在读取 GMS 原生状态…</p><div class="fcm-actions"><button class="primary" id="monitorCheck">立即检查</button><button id="reconnect" hidden>尝试恢复断开的连接</button></div><p class="hint" id="reconnectHint"></p><p class="hint" id="manualResult" aria-live="polite" hidden></p><details><summary>连接详情</summary>
   <div class="status"><span class="dot" id="dgms"></span><span>Google Play 服务</span><span class="value" id="vgms">—</span></div>
   <div class="status"><span class="dot" id="dstop"></span><span>应用停止状态</span><span class="value" id="vstop">—</span></div>
   <div class="status"><span class="dot" id="dproc"></span><span>GMS 主进程</span><span class="value" id="vproc">—</span></div>
@@ -82,7 +97,7 @@ body{padding-bottom:calc(78px + env(safe-area-inset-bottom))}
   <div class="status"><span class="dot" id="drecv"></span><span>GMS 广播接收器（诊断）</span><span class="value" id="vrecv">—</span></div>
 </details></section>
 <section class="card" id="fcmTimeline"><div class="head"><h2>最新事件</h2><button id="loadEvents">刷新记录</button></div>
-  <pre class="section-gap" id="nativeEvents">正在读取 GMS 原生事件…</pre><details><summary>连接时间线</summary><div class="timeline-grid">
+  <p class="hint">显示最近 6 条 GMS 原生事件。</p><ul class="native-events" id="nativeEvents"><li>正在读取 GMS 原生事件…</li></ul><details><summary>历史事件</summary><pre id="nativeHistory">暂无历史记录</pre></details><details><summary>连接时间线</summary><div class="timeline-grid">
     <div class="status"><span>本次连接开始</span><span class="value" id="tSince">—</span></div>
     <div class="status"><span>GMS 连接计时</span><span class="value" id="tConnected">—</span></div>
     <div class="status"><span>最近断开时间</span><span class="value" id="tDown">—</span></div>
@@ -122,7 +137,7 @@ body{padding-bottom:calc(78px + env(safe-area-inset-bottom))}
 <article class="card"><h2>系统设置与快捷功能</h2><div class="button-row section-gap"><button id="autostart">自启动管理</button><button id="notif">GMS 通知设置</button></div></article>
 <section class="card"><div class="head"><h2>检查日志</h2><div class="logtools"><button id="loadlog">后台日志</button><button id="copy">复制</button></div></div><pre id="log">等待操作…</pre></section>
 
-<footer>BerryFCM · KernelSU v0.5.12-test</footer>
+<footer>BerryFCM · KernelSU v0.5.13-test</footer>
 </section></main>
 <nav class="bottom-nav" aria-label="主导航"><div class="nav-inner"><button data-page="overview" aria-current="page">概览</button><button data-page="monitor">监控</button><button data-page="guard">守护</button><button data-page="settings">设置</button></div></nav>
 <div class="picker" id="appPicker" hidden><div class="picker-card" role="dialog" aria-modal="true" aria-label="选择守护应用"><div class="head"><h2 style="margin:0">选择守护应用 · 可多选</h2><button id="closePicker">完成</button></div><div class="picker-tools"><input id="appSearch" placeholder="搜索应用名称或包名" autocomplete="off"></div><label class="small"><input id="includeSystem" type="checkbox" style="min-width:auto;flex:none"> 包含系统应用</label><div class="hint" id="appCount" style="margin:6px 0">正在读取应用列表…</div><div class="picker-results" id="appResults"></div></div></div>
@@ -214,18 +229,45 @@ body{padding-bottom:calc(78px + env(safe-area-inset-bottom))}
        const r=await exec("/system/bin/sh "+MON+" "+action);
        if(r.code!==0)throw Error(r.stderr||("退出码 "+r.code));
        const lines=r.stdout.trim().split(/\r?\n/).filter(Boolean).reverse();
-       const recent=id==="nativeEvents"?lines.slice(0,6):lines;
-       $(id).textContent=recent.map(line=>{
+       const records=lines.map(line=>{
          const [time,kind,...message]=line.split("|");
-         return kind?`${/^\d+$/.test(time)?fullTime(Number(time)):time}  ${labels[kind]||kind}  ${message.join("|")}`:line;
-       }).join("\n")||"暂无记录";
-     }catch(error){$(id).textContent="读取记录失败："+error.message}
+         return {time:/^\d+$/.test(time)?fullTime(Number(time)):time,
+           title:kind?(labels[kind]||kind):line,detail:message.join("|")};
+       });
+       const plain=records.map(e=>[e.time,e.title,e.detail].join("  ")).join("\n")||"暂无记录";
+       if(id==="nativeEvents"){
+         $("nativeHistory").textContent=plain;
+         renderNativeEvents(records.slice(0,6),"暂无记录");
+       }else $(id).textContent=plain;
+     }catch(error){
+       const message="读取记录失败："+error.message;
+       if(id==="nativeEvents"){renderNativeEvents([],message);$("nativeHistory").textContent=message}
+       else $(id).textContent=message;
+     }
    }
+ }
+ function renderNativeEvents(records,emptyText){
+   const list=$("nativeEvents");
+   list.textContent="";
+   for(const event of records){
+     const row=document.createElement("li"),title=document.createElement("strong"),time=document.createElement("time");
+     title.textContent=event.title;
+     time.textContent=event.time;
+     row.append(title,time);
+     if(event.detail&&event.detail!=="net=1: Connected"){
+       const detail=document.createElement("span");
+       detail.className="event-detail";detail.textContent=event.detail;row.append(detail);
+     }
+     list.append(row);
+   }
+   if(!records.length){const item=document.createElement("li");item.textContent=emptyText;list.append(item)}
  }
  function showCheckError(message){
    $("overviewStatus").textContent=$("verdict").textContent="连接检查失败";
    $("overviewMeta").textContent=$("connNote").textContent=message;
-   $("verdict").dataset.state="warn";
+   $("verdict").dataset.state=$("overviewStatus").dataset.state="warn";
+   $("reconnect").hidden=true;
+   $("reconnectHint").textContent="请先完成有效检查。";
    $("bridge").textContent="检查失败";$("bridgeNote").textContent=message;
  }
 
@@ -248,13 +290,28 @@ body{padding-bottom:calc(78px + env(safe-area-inset-bottom))}
    const reasons={permission_denied:"GMS 拒绝读取原生状态",timeout:"GMS 状态读取超时",service_unavailable:"GMS 连接服务尚未运行",dump_failed:"读取 GMS 失败",empty:"GMS 没有返回状态",unrecognized:"未识别到 GMS 原生连接状态",gms_stopped:"Google Play 服务已停止"};
    $("bridge").textContent="KernelSU Root";
    $("bridgeNote").textContent=failed?`UID 0 已授权，连接检查退出码：${j.fcm_check_exit}。详见检查日志。`:"UID 0 已授权";
-   $("connNote").textContent=failed?$("bridgeNote").textContent
-     :j.fcm_check_exit===13?"后台正在检查，当前显示最近采样。":connected
-     ?`GMS 计时：${j.fcm_native_duration>=0?durationText(j.fcm_native_duration):'待确认'} · ${j.fcm_transport?j.fcm_transport.toUpperCase().replace('TCP','TCP '):'线路待确认'}`
+   $('overviewStatus').dataset.state=$('verdict').dataset.state;
+   const canRecover=down&&j.fcm_source==='gms'&&!failed&&j.gms_stopped!==1;
+   const recent=j.fcm_sample_time>0?fullTime(j.fcm_sample_time)
+     +(j.fcm_sample_age_seconds>=0?'（'+j.fcm_sample_age_seconds+' 秒前）':''):'暂无';
+   const nativeSeconds=Number(j.fcm_native_duration);
+   const observedSeconds=Number(j.fcm_observed_up_seconds);
+   const duration=connected?(nativeSeconds>0?'GMS 计时：'+durationText(nativeSeconds)
+       :observedSeconds>0?'已观察在线：'+durationText(observedSeconds):'连接时长：待确认')
+     :down&&nativeSeconds>=0?'未连接计时：'+durationText(nativeSeconds):'';
+   const background=j.guard===1?'后台监控已开启':'后台监控未开启';
+   const detail=failed?$("bridgeNote").textContent
+     :j.fcm_check_exit===13?"后台正在检查，当前显示最近采样。"
+     :connected?''
      :fstate==='stale'?'采样已过期。深睡期间巡检可能延迟。'
-     :down?`恢复按原生状态二次确认。退避剩余：${durationText(j.fcm_retry_in)}。`
-     :`${reasons[j.fcm_native_reason]||'等待 GMS 原生读数'}。${hints[j.fcm_tcp_hint]||''}`;
-   $('overviewMeta').textContent=$('connNote').textContent;
+     :down?'退避剩余：'+durationText(j.fcm_retry_in)
+     :(reasons[j.fcm_native_reason]||'等待 GMS 原生读数')+'。'+(hints[j.fcm_tcp_hint]||'');
+   $('overviewMeta').textContent=[background,'最近检查：'+recent,duration,detail].filter(Boolean).join('\n');
+   $('connNote').textContent=['最近检查：'+recent,duration,background,
+     connected&&j.fcm_transport?'连接方式：'+j.fcm_transport.toUpperCase().replace('TCP','TCP '):'',detail].filter(Boolean).join('\n');
+   $('reconnect').hidden=!canRecover;
+   $('reconnectHint').textContent=canRecover?'仅向 Google 推送请求恢复，结果见下方记录。'
+     :connected?'当前已连接，无需恢复。':'尚未确认断开，可先点「立即检查」。';
    row('doze',j.doze===1?'good':'warn',j.doze===1?'已放行':j.doze===0?'未放行':'无法读取');
    row('data',j.data_saver===1?'warn':j.data_saver===0?'good':'warn',j.data_saver===1?'已启用':j.data_saver===0?'未启用':'未知');
    row('net',j.net_allowed===1?'good':'warn',j.net_allowed===1?'已放行':j.net_allowed===0?'未放行':'无法读取');
@@ -415,7 +472,7 @@ body{padding-bottom:calc(78px + env(safe-area-inset-bottom))}
  $('netAction').onclick=()=>job(async()=>{await run('policy net '+(policySnapshot&&policySnapshot.net_owned?'undo':'add'));await check()});
  $('check').onclick=$('monitorCheck').onclick=()=>job(check);
  $('fix').onclick=()=>job(async()=>{await run('fix');await check()});
- $('reconnect').onclick=()=>job(async()=>{const r=await exec('/system/bin/sh '+MON+' reconnect');if(r.stdout.trim())append(r.stdout.trim());if(r.stderr.trim())append('错误: '+r.stderr.trim());await check()});
+ $('reconnect').onclick=()=>job(async()=>{const r=await exec('/system/bin/sh '+MON+' reconnect');const result=r.stdout.trim()||r.stderr.trim();$('manualResult').hidden=!result;$('manualResult').textContent=result;if(result)append(result);await check()});
  $('watch').onclick=()=>job(async()=>{append('开始 90 秒监视，结束后更新状态');await run('watch');await check()});
  $('add').onclick=()=>job(async()=>{const p=q($('pkg').value.trim());await run('targets add '+p);$('pkg').value='';await loadTargets()});
  $('reset').onclick=()=>job(async()=>{await run('targets reset');await loadTargets()});
