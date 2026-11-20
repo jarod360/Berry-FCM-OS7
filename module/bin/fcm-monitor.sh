@@ -180,7 +180,8 @@ parse_mcs() {
         r=0; for(i=1;i<=n;i++){if(a[i]!~/^[0-9]+$/ || (i>1 && a[i]+0>=60))return -1; r=r*60+a[i]}
         return r
       }
-      function endpoint(v) {return v ~ /^[A-Za-z0-9.\/:\[\]_-]+$/ ? v : ""}
+      # POSIX bracket ordering works in BusyBox awk as well as system awk.
+      function endpoint(v) {return v ~ /^[][A-Za-z0-9.\/:_-]+$/ ? v : ""}
       {
         sub(/\r$/, ""); line=$0; sub(/^[[:space:]]+/, "",line); sub(/[[:space:]]+$/, "",line)
         # GMS headings vary. When no native heading exists, accept exact
