@@ -276,7 +276,7 @@ need 'code != expectedVersion' "$src/UpdateActivity.java"
 # Concentrated regression: identity, optional vendor permission evidence and release promotion.
 need 'source version.properties' "$root/.github/workflows/build-apk.yml"
 need 'versionName releaseVersion.getProperty' "$root/app/build.gradle"
-need 'prefs.watchdogMinutes() * 60_000L' "$src/MonitorWatchdog.java"
+need 'prefs.watchdogMinutes() [*] 60_000L' "$src/MonitorWatchdog.java"
 need 'MonitorWatchdog.reschedule(this)' "$src/BackgroundActivity.java"
 need 'requireShellIdentity(PrivKitShell.execute(context, "id"), false)' "$src/PrivilegeAccess.java"
 # Old private/OEM or duplicate settings assertion removed.
