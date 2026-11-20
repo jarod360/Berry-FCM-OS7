@@ -319,6 +319,13 @@ case "${1:-}" in
         ;;
     policy) policy "${2:-}" "${3:-}" ;;
     links) link "${2:-}" "${3:-}" ;;
-    log) [ -f "$DATA/guard.log" ] && tail -n 100 "$DATA/guard.log" || echo '暂无守护日志' ;;
+    log)
+        [ ! -f "$DATA/wake-timer.log" ] || {
+            echo '== 定时器记录（UTC） =='
+            tail -n 45 "$DATA/wake-timer.log"
+        }
+        echo '== GMS 巡检记录（本地时间） =='
+        [ -f "$DATA/guard.log" ] && tail -n 100 "$DATA/guard.log" || echo '暂无守护日志'
+        ;;
     *) echo 'check|netdiag|fcm-monitor|reconnect|fix|watch|targets|guard|wake-mode|policy|links|log' >&2; exit 2 ;;
 esac

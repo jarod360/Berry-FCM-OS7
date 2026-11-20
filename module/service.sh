@@ -14,31 +14,72 @@ if ! mkdir "$LOCK" 2>/dev/null; then
 fi
 echo $$ > "$LOCK/pid"
 wait_pid=
+timer_pid=
+service_pid=$$
 mode_changed=0
+wake_count=0
+wake_seen=0
 stop_wait() {
     [ -z "$wait_pid" ] || kill "$wait_pid" 2>/dev/null || :
 }
+stop_timer() {
+    [ -n "$timer_pid" ] || return 0
+    kill "$timer_pid" 2>/dev/null || :
+    wait "$timer_pid" 2>/dev/null || :
+    timer_pid=
+}
 stop_service() {
     stop_wait
+    stop_timer
     exit 0
 }
 refresh_mode() {
     mode_changed=1
     stop_wait
 }
+on_timer() {
+    wake_count=$((wake_count + 1))
+    stop_wait
+}
 trap 'rm -rf "$LOCK"' EXIT
 trap stop_service HUP INT TERM
 trap refresh_mode USR1
+trap on_timer USR2
 echo $$ > "$LOCK/wake-pid"
-wait_for() {
-    "$@" &
-    wait_pid=$!
-    [ "$mode_changed" != 1 ] || stop_wait
-    wait "$wait_pid"
-    wait_rc=$?
-    wait_pid=
-    return "$wait_rc"
+
+timer_worker() {
+    # The parent owns the service lock. This worker only owns the native timer.
+    trap - EXIT USR1 USR2
+    alarm_pid=
+    trap 'if [ -n "$alarm_pid" ]; then kill "$alarm_pid" 2>/dev/null; wait "$alarm_pid" 2>/dev/null; fi; exit 0' HUP INT TERM
+    log="$DATA/wake-timer.log"
+    echo timed > "$DATA/wake-status"
+    while [ -e "$MODDIR/module.prop" ] && kill -0 "$service_pid" 2>/dev/null; do
+        "$MODDIR/bin/wake-timer-arm64" >> "$log" 2>&1 &
+        alarm_pid=$!
+        if ! wait "$alarm_pid"; then
+            alarm_pid=
+            echo fallback > "$DATA/wake-status"
+            printf "[%s] 定时器失败，常规巡检继续\n" "$(date "+%F %T")" >> "$log"
+            return 1
+        fi
+        alarm_pid=
+        kill -USR2 "$service_pid" 2>/dev/null || return 0
+        tail -n 120 "$log" > "$log.tmp" && mv -f "$log.tmp" "$log"
+    done
 }
+
+sync_timer() {
+    stop_timer
+    if [ "$(cat "$DATA/enabled" 2>/dev/null)" = 1 ] &&
+       [ "$(cat "$DATA/wake-mode" 2>/dev/null)" = timed ]; then
+        timer_worker &
+        timer_pid=$!
+    else
+        echo passive > "$DATA/wake-status"
+    fi
+}
+
 # Wait for complete startup, no hard dependency on Shizuku.
 n=0
 while [ "$(getprop sys.boot_completed)" != 1 ] && [ "$n" -lt 120 ]; do
@@ -46,12 +87,17 @@ while [ "$(getprop sys.boot_completed)" != 1 ] && [ "$n" -lt 120 ]; do
 done
 # The 30s sleep does not wake a suspended CPU. Resume with a fresh GMS read.
 last_fix=0
-wake_event=0
-timer_failed=0
+mode_changed=1
 while [ -e "$MODDIR/module.prop" ]; do
     if [ "$mode_changed" = 1 ]; then
         mode_changed=0
-        timer_failed=0
+        sync_timer
+    fi
+    wake_event=0
+    pending="$wake_count"
+    if [ "$pending" != "$wake_seen" ]; then
+        wake_event=1
+        wake_seen="$pending"
     fi
     if [ "$(cat "$DATA/enabled" 2>/dev/null)" = 1 ]; then
         now="$(awk '{print int($1)}' /proc/uptime)"
@@ -80,22 +126,11 @@ while [ -e "$MODDIR/module.prop" ]; do
             tail -n 160 "$DATA/guard.log" > "$DATA/guard.log.tmp" && mv -f "$DATA/guard.log.tmp" "$DATA/guard.log"
         fi
     fi
-    wake_event=0
-    [ "$mode_changed" != 1 ] || continue
-    if [ "$(cat "$DATA/enabled" 2>/dev/null)" = 1 ] && [ "$(cat "$DATA/wake-mode" 2>/dev/null)" = timed ]; then
-        if [ "$timer_failed" = 0 ]; then
-            echo timed > "$DATA/wake-status"
-            if wait_for "$MODDIR/bin/wake-timer-arm64" >> "$DATA/guard.log" 2>&1; then
-                wake_event=1
-                continue
-            fi
-            [ "$mode_changed" != 1 ] || continue
-            timer_failed=1
-            printf '[%s] 定时器失败，切回随系统唤醒\n' "$(date '+%F %T')" >> "$DATA/guard.log"
-        fi
-        echo fallback > "$DATA/wake-status"
-    else
-        echo passive > "$DATA/wake-status"
-    fi
-    wait_for sleep 30
+    if [ "$mode_changed" = 1 ] || [ "$wake_count" != "$wake_seen" ]; then continue; fi
+    sleep 30 &
+    wait_pid=$!
+    if [ "$mode_changed" = 1 ] || [ "$wake_count" != "$wake_seen" ]; then stop_wait; fi
+    wait "$wait_pid"
+    wait_pid=
 done
+stop_timer
