@@ -23,12 +23,20 @@ MOCK
 cat > "$TMP/module/bin/wake-timer-arm64" <<'MOCK'
 #!/bin/sh
 echo tick >> "$TEST_DIR/timer"
-[ "$(wc -l < "$TEST_DIR/timer")" = 1 ] && exit 0
+echo 'wake_timer_armed pid=123 delay_s=180'
+if [ "$(wc -l < "$TEST_DIR/timer")" = 1 ]; then
+    echo 'wake_timer_fired pid=123 elapsed_s=180 suspend_s=150 late_s=0'
+    exit 0
+fi
 echo 'timerfd_create: fixture permission denied' >&2
 exit 1
 MOCK
 cat > "$TMP/module/bin/fcm-monitor.sh" <<'MOCK'
-echo "$1" >> "$TEST_DIR/samples"
+if [ "$1" = snapshot ]; then
+    echo '{"fcm_state":"connected","fcm_sample_time":1234,"fcm_recovery_decision":"not_disconnected"}'
+else
+    echo "$1" >> "$TEST_DIR/samples"
+fi
 MOCK
 printf 'exit 0\n' > "$TMP/module/bin/ctl.sh"
 chmod +x "$TMP/bin/"* "$TMP/module/bin/wake-timer-arm64"
@@ -41,6 +49,9 @@ test "$(wc -l < "$TMP/samples")" -eq 2
 test "$(wc -l < "$TMP/timer")" -eq 2
 test "$(cat "$TMP/sleeps")" = 30
 grep -q '3 分钟定时器触发' "$TMP/data/guard.log"
+grep -q 'wake_timer_armed .*delay_s=180' "$TMP/data/guard.log"
+grep -q 'wake_timer_fired .*elapsed_s=180 suspend_s=150 late_s=0' "$TMP/data/guard.log"
+grep -q 'wake_gms_check_finished rc=0 state=connected sample_epoch=1234 recovery=not_disconnected' "$TMP/data/guard.log"
 grep -q 'fixture permission denied' "$TMP/data/guard.log"
 test ! -d "$TMP/data/service.lock"
 echo 'PASS: timed wake samples GMS, failure falls back to passive polling'

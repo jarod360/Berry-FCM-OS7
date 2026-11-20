@@ -3,16 +3,29 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
 const clockBoottimeAlarm = 9
+const clockBoottime = 7
+const clockMonotonic = 1
 const intervalSeconds = 180
 
 type intervalTimer struct {
 	interval syscall.Timespec
 	value    syscall.Timespec
+}
+
+func clockSeconds(id uintptr) (float64, error) {
+	var stamp syscall.Timespec
+	_, _, errno := syscall.Syscall(syscall.SYS_CLOCK_GETTIME, id, uintptr(unsafe.Pointer(&stamp)), 0)
+	if errno != 0 {
+		return 0, errno
+	}
+	return float64(stamp.Sec) + float64(stamp.Nsec)/1e9, nil
 }
 
 func waitForAlarm() error {
@@ -22,12 +35,14 @@ func waitForAlarm() error {
 	}
 	defer syscall.Close(int(fd))
 
+	startBoot, bootErr := clockSeconds(clockBoottime)
+	startActive, activeErr := clockSeconds(clockMonotonic)
 	timer := intervalTimer{value: syscall.Timespec{Sec: intervalSeconds}}
 	_, _, errno = syscall.Syscall6(syscall.SYS_TIMERFD_SETTIME, fd, 0, uintptr(unsafe.Pointer(&timer)), 0, 0, 0)
 	if errno != 0 {
 		return fmt.Errorf("timerfd_settime: %w", errno)
 	}
-	fmt.Println("armed")
+	fmt.Printf("[%s] wake_timer_armed pid=%d delay_s=%d\n", time.Now().UTC().Format(time.RFC3339), os.Getpid(), intervalSeconds)
 	var event [8]byte
 	for {
 		n, err := syscall.Read(int(fd), event[:])
@@ -40,8 +55,25 @@ func waitForAlarm() error {
 		if n != len(event) {
 			return fmt.Errorf("timerfd read: got %d bytes", n)
 		}
-		return nil
+		break
 	}
+	endBoot, endBootErr := clockSeconds(clockBoottime)
+	endActive, endActiveErr := clockSeconds(clockMonotonic)
+	elapsed, suspended, late := "unknown", "unknown", "unknown"
+	if bootErr == nil && endBootErr == nil {
+		delta := endBoot - startBoot
+		elapsed = fmt.Sprintf("%.3f", delta)
+		late = fmt.Sprintf("%.3f", max(0, delta-intervalSeconds))
+		if activeErr == nil && endActiveErr == nil {
+			suspended = fmt.Sprintf("%.3f", max(0, delta-(endActive-startActive)))
+		}
+	}
+	fmt.Printf("[%s] wake_timer_fired pid=%d elapsed_s=%s suspend_s=%s late_s=%s\n",
+		time.Now().UTC().Format(time.RFC3339), os.Getpid(), elapsed, suspended, late)
+	if reason, err := os.ReadFile("/sys/kernel/wakeup_reasons/last_resume_reason"); err == nil {
+		fmt.Printf("wake_timer_last_kernel_reason pid=%d reason=%q\n", os.Getpid(), strings.TrimSpace(string(reason)))
+	}
+	return nil
 }
 
 func main() {
