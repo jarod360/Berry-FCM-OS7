@@ -136,7 +136,7 @@ scan_sockets() {
     printf '%s\n' "$raw" | awk -v u="$uid" '
       ($1=="ESTAB" || $1=="ESTABLISHED") {
         if (!match($0,/uid:[0-9]+/)) next
-        owner=substr($0,RSTART+4,RLENGTH-4)+0; if(owner%100000!=u%100000) next
+        owner=substr($0,RSTART+4,RLENGTH-4)+0; if(owner!=u+0) next
         peer=$5; port=peer; sub(/^.*:/,"",port)
         if(port==5228 || port==5229 || port==5230){ip=peer;sub(/:[0-9]+$/,"",ip);gsub(/^\[|\]$/,"",ip);sub(/^::ffff:/,"",ip);print tolower(ip)}
       }' >> "$LEARNED_IPS"
@@ -149,7 +149,7 @@ scan_sockets() {
       function known(v){return index(ips,"|" normip(v) "|")>0}
       ($1=="ESTAB" || $1=="ESTABLISHED" || $1=="SYN-SENT" || $1=="SYN_SENT") {
         if (!match($0,/uid:[0-9]+/)) next
-        owner=substr($0,RSTART+4,RLENGTH-4)+0; if(owner%100000!=u%100000) next
+        owner=substr($0,RSTART+4,RLENGTH-4)+0; if(owner!=u+0) next
         peer=$5; port=peer; sub(/^.*:/,"",port); ip=normip(peer); local=$4
         inode=""; if(match($0,/ino:[0-9]+/)) inode=substr($0,RSTART+4,RLENGTH-4)
         key=local ">" peer "#" inode

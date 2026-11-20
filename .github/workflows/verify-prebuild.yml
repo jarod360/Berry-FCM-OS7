@@ -2,7 +2,7 @@ name: BerryFCM pre-build source and functional gates
 
 on:
   push:
-    branches: [dev/issues-1-2-wake-ui-20261119]
+    branches: [main, release/1.0-rc.1]
     paths:
       - 'app/**'
       - 'tests/**'

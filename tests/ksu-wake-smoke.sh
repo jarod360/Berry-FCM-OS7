@@ -25,7 +25,7 @@ fi
 MOCK
 cat > "$TMP/module/bin/wake-timer-arm64" <<'MOCK'
 #!/bin/sh
-echo tick >> "$TEST_DIR/timer"
+echo "$1" >> "$TEST_DIR/timer"
 echo 'wake_timer_armed pid=123 delay_s=180'
 if [ -e "$TEST_DIR/block-timer" ]; then
     echo "$$" > "$TEST_DIR/alarm-pid"
@@ -55,8 +55,9 @@ timeout 8 sh "$TMP/module/service.sh"
 test "$(cat "$TMP/data/wake-status")" = fallback
 test "$(wc -l < "$TMP/samples")" -ge 3
 test "$(wc -l < "$TMP/timer")" -eq 2
+grep -qx 3 "$TMP/timer"
 test -s "$TMP/sleeps"
-grep -q '3 分钟定时器触发' "$TMP/data/guard.log"
+grep -q '定时器触发' "$TMP/data/guard.log"
 grep -q 'wake_timer_armed .*delay_s=180' "$TMP/data/wake-timer.log"
 grep -q 'wake_timer_fired .*elapsed_s=180 suspend_s=150 late_s=0' "$TMP/data/wake-timer.log"
 grep -q 'wake_gms_check_finished rc=0 state=connected sample_epoch=1234 recovery=not_disconnected' "$TMP/data/guard.log"
@@ -64,13 +65,14 @@ grep -q 'fixture permission denied' "$TMP/data/wake-timer.log"
 test ! -d "$TMP/data/service.lock"
 
 touch "$TMP/block-timer" "$TMP/module/module.prop"
+echo 10 > "$TMP/data/wake-minutes"
 : > "$TMP/samples"
 : > "$TMP/timer"
 : > "$TMP/data/guard.log"
 : > "$TMP/data/wake-timer.log"
 timeout 8 sh "$TMP/module/service.sh"
 test "$(wc -l < "$TMP/samples")" -ge 3
-test "$(wc -l < "$TMP/timer")" -eq 1
+test "$(cat "$TMP/timer")" = 10
 ! grep -q 'wake_timer_fired' "$TMP/data/wake-timer.log"
 ! kill -0 "$(cat "$TMP/alarm-pid")" 2>/dev/null
 test ! -d "$TMP/data/service.lock"

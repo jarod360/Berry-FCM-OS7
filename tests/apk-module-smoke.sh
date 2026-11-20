@@ -130,8 +130,6 @@ need 'shellVerified' "$src/PrivilegeAccess.java"
 need 'shell_verified_elapsed' "$src/AppPrefs.java"
 need 'Math.abs(wallAge - elapsedAge)' "$src/AppPrefs.java"
 need 'R.drawable.ic_bf_fcm' "$src/Ui.java"
-need 'BerryFCM-v0.1.0-alpha' "$root/.github/workflows/build-apk.yml"
-need 'BerryFCM-Guardian-v0.1.0-alpha' "$root/.github/workflows/build-apk.yml"
 for asset in home fcm guard battery settings auth update diagnostics alert; do
   test -s "$root/app/src/main/res/drawable/ic_bf_$asset.xml" || {
     echo "Missing Material icon: $asset" >&2; exit 1;
@@ -156,7 +154,6 @@ need 'readAppOp' "$src/BackgroundSettings.java"
 need '恢复未通过回读' "$src/BackgroundSettings.java"
 need 'areNotificationsEnabled' "$src/AuthActivity.java"
 need 'AppTask' "$src/RecentTasks.java"
-need 'gh release create' "$root/.github/workflows/build-apk.yml"
 
 for old in AccessibilityOps RestoreService RestoreTileService; do
   test ! -e "$src/$old.java" || { echo "Obsolete accessibility component: $old" >&2; exit 1; }
@@ -277,14 +274,15 @@ need 'if (!resumed) return' "$src/UpdateActivity.java"
 need 'code != expectedVersion' "$src/UpdateActivity.java"
 
 # Concentrated regression: identity, optional vendor permission evidence and release promotion.
+need 'source version.properties' "$root/.github/workflows/build-apk.yml"
+need 'versionName releaseVersion.getProperty' "$root/app/build.gradle"
+need 'prefs.watchdogMinutes() * 60_000L' "$src/MonitorWatchdog.java"
+need 'MonitorWatchdog.reschedule(this)' "$src/BackgroundActivity.java"
 need 'requireShellIdentity(PrivKitShell.execute(context, "id"), false)' "$src/PrivilegeAccess.java"
 # Old private/OEM or duplicate settings assertion removed.
 # Old private/OEM or duplicate settings assertion removed.
 # Old private/OEM or duplicate settings assertion removed.
 # Removed bulk AppOps diagnostic; negative guard at end of file.
-need 'accepted_run_id' "$root/.github/workflows/build-apk.yml"
-need 'gh run download "$RUN_ID"' "$root/.github/workflows/build-apk.yml"
-need 'Promote existing signed APK' "$root/.github/workflows/build-apk.yml"
 
 need 'PendingIntent.getService(this, 10, reply' "$src/AdbPairingService.java"
 need 'setTimeoutAfter(15000L)' "$src/AdbPairingService.java"

@@ -75,6 +75,14 @@ final class AppPrefs {
             throw new IllegalArgumentException("Invalid CPU wake mode");
         p.edit().putString("wake_mode", mode).apply();
     }
+    int watchdogMinutes() {
+        int minutes = p.getInt("watchdog_minutes", 1);
+        return minutes >= 1 && minutes <= 10 ? minutes : 1;
+    }
+    void watchdogMinutes(int minutes) {
+        if (minutes < 1 || minutes > 10) throw new IllegalArgumentException("Invalid watchdog interval");
+        p.edit().putInt("watchdog_minutes", minutes).apply();
+    }
     boolean monitorEnabled() { return p.getBoolean("monitor_enabled", false); }
     void monitorEnabled(boolean value) { p.edit().putBoolean("monitor_enabled", value).apply(); }
     void enableMonitorOnFirstAuthorization() {

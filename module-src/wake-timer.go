@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -13,7 +14,6 @@ import (
 const clockBoottimeAlarm = 9
 const clockBoottime = 7
 const clockMonotonic = 1
-const intervalSeconds = 180
 
 type intervalTimer struct {
 	interval syscall.Timespec
@@ -29,7 +29,7 @@ func clockSeconds(id uintptr) (float64, error) {
 	return float64(stamp.Sec) + float64(stamp.Nsec)/1e9, nil
 }
 
-func waitForAlarm() error {
+func waitForAlarm(intervalSeconds int64) error {
 	fd, _, errno := syscall.Syscall(syscall.SYS_TIMERFD_CREATE, clockBoottimeAlarm, syscall.O_CLOEXEC, 0)
 	if errno != 0 {
 		return fmt.Errorf("timerfd_create: %w", errno)
@@ -71,7 +71,7 @@ func waitForAlarm() error {
 	if bootErr == nil && endBootErr == nil {
 		delta := endBoot - startBoot
 		elapsed = fmt.Sprintf("%.3f", delta)
-		late = fmt.Sprintf("%.3f", max(0, delta-intervalSeconds))
+		late = fmt.Sprintf("%.3f", max(0, delta-float64(intervalSeconds)))
 		if activeErr == nil && endActiveErr == nil {
 			suspended = fmt.Sprintf("%.3f", max(0, delta-(endActive-startActive)))
 		}
@@ -85,7 +85,16 @@ func waitForAlarm() error {
 }
 
 func main() {
-	if err := waitForAlarm(); err != nil {
+	if len(os.Args) != 2 {
+		fmt.Fprintln(os.Stderr, "usage: wake-timer-arm64 <minutes: 1–10>")
+		os.Exit(2)
+	}
+	minutes, err := strconv.ParseInt(os.Args[1], 10, 64)
+	if err != nil || minutes < 1 || minutes > 10 {
+		fmt.Fprintln(os.Stderr, "wake interval must be between 1 and 10 minutes")
+		os.Exit(2)
+	}
+	if err := waitForAlarm(minutes * 60); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

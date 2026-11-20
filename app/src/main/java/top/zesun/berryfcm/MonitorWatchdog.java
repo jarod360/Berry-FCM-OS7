@@ -10,13 +10,12 @@ import android.os.PowerManager;
 
 /**
  * Backup wake-up path when a foreground monitor process stops or stalls.
- * In Doze, Android may throttle a 60-second request for several minutes.
+ * In Doze, Android may delay a requested alarm for several minutes.
  * In smart mode, an already-dispatched check receives a bounded CPU lease;
  * in continuous mode the service also holds a long-lived CPU lease.
  */
 public final class MonitorWatchdog extends BroadcastReceiver {
     private static final String ACTION = "top.zesun.berryfcm.MONITOR_WATCHDOG";
-    private static final long DELAY_MS = 60_000L;
     private static PowerManager.WakeLock handoff;
 
     /** Holds the CPU only until the service worker acquires its bounded lease. */
@@ -54,8 +53,7 @@ public final class MonitorWatchdog extends BroadcastReceiver {
         }
         AlarmManager alarms = context.getSystemService(AlarmManager.class);
         if (alarms == null) return;
-        // Request 60 seconds, never claim it fires in 60 seconds under Doze.
-        long due = SystemClock.elapsedRealtime() + DELAY_MS;
+        long due = SystemClock.elapsedRealtime() + prefs.watchdogMinutes() * 60_000L;
         android.content.SharedPreferences state =
                 context.getSharedPreferences("berry_fcm_watchdog", Context.MODE_PRIVATE);
         if (operation(context, PendingIntent.FLAG_NO_CREATE) != null
@@ -63,6 +61,11 @@ public final class MonitorWatchdog extends BroadcastReceiver {
         alarms.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP,
                 due, operation(context, PendingIntent.FLAG_UPDATE_CURRENT));
         state.edit().putLong("due_elapsed", due).apply();
+    }
+
+    static void reschedule(Context context) {
+        cancel(context);
+        schedule(context);
     }
 
     static void cancel(Context context) {

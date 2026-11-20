@@ -172,25 +172,20 @@ check() {
     esac
     wake_status="$(cat "$DATA/wake-status" 2>/dev/null)"
     case "$wake_status" in timed|fallback|passive|cgroup_failed) :;; *) wake_status=passive;; esac
-    printf '{"probe":%s,"gms_installed":%s,"gms_stopped":%s,"gcm_persistent":%s,"mcs":%s,"receivers":%s,"guard":%s,"doze":%s,"doze_owned":%s,"data_saver":%s,"net_allowed":%s,"net_owned":%s,"notification":%s,"fcm_check_exit":%s,"wake_mode":"%s","wake_status":"%s","targets":[%s],%s\n' "$probe" "$g" "$s" "$proc" "$mc" "$recv" "$auto" "$dz" "$dz_owned" "$ns" "$na" "$na_owned" "$nt" "$monitor_rc" "$(wake_mode)" "$wake_status" "$items" "${native#\{}"
+    wake_minutes="$(cat "$DATA/wake-minutes" 2>/dev/null)"
+    case "$wake_minutes" in [1-9]|10) :;; *) wake_minutes=3;; esac
+    printf '{"probe":%s,"gms_installed":%s,"gms_stopped":%s,"gcm_persistent":%s,"mcs":%s,"receivers":%s,"guard":%s,"doze":%s,"doze_owned":%s,"data_saver":%s,"net_allowed":%s,"net_owned":%s,"notification":%s,"fcm_check_exit":%s,"wake_mode":"%s","wake_status":"%s","wake_minutes":%s,"targets":[%s],%s\n' "$probe" "$g" "$s" "$proc" "$mc" "$recv" "$auto" "$dz" "$dz_owned" "$ns" "$na" "$na_owned" "$nt" "$monitor_rc" "$(wake_mode)" "$wake_status" "$wake_minutes" "$items" "${native#\{}"
 }
 heartbeat() {
-    ok=0
-    for spec in \
-       '-a com.google.android.intent.action.MCS_HEARTBEAT -p com.google.android.gms' \
-       '-a com.google.android.gms.gcm.ACTION_HEARTBEAT_NOW -p com.google.android.gms' \
-       '-a com.google.android.gcm.intent.SEND -n com.google.android.gms/.gcm.GcmSenderProxy'; do
-        # Only hardcoded strings above are expanded into arguments.
-        # shellcheck disable=SC2086
-        out="$(am broadcast --user 0 $spec 2>&1)"
-        if printf '%s\n' "$out" | grep -q 'Broadcast completed: result=0'; then
-            echo "心跳成功: $spec"
-        else
-            echo "心跳未确认: $spec ($out)"
-            ok=1
-        fi
-    done
-    return "$ok"
+    out="$(am broadcast --user 0 -a com.google.android.intent.action.MCS_HEARTBEAT -p "$GMS" 2>&1)"
+    rc=$?
+    if [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -q 'Broadcast completed: result=0' &&
+        ! printf '%s\n' "$out" | grep -qiE 'Permission Denial|SecurityException|not allowed'; then
+        echo '已请求 GMS 心跳'
+    else
+        echo "GMS 心跳请求未确认：$out"
+        return 1
+    fi
 }
 fix() {
     changed=0; failed=0; count=0
@@ -295,6 +290,15 @@ case "${1:-}" in
             *) echo 'targets list|add|remove|reset' >&2; exit 2 ;;
         esac
         ;;
+    wake-minutes)
+        case "${2:-}" in
+            [1-9]|10)
+                printf '%s\n' "$2" > "$DATA/wake-minutes.$$" &&
+                    mv -f "$DATA/wake-minutes.$$" "$DATA/wake-minutes" || exit 1
+                refresh_guard ;;
+            *) echo 'wake-minutes 1–10' >&2; exit 2 ;;
+        esac
+        ;;
     wake-mode)
         case "${2:-}" in
             passive|timed)
@@ -327,5 +331,5 @@ case "${1:-}" in
         echo '== GMS 巡检记录（本地时间） =='
         [ -f "$DATA/guard.log" ] && tail -n 100 "$DATA/guard.log" || echo '暂无守护日志'
         ;;
-    *) echo 'check|netdiag|fcm-monitor|reconnect|fix|watch|targets|guard|wake-mode|policy|links|log' >&2; exit 2 ;;
+    *) echo 'check|netdiag|fcm-monitor|reconnect|fix|watch|targets|guard|wake-mode|wake-minutes|policy|links|log' >&2; exit 2 ;;
 esac

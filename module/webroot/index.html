@@ -78,17 +78,39 @@ body{padding-bottom:calc(78px + env(safe-area-inset-bottom))}
 .theme-options input{flex:none;accent-color:var(--accent)}
 .wake-control{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px}
 .wake-control select{max-width:60%}
+.icon-defs{position:absolute;width:0;height:0;overflow:hidden;pointer-events:none}
+.ui-icon{width:18px;height:18px;flex:none;color:inherit;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;vertical-align:-.22em}
+.card h2>.ui-icon{margin-right:7px;color:var(--accent)}
+button>.ui-icon{margin-right:5px}.fcm-link>.ui-icon{color:var(--accent)}
+.fcm-link>span{flex:1}.bottom-nav button{display:grid;justify-items:center;align-content:center;gap:3px;min-height:51px}
+.bottom-nav button>.ui-icon{margin:0}
 </style>
 </head>
 <body>
+<!-- Outlined glyphs from the APK ic_bf_* VectorDrawables. -->
+<svg xmlns="http://www.w3.org/2000/svg" class="icon-defs" aria-hidden="true" focusable="false"><symbol id="bf-refresh" viewBox="0 0 24 24"><path d="M20,10 A8,8 0,1 0,18,17 M20,4 V10 H14" stroke-width="2"/></symbol>
+<symbol id="bf-fcm" viewBox="0 0 24 24"><path d="M12,2 L20,5.5 L20,12 C20,17 16.5,20.2 12,22 C7.5,20.2 4,17 4,12 L4,5.5 Z" stroke-width="2"/><path d="M6.5,12 L9.5,12 L11,8.5 L13,16 L14.5,12 L17.5,12" stroke-width="1.8"/></symbol>
+<symbol id="bf-guard" viewBox="0 0 24 24"><path d="M12,2 L20,5.5 V11.5 C20,16.6 16.6,20.1 12,22 C7.4,20.1 4,16.6 4,11.5 V5.5 Z" stroke-width="1.8"/><path d="M8.3,12 L11,14.7 L16,9.7" stroke-width="2"/></symbol>
+<symbol id="bf-diagnostics" viewBox="0 0 24 24"><path d="M4,4 H20 V20 H4 Z" stroke-width="1.8"/><path d="M8,16 V12 M12,16 V8 M16,16 V10" stroke-width="2"/></symbol>
+<symbol id="bf-heartbeat" viewBox="0 0 24 24"><path d="M12,21 C10.6,19.7 2.5,14.3 2.5,9 C2.5,5.8 4.7,3.6 7.7,3.6 C9.6,3.6 11,4.5 12,5.8 C13,4.5 14.4,3.6 16.3,3.6 C19.3,3.6 21.5,5.8 21.5,9 C21.5,14.3 13.4,19.7 12,21 Z" stroke-width="1.8"/><path d="M4,12 L7.7,12 L9.4,9 L11.3,15.2 L13.3,10.2 L14.8,12 L20,12" stroke-width="1.9"/></symbol>
+<symbol id="bf-add" viewBox="0 0 24 24"><path d="M12,3 A9,9 0,1 0,12,21 A9,9 0,1 0,12,3" stroke-width="1.8"/><path d="M12,8 V16 M8,12 H16" stroke-width="2"/></symbol>
+<symbol id="bf-history" viewBox="0 0 24 24"><path d="M3,12a9,9 0,1 1,2.5 6.3M3,5v7h7M12,7v5l3,2" stroke-width="1.8"/></symbol>
+<symbol id="bf-moon" viewBox="0 0 24 24"><path d="M20,15.5 A8.7,8.7 0,0 1,8.5,4 A9,9 0,1 0,20,15.5 Z" stroke-width="1.8"/></symbol>
+<symbol id="bf-network" viewBox="0 0 24 24"><path d="M12,2 A10,10 0,1 0,12,22 A10,10 0,1 0,12,2" stroke-width="1.8"/><path d="M2.5,12 H21.5 M12,2 C6,7 6,17 12,22 M12,2 C18,7 18,17 12,22" stroke-width="1.8"/></symbol>
+<symbol id="bf-device" viewBox="0 0 24 24"><path d="M7,2 H17 Q19,2 19,4 V20 Q19,22 17,22 H7 Q5,22 5,20 V4 Q5,2 7,2 Z" stroke-width="1.8"/><path d="M9,5 H15 M11,19 H13" stroke-width="1.5"/></symbol>
+<symbol id="bf-alert" viewBox="0 0 24 24"><path d="M12,2 A10,10 0,1 0,12,22 A10,10 0,1 0,12,2" stroke-width="1.8"/><path d="M12,7 V13 M12,17 V17.2" stroke-width="2"/></symbol>
+<symbol id="bf-code" viewBox="0 0 24 24"><path d="M9,5 L3,12 L9,19 M15,5 L21,12 L15,19 M13.5,4 L10.5,20" stroke-width="1.8"/></symbol>
+<symbol id="bf-home" viewBox="0 0 24 24"><path d="M3,10.5 L12,3 L21,10.5 V20 H15 V14 H9 V20 H3 Z" stroke-width="1.8"/></symbol>
+<symbol id="bf-settings" viewBox="0 0 24 24"><path d="M12,8 A4,4 0,1 0,12,16 A4,4 0,1 0,12,8" stroke-width="1.8"/><path d="M12,2 V5 M12,19 V22 M2,12 H5 M19,12 H22 M4.9,4.9 L7.1,7.1 M16.9,16.9 L19.1,19.1 M19.1,4.9 L16.9,7.1 M7.1,16.9 L4.9,19.1" stroke-width="2"/></symbol>
+<symbol id="bf-auth" viewBox="0 0 24 24"><path d="M9,7 A4.5,4.5 0,1 0,9,16 A4.5,4.5 0,1 0,9,7" stroke-width="1.8"/><path d="M13,13 H21 V16 H18 V19 H15 V16 H13" stroke-width="1.8"/></symbol></svg>
 <header class="page-header"><h1 id="pageTitle">BerryFCM</h1><div id="pageSubtitle" class="small">For OriginOS7 · KernelSU Root</div></header>
 <main>
 <section id="page-overview">
-  <article class="card"><h2>FCM 监控</h2><p class="hint">检查 Google 推送连接是否正常</p><div class="fcm-headline" id="overviewStatus" aria-live="polite">等待有效检查</div><p class="fcm-copy" id="overviewMeta">正在读取 GMS 原生状态…</p><div class="fcm-actions"><button class="primary" id="check">立即检查</button></div><button class="fcm-link" data-open="monitor"><span>监控详情<span class="small">连接状态与断开记录</span></span></button></article>
-  <article class="card"><h2>常用功能</h2><button class="fcm-link" data-open="guard"><span>应用守护<span class="small">所选应用检查与恢复</span></span></button><button class="fcm-link" data-open="settings"><span>网络诊断<span class="small">Google 原生诊断和 TCP 可达性</span></span></button></article>
+  <article class="card"><h2><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-fcm"></use></svg>FCM 监控</h2><p class="hint">检查 Google 推送连接是否正常</p><div class="fcm-headline" id="overviewStatus" aria-live="polite">等待有效检查</div><p class="fcm-copy" id="overviewMeta">正在读取 GMS 原生状态…</p><div class="fcm-actions"><button class="primary" id="check"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-refresh"></use></svg><span data-label>立即检查</span></button></div><button class="fcm-link" data-open="monitor"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-fcm"></use></svg><span>监控详情<span class="small">连接状态与断开记录</span></span></button></article>
+  <article class="card"><h2>常用功能</h2><button class="fcm-link" data-open="guard"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-guard"></use></svg><span>应用守护<span class="small">所选应用检查与恢复</span></span></button><button class="fcm-link" data-open="settings"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-diagnostics"></use></svg><span>网络诊断<span class="small">Google 原生诊断和 TCP 可达性</span></span></button></article>
 </section>
 <section id="page-monitor" hidden>
-<section class="card"><h2>当前状态</h2><p class="hint">在后台检查 FCM 连接是否正常。</p><div id="verdict" class="fcm-headline" aria-live="polite">等待有效检查</div><p class="fcm-copy" id="connNote">正在读取 GMS 原生状态…</p><div class="fcm-actions"><button class="primary" id="monitorCheck">立即检查</button><button id="reconnect" hidden>尝试恢复断开的连接</button></div><p class="hint" id="reconnectHint"></p><p class="hint" id="manualResult" aria-live="polite" hidden></p><details><summary>连接详情</summary>
+<section class="card"><h2><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-fcm"></use></svg>当前状态</h2><p class="hint">在后台检查 FCM 连接是否正常。</p><div id="verdict" class="fcm-headline" aria-live="polite">等待有效检查</div><p class="fcm-copy" id="connNote">正在读取 GMS 原生状态…</p><div class="fcm-actions"><button class="primary" id="monitorCheck"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-refresh"></use></svg><span data-label>立即检查</span></button><button id="reconnect" hidden><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-heartbeat"></use></svg><span data-label>尝试恢复断开的连接</span></button></div><p class="hint" id="reconnectHint"></p><p class="hint" id="manualResult" aria-live="polite" hidden></p><details><summary>连接详情</summary>
   <div class="status"><span class="dot" id="dgms"></span><span>Google Play 服务</span><span class="value" id="vgms">—</span></div>
   <div class="status"><span class="dot" id="dstop"></span><span>应用停止状态</span><span class="value" id="vstop">—</span></div>
   <div class="status"><span class="dot" id="dproc"></span><span>GMS 主进程</span><span class="value" id="vproc">—</span></div>
@@ -96,7 +118,7 @@ body{padding-bottom:calc(78px + env(safe-area-inset-bottom))}
   <div class="status"><span class="dot" id="dmiss"></span><span>未连接计时</span><span class="value" id="vmiss">—</span></div>
   <div class="status"><span class="dot" id="drecv"></span><span>GMS 广播接收器（诊断）</span><span class="value" id="vrecv">—</span></div>
 </details></section>
-<section class="card" id="fcmTimeline"><div class="head"><h2>最新事件</h2><button id="loadEvents">刷新记录</button></div>
+<section class="card" id="fcmTimeline"><div class="head"><h2><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-history"></use></svg>最新事件</h2><button id="loadEvents"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-refresh"></use></svg><span data-label>刷新记录</span></button></div>
   <p class="hint">显示最近 6 条 GMS 原生事件。</p><ul class="native-events" id="nativeEvents"><li>正在读取 GMS 原生事件…</li></ul><details><summary>历史事件</summary><pre id="nativeHistory">暂无历史记录</pre></details><details><summary>连接时间线</summary><div class="timeline-grid">
     <div class="status"><span>本次连接开始</span><span class="value" id="tSince">—</span></div>
     <div class="status"><span>GMS 连接计时</span><span class="value" id="tConnected">—</span></div>
@@ -114,33 +136,34 @@ body{padding-bottom:calc(78px + env(safe-area-inset-bottom))}
 
 </section>
 <section id="page-guard" hidden>
-<section class="card"><div class="head"><div><h2>自动守护</h2><div class="small">在后台检查 FCM 和已选应用</div></div><label class="toggle"><input id="guard" type="checkbox" aria-label="自动守护" disabled><span class="track"></span></label></div><div class="status"><span class="dot" id="dguard"></span><span>自动守护状态</span><span class="value" id="vguard">—</span></div><div class="status"><span class="dot" id="dtry"></span><span>最近请求重连</span><span class="value" id="vtry">—</span></div><div class="status"><span class="dot" id="dseen"></span><span>最近观察到连接</span><span class="value" id="vseen">—</span></div><p class="hint">仅在确认断联后限频请求恢复。熄屏巡检方式可在「设置 → 后台保活」切换。</p></section>
-<section class="card"><h2>已选择的守护应用</h2><div id="targets" class="small">正在读取…</div><div class="button-row" style="margin-top:10px"><button class="primary" id="chooseApp">添加守护应用</button></div><div class="inline" style="margin-top:10px"><input id="pkg" placeholder="也可以手动填写包名" autocomplete="off"><button id="add">手动添加</button></div><div style="margin-top:9px"><button id="reset">恢复默认 (仅 GMS)</button></div><p class="hint">可连续点选应用，已守护的排在列表顶部；再次点选可取消守护（GMS 除外）。更改立即保存。</p></section>
+<section class="card"><div class="head"><div><h2><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-guard"></use></svg>自动守护</h2><div class="small">在后台检查 FCM 和已选应用</div></div><label class="toggle"><input id="guard" type="checkbox" aria-label="自动守护" disabled><span class="track"></span></label></div><div class="status"><span class="dot" id="dguard"></span><span>自动守护状态</span><span class="value" id="vguard">—</span></div><div class="status"><span class="dot" id="dtry"></span><span>最近请求重连</span><span class="value" id="vtry">—</span></div><div class="status"><span class="dot" id="dseen"></span><span>最近观察到连接</span><span class="value" id="vseen">—</span></div><p class="hint">仅在确认断联后限频请求恢复。熄屏巡检方式可在「设置 → 后台保活」切换。</p></section>
+<section class="card"><h2><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-guard"></use></svg>已选择的守护应用</h2><div id="targets" class="small">正在读取…</div><div class="button-row" style="margin-top:10px"><button class="primary" id="chooseApp"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-add"></use></svg><span data-label>添加守护应用</span></button></div><div class="inline" style="margin-top:10px"><input id="pkg" placeholder="也可以手动填写包名" autocomplete="off"><button id="add"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-add"></use></svg><span data-label>手动添加</span></button></div><div style="margin-top:9px"><button id="reset"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-refresh"></use></svg><span data-label>恢复默认 (仅 GMS)</span></button></div><p class="hint">可连续点选应用，已守护的排在列表顶部；再次点选可取消守护（GMS 除外）。更改立即保存。</p></section>
 
-<article class="card"><details><summary>高级操作 · 90 秒巡检 / GMS 心跳</summary><div class="button-row"><button id="fix">恢复已停止的应用</button><button id="watch">90 秒巡检</button></div></details></article>
+<article class="card"><details><summary>高级操作 · 90 秒巡检 / GMS 心跳</summary><div class="button-row"><button id="fix"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-guard"></use></svg><span data-label>恢复已停止的应用</span></button><button id="watch"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-history"></use></svg><span data-label>90 秒巡检</span></button></div></details></article>
 </section>
 <section id="page-settings" hidden>
-<article class="card"><h2>外观</h2><div class="theme-options" role="group" aria-label="页面主题"><label><input type="radio" name="theme" value="system">跟随系统</label><label><input type="radio" name="theme" value="light">浅色</label><label><input type="radio" name="theme" value="dark">深色</label></div></article>
-<article class="card"><div class="head"><h2>授权状态</h2><span class="pill" id="bridge">正在检查</span></div><p class="hint" id="bridgeNote">正在检查 KernelSU 命令桥接。</p></article>
-<section class="card"><h2>后台保活</h2>
-  <label class="wake-control">熄屏巡检方式 <select id="wakeMode" disabled><option value="passive">随系统唤醒</option><option value="timed">3 分钟定时巡检</option></select></label>
+<article class="card"><h2><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-settings"></use></svg>外观</h2><div class="theme-options" role="group" aria-label="页面主题"><label><input type="radio" name="theme" value="system">跟随系统</label><label><input type="radio" name="theme" value="light">浅色</label><label><input type="radio" name="theme" value="dark">深色</label></div></article>
+<article class="card"><div class="head"><h2><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-auth"></use></svg>授权状态</h2><span class="pill" id="bridge">正在检查</span></div><p class="hint" id="bridgeNote">正在检查 KernelSU 命令桥接。</p></article>
+<section class="card"><h2><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-heartbeat"></use></svg>后台保活</h2>
+  <label class="wake-control">熄屏巡检方式 <select id="wakeMode" disabled><option value="passive">随系统唤醒</option><option value="timed">定时巡检</option></select></label>
+  <label class="wake-control" id="wakeMinutesRow" hidden>定时巡检间隔 <select id="wakeMinutes" disabled aria-label="定时巡检间隔"></select></label>
   <p class="hint" id="wakeModeNote">开启自动守护后生效。</p>
   <div class="status"><span class="dot" id="ddoze"></span><span>GMS Doze 白名单</span><span class="value" id="vdoze">—</span></div>
   <div class="status"><span class="dot" id="ddata"></span><span>Android 数据节省模式</span><span class="value" id="vdata">—</span></div>
   <div class="status"><span class="dot" id="dnet"></span><span>后台计量流量</span><span class="value" id="vnet">—</span></div>
   <div class="status"><span class="dot" id="dnotify"></span><span>GMS 通知权限</span><span class="value" id="vnotify">—</span></div>
-  <div class="button-row" style="margin-top:12px"><button id="dozeAction">加入 Doze 白名单</button><button id="netAction">允许后台计量网络</button></div>
+  <div class="button-row" style="margin-top:12px"><button id="dozeAction"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-moon"></use></svg><span data-label>加入 Doze 白名单</span></button><button id="netAction"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-network"></use></svg><span data-label>允许后台计量网络</span></button></div>
 
 </section>
 
-<article class="card" id="networkDiagnostics"><h2>网络诊断</h2><div class="button-row section-gap"><button id="netdiag">检测 mtalk.google.com 连接</button><button id="fcmDiag">Google FCM Diagnostics</button></div><p class="hint">TCP 检查通过 Root 执行，实际推送以收信结果为准。</p></article>
-<article class="card"><h2>系统设置与快捷功能</h2><div class="button-row section-gap"><button id="autostart">自启动管理</button><button id="notif">GMS 通知设置</button></div></article>
-<section class="card"><div class="head"><h2>检查日志</h2><div class="logtools"><button id="loadlog">后台日志</button><button id="copy">复制</button></div></div><pre id="log">等待操作…</pre></section>
+<article class="card" id="networkDiagnostics"><h2><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-diagnostics"></use></svg>网络诊断</h2><div class="button-row section-gap"><button id="netdiag"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-network"></use></svg><span data-label>检测 mtalk.google.com 连接</span></button><button id="fcmDiag"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-diagnostics"></use></svg><span data-label>Google FCM Diagnostics</span></button></div><p class="hint">TCP 检查通过 Root 执行，实际推送以收信结果为准。</p></article>
+<article class="card"><h2><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-device"></use></svg>系统设置与快捷功能</h2><div class="button-row section-gap"><button id="autostart"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-device"></use></svg><span data-label>自启动管理</span></button><button id="notif"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-alert"></use></svg><span data-label>GMS 通知设置</span></button></div></article>
+<section class="card"><div class="head"><h2><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-history"></use></svg>检查日志</h2><div class="logtools"><button id="loadlog"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-history"></use></svg><span data-label>后台日志</span></button><button id="copy"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-code"></use></svg><span data-label>复制</span></button></div></div><pre id="log">等待操作…</pre></section>
 
-<footer>BerryFCM · KernelSU v0.5.13-test</footer>
+<footer>BerryFCM · KernelSU v1.0-rc.1</footer>
 </section></main>
-<nav class="bottom-nav" aria-label="主导航"><div class="nav-inner"><button data-page="overview" aria-current="page">概览</button><button data-page="monitor">监控</button><button data-page="guard">守护</button><button data-page="settings">设置</button></div></nav>
-<div class="picker" id="appPicker" hidden><div class="picker-card" role="dialog" aria-modal="true" aria-label="选择守护应用"><div class="head"><h2 style="margin:0">选择守护应用 · 可多选</h2><button id="closePicker">完成</button></div><div class="picker-tools"><input id="appSearch" placeholder="搜索应用名称或包名" autocomplete="off"></div><label class="small"><input id="includeSystem" type="checkbox" style="min-width:auto;flex:none"> 包含系统应用</label><div class="hint" id="appCount" style="margin:6px 0">正在读取应用列表…</div><div class="picker-results" id="appResults"></div></div></div>
+<nav class="bottom-nav" aria-label="主导航"><div class="nav-inner"><button data-page="overview" aria-current="page"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-home"></use></svg><span data-label>概览</span></button><button data-page="monitor"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-fcm"></use></svg><span data-label>监控</span></button><button data-page="guard"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-guard"></use></svg><span data-label>守护</span></button><button data-page="settings"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-settings"></use></svg><span data-label>设置</span></button></div></nav>
+<div class="picker" id="appPicker" hidden><div class="picker-card" role="dialog" aria-modal="true" aria-label="选择守护应用"><div class="head"><h2 style="margin:0">选择守护应用 · 可多选</h2><button id="closePicker"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-guard"></use></svg><span data-label>完成</span></button></div><div class="picker-tools"><input id="appSearch" placeholder="搜索应用名称或包名" autocomplete="off"></div><label class="small"><input id="includeSystem" type="checkbox" style="min-width:auto;flex:none"> 包含系统应用</label><div class="hint" id="appCount" style="margin:6px 0">正在读取应用列表…</div><div class="picker-results" id="appResults"></div></div></div>
 
 <script>
 (function(){'use strict';
@@ -179,7 +202,8 @@ body{padding-bottom:calc(78px + env(safe-area-inset-bottom))}
    if(button.dataset.open==="settings")$("networkDiagnostics").scrollIntoView();
  };
  const buttons=['check','monitorCheck','reconnect','fix','watch','add','reset','autostart','notif','loadlog','loadEvents','dozeAction','netAction','chooseApp','netdiag','fcmDiag'];
- const setBusy=v=>{busy=v;buttons.forEach(id=>$(id).disabled=v);$('wakeMode').disabled=v||!policySnapshot;if(!v)refreshPolicyButtons();};
+ for(let minutes=1;minutes<=10;minutes++)$('wakeMinutes').add(new Option(minutes+' 分钟',String(minutes)));
+ const setBusy=v=>{busy=v;buttons.forEach(id=>$(id).disabled=v);$('wakeMode').disabled=$('wakeMinutes').disabled=v||!policySnapshot;if(!v)refreshPolicyButtons();};
  const append=s=>{const el=$('log');if(el.textContent==='等待操作…')el.textContent='';el.textContent+='\n'+String(s);el.scrollTop=el.scrollHeight;};
  const q=s=>{if(!/^[a-zA-Z][\w]*(\.[\w]+)+$/.test(s))throw Error('包名不合法');return s;};
  function exec(command){return new Promise((resolve,reject)=>{
@@ -200,7 +224,7 @@ body{padding-bottom:calc(78px + env(safe-area-inset-bottom))}
    if(!policySnapshot)return;
    for(const [name,state,owned] of [['dozeAction',policySnapshot.doze,policySnapshot.doze_owned],['netAction',policySnapshot.net_allowed,policySnapshot.net_owned]]){
      const b=$(name);
-     b.textContent=owned ? '撤销本模块放行' : (state===1 ? '已放行（无需修改）' : (name==='dozeAction'?'加入 Doze 白名单':'允许后台计量网络'));
+     b.querySelector('[data-label]').textContent=owned ? '撤销本模块放行' : (state===1 ? '已放行（无需修改）' : (name==='dozeAction'?'加入 Doze 白名单':'允许后台计量网络'));
      b.disabled=busy||(state===1&&!owned);
    }
  }
@@ -320,11 +344,15 @@ body{padding-bottom:calc(78px + env(safe-area-inset-bottom))}
    row('try',j.fcm_last_try>0?'warn':'',shortTime(j.fcm_last_try));
    row('seen',j.fcm_last_seen>0?'good':'',shortTime(j.fcm_last_seen));
    $('wakeMode').value=j.wake_mode==='timed'?'timed':'passive';
+   const configuredMinutes=Number(j.wake_minutes);
+   const wakeMinutes=Number.isInteger(configuredMinutes)&&configuredMinutes>=1&&configuredMinutes<=10?configuredMinutes:3;
+   $('wakeMinutes').value=String(wakeMinutes);
+   $('wakeMinutesRow').hidden=j.wake_mode!=='timed';
    $('wakeModeNote').textContent=j.guard!==1?'开启自动守护后生效。'
      :j.wake_mode!=='timed'?'约每 30 秒巡检，深睡期间等待系统唤醒。'
      :j.wake_status==='cgroup_failed'?'模块无法移出管理器的冻结组。本次只运行常规巡检，锁屏时仍可能暂停。'
      :j.wake_status==='fallback'?'定时器不可用，已切回随系统唤醒。原因见后台日志。'
-     :'保留常规巡检，另启 3 分钟定时器。深睡时定时器可能延迟。';
+     :'保留常规巡检，另启 '+wakeMinutes+' 分钟定时器。深睡时可能延迟。';
    renderTimeline(j);policySnapshot=j;refreshPolicyButtons();$('guard').checked=j.guard===1;
  }
  async function check(){
@@ -476,6 +504,11 @@ body{padding-bottom:calc(78px + env(safe-area-inset-bottom))}
  $('watch').onclick=()=>job(async()=>{append('开始 90 秒监视，结束后更新状态');await run('watch');await check()});
  $('add').onclick=()=>job(async()=>{const p=q($('pkg').value.trim());await run('targets add '+p);$('pkg').value='';await loadTargets()});
  $('reset').onclick=()=>job(async()=>{await run('targets reset');await loadTargets()});
+ $('wakeMinutes').onchange=()=>job(async()=>{
+   const minutes=$('wakeMinutes').value;
+   if(/^(?:[1-9]|10)$/.test(minutes))await run('wake-minutes '+minutes);
+   await check();
+ });
  $('wakeMode').onchange=()=>job(async()=>{
    const mode=$('wakeMode').value;
    if(mode==='passive'||mode==='timed')await run('wake-mode '+mode);

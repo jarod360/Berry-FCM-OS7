@@ -2,9 +2,10 @@ name: Build KernelSU ZIP
 
 on:
   push:
-    branches: [main, dev/ksu-native-fcm]
+    branches: [main, release/1.0-rc.1]
     paths:
       - 'module/**'
+      - 'version.properties'
       - 'module-src/**'
       - 'tests/**'
       - '.github/workflows/build-ksu.yml'
@@ -59,6 +60,9 @@ jobs:
           mkdir -p dist
           version="$(sed -n 's/^version=//p' module/module.prop)"
           test -n "$version"
+          grep -Fx "versionName=$version" version.properties
+          code="$(sed -n 's/^versionCode=//p' module/module.prop)"
+          grep -Fx "versionCode=$code" version.properties
           echo "name=BerryFCM-KSU-v$version" >> "$GITHUB_OUTPUT"
           cd module
           zip -qr "../dist/BerryFCM-KSU-v$version.zip" .

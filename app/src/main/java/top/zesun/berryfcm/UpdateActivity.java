@@ -35,6 +35,7 @@ public final class UpdateActivity extends Ui {
     private static final String API = "https://api.github.com/repos/jarod360/Berry-FCM-OS7/releases?per_page=20";
     private static final String CERT_SHA256 = "BB328497280F72FE6662E84D7D0D0B15BAF425872B9B360287ED120529D97615";
     private static final Pattern NUMBER = Pattern.compile("alpha[.-]([0-9]+)\\.apk$");
+    private static final Pattern RC_NUMBER = Pattern.compile("^BerryFCM-v1\\.0-rc\\.([0-9]+)\\.apk$");
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private boolean checkedOnOpen, resumed, checking, verifying;
     private final android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
@@ -48,7 +49,7 @@ public final class UpdateActivity extends Ui {
         super.onCreate(state);
         title("版本更新", "应用内下载并安装新版");
         LinearLayout panel = card("检查更新", "只从官方 GitHub Releases 下载；安装需系统确认。");
-        details = text("当前版本：0.1.0-alpha." + localVersion() + "\n尚未检查更新", 14, false, ink);
+        details = text("当前版本：" + localVersionName() + "\n尚未检查更新", 14, false, ink);
         panel.addView(details);
         button(panel, "检查新版本", this::checkRelease, true);
         download = button(panel, "立即更新", this::downloadApk, true);
@@ -70,6 +71,23 @@ public final class UpdateActivity extends Ui {
             PackageInfo p = getPackageManager().getPackageInfo(getPackageName(), 0);
             return Build.VERSION.SDK_INT >= 28 ? (int) p.getLongVersionCode() : p.versionCode;
         } catch (Exception error) { return 0; }
+    }
+    private String localVersionName() {
+        try { return getPackageManager().getPackageInfo(getPackageName(), 0).versionName; }
+        catch (PackageManager.NameNotFoundException ignored) { return String.valueOf(localVersion()); }
+    }
+
+    private static int assetVersionCode(String name) {
+        if (!name.startsWith("BerryFCM-v") && !name.startsWith("BerryFCM-Guardian-v")) return 0;
+        Matcher rc = RC_NUMBER.matcher(name);
+        Matcher legacy = NUMBER.matcher(name);
+        try {
+            if (rc.matches()) {
+                int number = Integer.parseInt(rc.group(1));
+                return number > 0 && number < 10_000 ? 10_000 + number : 0;
+            }
+            return legacy.find() ? Integer.parseInt(legacy.group(1)) : 0;
+        } catch (NumberFormatException ignored) { return 0; }
     }
     private void checkRelease() {
         if (checking || verifying || getPreferences(MODE_PRIVATE).getBoolean("auto_install", false)) return;
@@ -112,11 +130,8 @@ public final class UpdateActivity extends Ui {
                     for (int j = 0; j < assets.length(); j++) {
                         JSONObject a = assets.getJSONObject(j);
                         String name = a.optString("name", "");
-                        Matcher matcher = NUMBER.matcher(name);
-                        boolean compatible = name.startsWith("BerryFCM-Guardian-v")
-                                || name.startsWith("BerryFCM-v");
-                        if (!compatible || !matcher.find()) continue;
-                        int n = Integer.parseInt(matcher.group(1));
+                        int n = assetVersionCode(name);
+                        if (n <= 0) continue;
                         String url = a.optString("browser_download_url", "");
                         if ((n > best || (n == best && name.startsWith("BerryFCM-v")))
                                 && url.startsWith(REPO + "/releases/download/")) {

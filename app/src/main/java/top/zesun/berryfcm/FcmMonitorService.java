@@ -341,8 +341,15 @@ public final class FcmMonitorService extends Service {
         if (!scheduled) return;
         String text = notificationText();
         if (text.equals(lastNotificationText)) return;
-        lastNotificationText = text;
-        getSystemService(NotificationManager.class).notify(NOTIFICATION_ID, notification());
+        try {
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager != null) {
+                manager.notify(NOTIFICATION_ID, notification());
+                lastNotificationText = text;
+            }
+        } catch (RuntimeException error) {
+            android.util.Log.w("BerryFCM", "Monitor notification refresh failed", error);
+        }
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {

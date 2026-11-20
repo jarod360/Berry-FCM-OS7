@@ -78,7 +78,7 @@ timer_worker() {
     log="$DATA/wake-timer.log"
     echo timed > "$DATA/wake-status"
     while [ -e "$MODDIR/module.prop" ] && kill -0 "$service_pid" 2>/dev/null; do
-        "$MODDIR/bin/wake-timer-arm64" >> "$log" 2>&1 &
+        "$MODDIR/bin/wake-timer-arm64" "$1" >> "$log" 2>&1 &
         alarm_pid=$!
         if ! wait "$alarm_pid"; then
             alarm_pid=
@@ -97,7 +97,9 @@ sync_timer() {
     if [ "$(cat "$DATA/enabled" 2>/dev/null)" = 1 ] &&
        [ "$(cat "$DATA/wake-mode" 2>/dev/null)" = timed ]; then
         if [ "$cgroup_ready" = 1 ]; then
-            timer_worker &
+            minutes="$(cat "$DATA/wake-minutes" 2>/dev/null)"
+            case "$minutes" in [1-9]|10) :;; *) minutes=3;; esac
+            timer_worker "$minutes" &
             timer_pid=$!
         else
             echo cgroup_failed > "$DATA/wake-status"
@@ -132,7 +134,7 @@ while [ -e "$MODDIR/module.prop" ]; do
         # Read the native GMS state; TCP sockets are auxiliary evidence.
         # It never restarts/kills GMS and never changes DNS/VPN/proxy/routing.
         if [ "$wake_event" = 1 ]; then
-            printf '[%s] 3 分钟定时器触发，检查 GMS 原生状态\n' "$(date '+%F %T')" >> "$DATA/guard.log"
+            printf '[%s] 定时器触发，检查 GMS 原生状态\n' "$(date '+%F %T')" >> "$DATA/guard.log"
         fi
         result="$(sh "$MODDIR/bin/fcm-monitor.sh" monitor 2>&1)"
         monitor_rc=$?

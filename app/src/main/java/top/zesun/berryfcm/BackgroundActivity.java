@@ -17,6 +17,7 @@ public final class BackgroundActivity extends Ui {
     private RadioGroup wakeChoices;
     private int smartChoiceId, continuousChoiceId;
     private boolean syncingWakeChoices;
+    private Button intervalButton;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -69,6 +70,7 @@ public final class BackgroundActivity extends Ui {
         power.addView(text("持续唤醒仅在 FCM 监控开启时生效，守护单独运行不会持续持锁。"
                 + "\n智能省电依靠实际调度事件触发检查；无事件且 CPU 挂起时可能延迟数分钟。"
                 + "\n从 alpha.89 升级会保留原有持续唤醒，便于对照测试。", 12, false, muted));
+        intervalButton = button(power, intervalLabel(), this::chooseInterval, false);
 
         LinearLayout android = card("后台任务状态", "这些开关不能保证系统永远不会结束后台任务。");
         systemStates = text("", 13, false, muted);
@@ -97,6 +99,28 @@ public final class BackgroundActivity extends Ui {
         androidExtra.addView(policy);
 
         renderPolicy();
+    }
+
+    private String intervalLabel() {
+        return "唤醒兜底巡检：" + prefs.watchdogMinutes() + " 分钟";
+    }
+
+    private void chooseInterval() {
+        String[] choices = new String[10];
+        for (int i = 0; i < choices.length; i++) choices[i] = (i + 1) + " 分钟";
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("唤醒兜底巡检间隔")
+                .setSingleChoiceItems(choices, prefs.watchdogMinutes() - 1, (dialog, index) -> {
+                    int minutes = index + 1;
+                    if (minutes != prefs.watchdogMinutes()) {
+                        prefs.watchdogMinutes(minutes);
+                        MonitorWatchdog.reschedule(this);
+                        intervalButton.setText(intervalLabel());
+                    }
+                    dialog.dismiss();
+                })
+                .setNegativeButton("取消", null)
+                .show();
     }
 
     private void syncWakeChoice() {
