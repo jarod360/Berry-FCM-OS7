@@ -2,7 +2,7 @@ name: Build KernelSU ZIP
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev/ksu-native-fcm]
     paths:
       - 'module/**'
       - 'tests/**'
