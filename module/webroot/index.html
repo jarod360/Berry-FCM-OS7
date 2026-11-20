@@ -56,7 +56,7 @@ footer{padding-bottom:18px}
   <div class="status"><span class="dot" id="dgms"></span><span>Google Play 服务</span><span class="value" id="vgms">—</span></div>
   <div class="status"><span class="dot" id="dstop"></span><span>GMS stopped 状态</span><span class="value" id="vstop">—</span></div>
   <div class="status"><span class="dot" id="dproc"></span><span>GMS 主进程</span><span class="value" id="vproc">—</span></div>
-  <div class="status"><span class="dot" id="dmcs"></span><span>GMS FCM Socket（5228–5230 / mtalk 443 候选）</span><span class="value" id="vmcs">—</span></div>
+  <div class="status"><span class="dot" id="dmcs"></span><span>GMS 原生 FCM 状态</span><span class="value" id="vmcs">—</span></div>
   <div class="status"><span class="dot" id="dmiss"></span><span>未观察到连接时长</span><span class="value" id="vmiss">—</span></div>
   <div class="status"><span class="dot" id="drecv"></span><span>GMS 广播接收器（诊断）</span><span class="value" id="vrecv">—</span></div>
 </section>
@@ -91,7 +91,7 @@ footer{padding-bottom:18px}
 <section class="card"><h2>OriginOS 设置入口</h2><div class="button-row"><button id="autostart">自启动管理</button><button id="notif">GMS 通知设置</button></div></section>
 <div class="picker" id="appPicker" hidden><div class="picker-card" role="dialog" aria-modal="true" aria-label="选择守护应用"><div class="head"><h2 style="margin:0">选择守护应用 · 可多选</h2><button id="closePicker">完成</button></div><div class="picker-tools"><input id="appSearch" placeholder="搜索应用名称或包名" autocomplete="off"></div><label class="small"><input id="includeSystem" type="checkbox" style="min-width:auto;flex:none"> 包含系统应用</label><div class="hint" id="appCount" style="margin:6px 0">正在读取应用列表…</div><div class="picker-results" id="appResults"></div></div></div>
 <section class="card"><div class="head"><h2>运行日志</h2><div class="logtools"><button id="loadlog">后台日志</button><button id="copy">复制</button></div></div><pre id="log">等待操作…</pre></section>
-<footer>Berry-FCM KSU v0.5.3-test · FCM Socket 生命周期监测</footer>
+<footer>Berry-FCM KSU v0.5.5-test · GMS 原生连接监测</footer>
 <script>
 (function(){'use strict';
  const MOD='/data/adb/modules/berry_fcm_ksu/bin/ctl.sh';
@@ -135,9 +135,9 @@ footer{padding-bottom:18px}
  function renderTimeline(j){
    const state=j.fcm_state||'unknown',connected=state==='connected';
    $('tSince').textContent=fullTime(j.fcm_connection_since);
-   $('tConnected').textContent=connected?durationText(j.fcm_connected_seconds):'—';
+   $('tConnected').textContent=connected&&j.fcm_native_duration>=0?durationText(j.fcm_native_duration):'—';
    $('tDown').textContent=fullTime(j.fcm_disconnect_since);
-   $('tMissing').textContent=(state==='disconnected'||state==='connecting')?durationText(j.fcm_missing_seconds):'—';
+   $('tMissing').textContent=(state==='disconnected'||state==='connecting')&&j.fcm_native_duration>=0?durationText(j.fcm_native_duration):'—';
    $('tRestore').textContent=fullTime(j.fcm_last_restore);
    $('tTry').textContent=fullTime(j.fcm_last_try);
    const results={none:'尚无请求',requested:'已发送，等待连接',failed:'广播未确认',restored:'请求后观察到连接恢复'};
@@ -147,7 +147,7 @@ footer{padding-bottom:18px}
  }
  async function loadEvents(){
    try{const r=await exec('/system/bin/sh '+MON+' events');if(r.code!==0)throw Error(r.stderr||'读取失败');
-     const labels={connection_up:'首次观察到连接',connection_down:'首次观察到连接缺失',connection_not_seen:'尚未观察到连接',connection_restored:'再次观察到连接',socket_replaced:'Socket 更换',reconnect_requested:'重连请求',reconnect_failed:'重连失败',reconnect_skipped:'跳过重连',observation_unknown:'状态未知',reboot:'设备重启'};
+     const labels={sample_gap:'巡检空档',recovery_confirmed:'断联二次确认',connection_up:'首次观察到连接',connection_down:'首次观察到连接缺失',connection_not_seen:'尚未观察到连接',connection_restored:'再次观察到连接',socket_replaced:'Socket 更换',reconnect_requested:'重连请求',reconnect_failed:'重连失败',reconnect_skipped:'跳过重连',observation_unknown:'状态未知',reboot:'设备重启'};
      const lines=r.stdout.trim().split(/\r?\n/).filter(Boolean).map(line=>{const p=line.split('|');return p.length>=3?`${fullTime(Number(p[0]))}  ${labels[p[1]]||p[1]}  ${p.slice(2).join('|')}`:line;});
      $('fcmEvents').textContent=lines.length?lines.reverse().join('\n'):'暂无连接事件';
    }catch(e){$('fcmEvents').textContent='读取事件失败：'+e.message;}
@@ -156,29 +156,22 @@ footer{padding-bottom:18px}
    row('gms',j.gms_installed?'good':'bad',j.gms_installed?'已安装':'未安装');
    row('stop',j.gms_stopped===0?'good':j.gms_stopped===1?'bad':'warn',j.gms_stopped===0?'未停止':j.gms_stopped===1?'已停止':'未知');
    row('proc',j.gcm_persistent===1?'good':'bad',j.gcm_persistent===1?'运行中':'未运行');
-   const fstate=j.fcm_state||'unknown',connected=fstate==='connected',missing=Number(j.fcm_missing_seconds||0);
-   const transport=j.fcm_transport==='tcp443'?'TCP 443（mtalk 地址候选）':j.fcm_transport||'—';
-   const statusText={connected:'已观察到 Socket：'+transport,connecting:'检测到 Socket 连接尝试，尚未建立',disconnected:j.fcm_last_seen>0?'未观察到可信 Socket':'尚未观察到首次连接',unknown:'无法确认（本轮检测不可用）',stale:'采样已过期，状态未知',never_seen:'等待首次观察'};
-   const stateColor=connected?(j.fcm_transport==='tcp443'?'warn':'good'):fstate==='disconnected'&&j.fcm_last_seen>0?'bad':'warn';
-   row('mcs',stateColor,statusText[fstate]||'无法确认');
-   row('miss',connected?'good':stateColor,connected?'0 秒':(fstate==='disconnected'||fstate==='connecting')?durationText(missing):'—');
+   const fstate=j.fcm_state||'unknown',connected=fstate==='connected';
+   const down=fstate==='disconnected'||fstate==='connecting';
+   const labels={connected:'GMS 已连接',connecting:'GMS 正在连接',disconnected:'GMS 已断开',unknown:'GMS 状态无法确认',stale:'GMS 采样已过期'};
+   const label=labels[fstate]||labels.unknown,color=connected?'good':fstate==='disconnected'?'bad':'warn';
+   row('mcs',color,connected&&j.fcm_transport?label+' · '+j.fcm_transport:label);
+   row('miss',color,connected?'0 秒':down&&j.fcm_native_duration>=0?durationText(j.fcm_native_duration):'—');
    row('recv',j.receivers>0?'good':'warn',String(j.receivers));
-   let verdict='当前无法确定 FCM 连接状态',color='warn';
-   if(!j.gms_installed||j.gms_stopped===1||j.gcm_persistent!==1){verdict='GMS 未运行或已被停止';color='bad';}
-   else if(connected){verdict=j.fcm_transport==='tcp443'?'已观察到 mtalk 地址匹配的 GMS TCP 443 候选':'已观察到 GMS UID 的 FCM 专用端口 Socket';color=j.fcm_transport==='tcp443'?'warn':'good';}
-   else if(fstate==='connecting'){verdict='FCM 正在尝试连接，尚未建立';}
-   else if(fstate==='unknown'||fstate==='stale'){verdict=fstate==='stale'?'采样已过期，不能判断在线状态':'FCM 连接状态无法确认';}
-   else if(fstate==='disconnected'&&j.fcm_last_seen>0){verdict=missing>=120?'连续未观察到连接，等待/已触发恢复':'首次观察到连接消失';}
-   else if(fstate==='disconnected'){verdict=missing>=120?'尚未观察到连接，已达到重连门槛':'尚未观察到 FCM 长连接';}
-   $('verdict').textContent=verdict;$('verdict').dataset.state=color;
-   $('connectionHint').textContent=connected?'已观察到 Socket':fstate==='connecting'?'连接尝试中':fstate==='disconnected'?'未观察到':fstate==='stale'?'采样过期':'待确认';
+   $('verdict').textContent=j.gms_stopped===1?'GMS 已被停止':label;
+   $('verdict').dataset.state=j.gms_stopped===1?'bad':color;
+   $('connectionHint').textContent=label;
+   const hints={established:'观察到 TCP 已建立',connecting:'观察到 TCP 连接中',absent:'未观察到可信 TCP 连接'};
    $('connNote').textContent=connected
-     ?(j.fcm_transport==='tcp443'
-       ?`GMS UID 已观察到 mtalk 地址匹配的 TCP 443 候选：${j.fcm_remote||'远端未知'}。地址匹配不是 MCS 认证证明。`
-       :`GMS UID 已观察到专用端口 Socket：${j.fcm_remote||'远端未知'}。Socket 存在不等于 MCS 已认证或消息一定送达。`)
-     :fstate==='unknown'?'检测权限、UID 或 mtalk DNS 地址不可用；本轮不累计断联时间，也不会据此自动重连。'
-     :fstate==='stale'?'监控采样超过 120 秒未更新，可能受深度 Doze 或服务暂停影响；不能把陈旧状态当作当前断联。'
-     :'当前未观察到可信 FCM Socket；普通 GMS HTTPS 443 不会被计为 FCM。断联时间记录的是首次缺失采样时刻，实际断开发生在上次在线采样与本次采样之间（正常采样间隔约 30 秒）。';
+     ?`GMS 原生状态已连接。远端：${j.fcm_remote||'未知'}。实际送达请用推送实测。`
+     :fstate==='stale'?'采样已过期。深睡期间巡检可能延迟。'
+     :down?`恢复按原生状态二次确认。退避剩余：${durationText(j.fcm_retry_in)}。`
+     :`GMS 原生状态不可用。${hints[j.fcm_tcp_hint]||'TCP 无可用线索'}；本轮不触发自动恢复。`;
    row('doze',j.doze===1?'good':'warn',j.doze===1?'已放行':j.doze===0?'未放行':'无法读取');
    row('data',j.data_saver===1?'warn':j.data_saver===0?'good':'warn',j.data_saver===1?'已启用':j.data_saver===0?'未启用':'未知');
    row('net',j.net_allowed===1?'good':'warn',j.net_allowed===1?'已放行':j.net_allowed===0?'未放行':'无法读取');
@@ -188,7 +181,7 @@ footer{padding-bottom:18px}
    row('seen',j.fcm_last_seen>0?'good':'',shortTime(j.fcm_last_seen));
    renderTimeline(j);policySnapshot=j;refreshPolicyButtons();$('guard').checked=j.guard===1;
  }
- async function check(){const r=await run('check');if(r.code===0){try{const j=JSON.parse(r.stdout.trim());const m=await exec('/system/bin/sh '+MON+' status');if(m.code===0)Object.assign(j,JSON.parse(m.stdout.trim()));render(j);await loadTargets();await loadEvents()}catch(e){append('解析状态失败: '+e.message)}}}
+ async function check(){const r=await run('check');if(r.code===0){try{const j=JSON.parse(r.stdout.trim());render(j);await loadTargets();await loadEvents()}catch(e){append('解析状态失败: '+e.message)}}}
  async function loadTargets(){
    const r=await run('targets list');if(r.code!==0)return;
    targetPackages=r.stdout.split(/\r?\n/).filter(Boolean);
@@ -346,7 +339,7 @@ footer{padding-bottom:18px}
  // additionally refresh the target list. Avoid log spam and extra app discovery.
  async function refreshLive(){
    if(busy||document.visibilityState==='hidden')return;
-   try{const r=await exec('/system/bin/sh '+MOD+' check');if(r.code===0){const j=JSON.parse(r.stdout.trim());const m=await exec('/system/bin/sh '+MON+' status');if(m.code===0)Object.assign(j,JSON.parse(m.stdout.trim()));render(j);}}
+   try{const r=await exec('/system/bin/sh '+MOD+' check');if(r.code===0){const j=JSON.parse(r.stdout.trim());render(j);}}
    catch(e){/* keep last snapshot; manual detection reports errors in the log */}
  }
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refreshLive()});

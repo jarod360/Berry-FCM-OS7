@@ -19,9 +19,7 @@ n=0
 while [ "$(getprop sys.boot_completed)" != 1 ] && [ "$n" -lt 120 ]; do
     sleep 3; n=$((n + 1))
 done
-# Preserve the existing stopped-state repair, but monitor FCM at 30s cadence.
-# sleep can be delayed by deep Doze: 2m is an active-time target, not a strict
-# 5m wall-clock guarantee while the CPU is suspended.
+# The 30s sleep does not wake a suspended CPU. Resume with a fresh GMS read.
 last_fix=0
 while [ -e "$MODDIR/module.prop" ]; do
     if [ "$(cat "$DATA/enabled" 2>/dev/null)" = 1 ]; then
@@ -32,7 +30,7 @@ while [ -e "$MODDIR/module.prop" ]; do
             HEARTBEAT_MODE=auto sh "$MODDIR/bin/ctl.sh" fix >> "$DATA/guard.log" 2>&1
             last_fix="$now"
         fi
-        # Lifecycle monitor observes GMS-owned 5228-5230 and trusted mtalk:443 sockets.
+        # Read the native GMS state; TCP sockets are auxiliary evidence.
         # It never restarts/kills GMS and never changes DNS/VPN/proxy/routing.
         result="$(sh "$MODDIR/bin/fcm-monitor.sh" monitor 2>&1)"
         [ -z "$result" ] || printf '[%s] %s\n' "$(date '+%F %T')" "$result" >> "$DATA/guard.log"

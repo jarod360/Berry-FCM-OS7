@@ -5,118 +5,122 @@ MON="${BERRY_MONITOR_SCRIPT:-$ROOT/module/bin/fcm-monitor.sh}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT HUP INT TERM
 mkdir -p "$TMP/bin" "$TMP/data"
-cat > "$TMP/bin/cmd" <<'MOCK'
-#!/bin/sh
-[ "$1 $2 $3 $4" = 'package list packages -U' ] && echo 'package:com.google.android.gms uid:10200,99910200'
-MOCK
-cat > "$TMP/bin/pm" <<'MOCK'
-#!/bin/sh
-exit 0
-MOCK
 cat > "$TMP/bin/dumpsys" <<'MOCK'
 #!/bin/sh
-echo '    User 0: ceDataInode=1 installed=true stopped=false suspended=false hidden=false'
+case "$*" in
+  *"activity service"*)
+    if [ -n "${MCS_NEXT_FIXTURE:-}" ] && [ -f "$MCS_NEXT_FIXTURE" ]; then
+      cat "$MCS_FIXTURE"
+      mv "$MCS_NEXT_FIXTURE" "$MCS_FIXTURE"
+    else cat "$MCS_FIXTURE"; fi;;
+  *"package"*) echo "    User 0: ceDataInode=1 installed=true stopped=${MCS_STOPPED:-false} suspended=false hidden=false";;
+esac
+MOCK
+cat > "$TMP/bin/cmd" <<'MOCK'
+#!/bin/sh
+echo 'package:com.google.android.gms uid:10200'
 MOCK
 cat > "$TMP/bin/ss" <<'MOCK'
 #!/bin/sh
-cat "$BERRY_SS_FILE"
-MOCK
-cat > "$TMP/bin/nslookup" <<'MOCK'
-#!/bin/sh
-[ "${BERRY_TEST_DNS:-on}" = on ] || exit 1
-printf 'Server: 192.168.1.1\nAddress 1: 192.168.1.1\nName: %s\nAddress 1: 142.250.107.188\n' "$1"
+echo 'ESTAB 0 0 192.168.1.8:45000 142.250.157.188:5228 uid:10200 ino:101'
 MOCK
 cat > "$TMP/bin/am" <<'MOCK'
 #!/bin/sh
-echo "$*" >> "$BERRY_AM_LOG"
+echo "$*" >> "$MCS_AM_LOG"
+if [ "${MCS_AM_FAIL:-0}" = 1 ]; then
+    echo 'Permission Denial: fixture'
+    echo 'Broadcast completed: result=0'
+    exit 1
+fi
 echo 'Broadcast completed: result=0'
+# Model a reconnect that actually leads to a new native connected sample.
+if [ -n "${MCS_AM_CONNECTED_FIXTURE:-}" ]; then
+    cp "$MCS_AM_CONNECTED_FIXTURE" "$MCS_FIXTURE"
+fi
+MOCK
+cat > "$TMP/bin/id" <<'MOCK'
+#!/bin/sh
+if [ "$*" = "-u" ]; then
+    echo "${MCS_UID:-0}"
+else /usr/bin/id "$@"; fi
+MOCK
+cat > "$TMP/bin/date" <<'MOCK'
+#!/bin/sh
+if [ "$*" = '+%s' ]; then cat "$MCS_CLOCK"; else /bin/date "$@"; fi
 MOCK
 chmod +x "$TMP/bin/"*
-echo 1000.00 > "$TMP/uptime"
+echo 10000 > "$TMP/uptime"
 echo test-boot > "$TMP/bootid"
 echo 1 > "$TMP/data/enabled"
-: > "$TMP/ss"
 : > "$TMP/am.log"
 export PATH="$TMP/bin:/usr/bin:/bin"
 export BERRY_FCM_TEST_MODE=1 BERRY_FCM_DATA="$TMP/data"
 export BERRY_UPTIME_FILE="$TMP/uptime" BERRY_BOOT_ID_FILE="$TMP/bootid"
-export BERRY_SS_FILE="$TMP/ss" BERRY_AM_LOG="$TMP/am.log"
-run() { /bin/sh "$MON" "$1"; }
-json() { run status | tail -n 1; }
-assert_json() { python3 - "$1" "$2" <<'PY'
+export MCS_FIXTURE="$TMP/dump" MCS_AM_LOG="$TMP/am.log" MCS_CLOCK="$TMP/epoch"
+settime() { printf '%s\n' "$1" > "$TMP/uptime"; printf '%s\n' "$((1700000000+$1))" > "$MCS_CLOCK"; }
+settime 10000
+run() { sh "$MON" "$1"; }
+requests() { [ "$(wc -l < "$MCS_AM_LOG" | tr -d ' ')" = "$1" ]; }
+assert_json() {
+    python3 - "$1" "$2" <<'PY'
 import json,sys
 j=json.loads(sys.argv[1]); k,v=sys.argv[2].split('=',1)
 assert str(j[k])==v,(k,j[k],v,j)
 PY
 }
+printf "%s\n" "DeviceID: [fixture]" "connected=mtalk.google.com/142.250.157.188,port=5228" "connectTime=03:22/00:00" > "$MCS_FIXTURE"
+j="$(run status)"; assert_json "$j" fcm_state=connected; assert_json "$j" fcm_native_duration=202
+run reconnect; requests 0
 
-# A SYN-SENT attempt must not seed the trusted 443 peer list.
-export BERRY_TEST_DNS=off
-cat > "$TMP/ss" <<'SOCK'
-SYN-SENT 0 1 192.168.1.8:45000 142.250.107.188:5228 users:("gms",pid=10,fd=1) uid:10200 ino:100
-SOCK
-printf '970.00 0.00\n' > "$TMP/uptime"
-j="$(json)"; assert_json "$j" 'fcm_state=connecting'
-[ ! -s "$TMP/data/mtalk-learned-ips.txt" ]
-cat > "$TMP/ss" <<'SOCK'
-ESTAB 0 0 192.168.1.8:45001 142.250.107.188:443 users:("gms",pid=10,fd=2) uid:10200 ino:102
-SOCK
-printf '980.00 0.00\n' > "$TMP/uptime"
-j="$(json)"; assert_json "$j" 'fcm_state=unknown'
+printf "%s\n" "Permission Denial" > "$MCS_FIXTURE"
+j="$(run status)"; assert_json "$j" fcm_state=unknown; assert_json "$j" fcm_tcp_hint=established
+run monitor; run reconnect; requests 0
+echo "PASS: native state is authoritative; TCP alone is auxiliary"
 
-export BERRY_TEST_DNS=on
-: > "$TMP/data/mtalk-dns-ips.txt"; rm -f "$TMP/data/mtalk-dns-time"
-# Dedicated MCS port is accepted for the GMS UID.
-cat > "$TMP/ss" <<'SOCK'
-ESTAB 0 0 192.168.1.8:45000 142.250.107.188:5228 users:("gms",pid=10,fd=1) uid:10200 ino:101
-SOCK
-j="$(json)"; assert_json "$j" 'fcm_state=connected'; assert_json "$j" 'fcm_transport=tcp5228'
+settime 10030
+printf "%s\n" "DeviceID: [fixture]" "Not connected" > "$MCS_FIXTURE"
+run monitor; requests 0
+settime 10060
+export MCS_NEXT_FIXTURE="$TMP/next"
+printf "%s\n" "DeviceID: [fixture]" "connected=mtalk.google.com/142.250.157.188,port=5228" "connectTime=00:01/00:00" > "$MCS_NEXT_FIXTURE"
+run monitor; requests 0
+j="$(run snapshot)"; assert_json "$j" fcm_recovery_decision=confirmation_changed
+unset MCS_NEXT_FIXTURE
 
-# 443 is accepted only when its peer matches a resolved mtalk address.
-cat > "$TMP/ss" <<'SOCK'
-ESTAB 0 0 192.168.1.8:45001 142.250.107.188:443 users:("gms",pid=10,fd=2) uid:10200 ino:102
-SOCK
-printf '1030.00 0.00\n' > "$TMP/uptime"
-j="$(json)"; assert_json "$j" 'fcm_state=connected'; assert_json "$j" 'fcm_transport=tcp443'
+# A fresh native timer after resume permits a double check in the same window.
+settime 10360
+printf "%s\n" "DeviceID: [fixture]" "Not connected" "disconnectTime=02:00/00:00" > "$MCS_FIXTURE"
+run monitor; requests 1
+test "$(tail -n 1 "$MCS_AM_LOG")" = "broadcast --user 0 -a com.google.android.intent.action.GCM_RECONNECT -p com.google.android.gms"
+j="$(run snapshot)"; assert_json "$j" fcm_recovery_decision=requested; assert_json "$j" fcm_state=disconnected
+run events | grep -q "|sample_gap|"
+settime 10390; run reconnect; requests 1
+settime 10660; run monitor; requests 2
+settime 10960; run monitor; requests 2
+settime 11260; run monitor; requests 3
+printf "%s\n" "DeviceID: [fixture]" "connected=mtalk.google.com/142.250.157.188,port=5228" "connectTime=00:01/00:00" > "$MCS_FIXTURE"
+settime 11290
+j="$(run status)"; assert_json "$j" fcm_last_result=restored; assert_json "$j" fcm_retry_streak=0
+echo "PASS: suspend gap, double confirmation, UID 0 broadcast, shared backoff and native restoration"
 
-# An unrelated GMS HTTPS socket is not FCM evidence.
-cat > "$TMP/ss" <<'SOCK'
-ESTAB 0 0 192.168.1.8:45002 2a04:4e42:68::347:443 users:("gms",pid=10,fd=3) uid:10200 ino:103
-SOCK
-printf '1060.00 0.00\n' > "$TMP/uptime"
-j="$(json)"; assert_json "$j" 'fcm_state=disconnected'; assert_json "$j" 'fcm_missing_seconds=0'
+settime 11600
+printf "%s\n" "DeviceID: [fixture]" "Not connected" "disconnectTime=01:00/00:00" > "$MCS_FIXTURE"
+export MCS_STOPPED=true; run monitor; requests 3
+unset MCS_STOPPED
+echo 0 > "$BERRY_FCM_DATA/enabled"; run monitor; requests 3
+echo 1 > "$BERRY_FCM_DATA/enabled"
+export MCS_UID=2000
+if run reconnect; then echo "non-root request unexpectedly accepted" >&2; exit 1; fi
+unset MCS_UID
+requests 3
+export MCS_AM_FAIL=1; run monitor; requests 4
+j="$(run snapshot)"; assert_json "$j" fcm_recovery_decision=request_failed
+unset MCS_AM_FAIL
+echo "PASS: stopped GMS, opt-out, non-root rejection and failed-broadcast classification"
 
-# At 120 seconds the monitor sends one targeted reconnect; it does not claim success.
-printf '1180.00 0.00\n' > "$TMP/uptime"
-run monitor
-[ "$(wc -l < "$TMP/am.log" | tr -d ' ')" = 1 ]
-j="$(json)"; assert_json "$j" 'fcm_last_result=requested'; assert_json "$j" 'fcm_attempts=1'
-
-# Observing the trusted socket again records a real restoration.
-cat > "$TMP/ss" <<'SOCK'
-ESTAB 0 0 192.168.1.8:45003 142.250.107.188:443 users:("gms",pid=10,fd=4) uid:10200 ino:104
-SOCK
-printf '1210.00 0.00\n' > "$TMP/uptime"
-j="$(json)"; assert_json "$j" 'fcm_state=connected'; assert_json "$j" 'fcm_last_result=restored'; assert_json "$j" 'fcm_outages=1'
-
-# If mtalk DNS cannot be resolved and only an arbitrary GMS:443 exists, state is unknown,
-# not disconnected; it must not accumulate outage time or issue another reconnect.
-: > "$TMP/data/mtalk-dns-ips.txt"; : > "$TMP/data/mtalk-learned-ips.txt"; rm -f "$TMP/data/mtalk-dns-time"
-export BERRY_TEST_DNS=off
-printf '1240.00 0.00\n' > "$TMP/uptime"
-j="$(json)"; assert_json "$j" 'fcm_state=unknown'; assert_json "$j" 'fcm_missing_seconds=0'
-[ "$(wc -l < "$TMP/am.log" | tr -d ' ')" = 1 ]
-
-
-# ADB shells can receive a redacted `ss` dump. Missing UID metadata is
-# unobservable, not a confirmed FCM disconnection; no reconnect is requested.
-if [ "${BERRY_ASSERT_UID_ACCESS:-0}" = 1 ]; then
-    cat > "$TMP/ss" <<'SOCK'
-ESTAB 0 0 192.168.1.8:45004 142.250.107.188:5228 users:("gms",pid=10,fd=5) ino:105
-SOCK
-    printf '1280.00 0.00\n' > "$TMP/uptime"
-    j="$(json)"; assert_json "$j" 'fcm_state=unknown'
-    [ "$(wc -l < "$TMP/am.log" | tr -d ' ')" = 1 ]
-fi
-
-echo 'PASS: 5228, mtalk-verified 443, unrelated 443 rejection, 120s reconnect, restoration, unknown-safe behavior'
+(
+    flock -xn 9
+    if run reconnect; then echo "concurrent request unexpectedly acquired lock" >&2; exit 1; fi
+) 9>"$BERRY_FCM_DATA/mcs-monitor.lock"
+requests 4
+echo "PASS: daemon and WebUI share a single lock"

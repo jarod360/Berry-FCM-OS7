@@ -40,95 +40,6 @@ persistent() {
     pidof "$GMS" >/dev/null 2>&1 && { echo 1; return; }
     echo 0
 }
-# Only observe established sockets owned by the GMS app UID (including
-# secondary Android user IDs such as 99910200). HTTPS/443 is deliberately
-# NOT counted: other GMS services also use 443, so it is not proof of FCM.
-fcm_socket() {
-    uid="$(gms_uid)"
-    case "$uid" in ''|*[!0-9]*) echo -1; return ;; esac
-    sockets="$(ss -tnpe 2>/dev/null)" || { echo -1; return; }
-    printf '%s\n' "$sockets" | awk -v u="$uid" '
-      $1=="ESTAB" || $1=="ESTABLISHED" {
-        if (!match($0,/uid:[0-9]+/)) next
-        owner=substr($0,RSTART+4,RLENGTH-4)+0
-        if (owner%100000 != u%100000) next
-        dst=$5; sub(/^.*:/,"",dst)
-        if (dst==5228 || dst==5229 || dst==5230) found=1
-      }
-      END {print found?1:0}
-    '
-}
-mcs() { fcm_socket; }
-
-# The Linux monotonic uptime avoids wall-clock jumps; boot_id avoids carrying
-# elapsed time across device restarts. State is never sourced as shell code.
-STATE="$DATA/fcm.state"
-boot_id() { cat /proc/sys/kernel/random/boot_id 2>/dev/null; }
-monotime() { awk '{print int($1)}' /proc/uptime; }
-num() { case "$1" in ''|*[!0-9]*) echo 0 ;; *) echo "$1" ;; esac; }
-load_fcm_state() {
-    b="$(boot_id)"; missing=0; last_try=0; last_seen=0; tries=0; last_result=none; last_try_epoch=0
-    if [ -f "$STATE" ]; then
-        IFS='|' read -r prev_b missing last_try last_seen tries last_result last_try_epoch < "$STATE" || :
-        if [ "$prev_b" != "$b" ]; then
-            missing=0; last_try=0; last_seen=0; tries=0; last_result=none; last_try_epoch=0
-        fi
-    fi
-    missing="$(num "$missing")"; last_try="$(num "$last_try")"
-    last_seen="$(num "$last_seen")"; tries="$(num "$tries")"
-    last_try_epoch="$(num "$last_try_epoch")"
-    case "$last_result" in requested|failed|none) : ;; *) last_result=none ;; esac
-}
-save_fcm_state() {
-    tmp="$STATE.$$"
-    printf '%s|%s|%s|%s|%s|%s|%s\n' "$b" "$missing" "$last_try" "$last_seen" "$tries" "$last_result" "$last_try_epoch" > "$tmp" && mv -f "$tmp" "$STATE"
-}
-fcm_monitor() {
-    load_fcm_state
-    now="$(monotime)"; now="$(num "$now")"
-    status="$(fcm_socket)"
-    if [ "$status" = 1 ]; then
-        if [ "$missing" -gt 0 ]; then echo "FCM 端口连接已恢复（之前未观察到 $((now - missing)) 秒）"; fi
-        missing=0; last_seen="$(date +%s)"
-        save_fcm_state
-        return 0
-    fi
-    # Unknown socket permissions/UID are not equivalent to disconnection.
-    if [ "$status" != 0 ]; then
-        if [ "$missing" -gt 0 ]; then
-            missing=0; save_fcm_state
-            echo 'FCM 连接检测异常，清除连续缺失计时，不误触发重连'
-        fi
-        return 0
-    fi
-    if [ "$missing" -eq 0 ] || [ "$now" -lt "$missing" ]; then
-        missing="$now"; echo '未观察到 GMS FCM 端口连接，开始计时'
-    fi
-    offline=$((now - missing))
-    save_fcm_state
-    [ "$offline" -ge 120 ] || return 0
-    [ "$last_try" -eq 0 ] || [ $((now - last_try)) -ge 300 ] || return 0
-    [ "$(stopped "$GMS")" = 0 ] || { echo 'GMS 已停止或状态未知，不发送重连广播'; return 0; }
-    request_reconnect "$offline"
-}
-request_reconnect() {
-    offline="$1"
-    # Record the request before broadcasting, preventing immediate retry loops.
-    now="$(monotime)"; now="$(num "$now")"
-    last_try="$now"; last_try_epoch="$(date +%s)"; tries=$((tries + 1)); last_result=failed; save_fcm_state
-    reply="$(am broadcast --user 0 -a com.google.android.intent.action.GCM_RECONNECT -p "$GMS" 2>&1)"
-    if printf '%s\n' "$reply" | grep -q 'Broadcast completed:'; then
-        last_result=requested
-        echo "已请求 GMS 重新连接 FCM（缺失 ${offline} 秒，第 ${tries} 次，广播结果不代表已连接）"
-    else
-        echo "FCM 重连广播未确认（缺失 ${offline} 秒）：$reply"
-    fi
-    save_fcm_state
-}
-manual_reconnect() {
-    load_fcm_state
-    request_reconnect 0
-}
 # Extended checks inspired by fcmfix-coloros17. Pure Android public shell commands;
 # vendor-specific ColorOS hooks are NOT present or implied.
 gms_uid() {
@@ -212,12 +123,7 @@ check() {
     g=0; installed "$GMS" && g=1
     s=-1; [ "$g" = 1 ] && s="$(stopped "$GMS")"
     probe=0; [ "$s" != -1 ] && probe=1
-    proc="$(persistent)"; mc="$(mcs)"
-    load_fcm_state
-    age=-1
-    now="$(monotime)"; now="$(num "$now")"
-    [ "$missing" -gt 0 ] && [ "$now" -ge "$missing" ] && age=$((now - missing))
-    [ "$mc" = 1 ] && age=0
+    proc="$(persistent)"
     dz="$(doze_state)"; ns="$(net_saver)"; na="$(net_state)"; nt="$(notification_state)"
     dz_owned=0; [ -f "$DATA/doze_added" ] && dz_owned=1
     na_owned=0; [ -f "$DATA/net_added_uid" ] && [ "$(cat "$DATA/net_added_uid")" = "$(gms_uid)" ] && na_owned=1
@@ -237,7 +143,13 @@ check() {
         comma=','
     done
     auto="$(cat "$ENABLED" 2>/dev/null)"; [ "$auto" = 1 ] || auto=0
-    printf '{"probe":%s,"gms_installed":%s,"gms_stopped":%s,"gcm_persistent":%s,"mcs":%s,"receivers":%s,"guard":%s,"doze":%s,"doze_owned":%s,"data_saver":%s,"net_allowed":%s,"net_owned":%s,"notification":%s,"fcm_missing_seconds":%s,"fcm_last_seen":%s,"fcm_last_try":%s,"fcm_attempts":%s,"fcm_last_result":"%s","targets":[%s]}\n' "$probe" "$g" "$s" "$proc" "$mc" "$recv" "$auto" "$dz" "$dz_owned" "$ns" "$na" "$na_owned" "$nt" "$age" "$last_seen" "$last_try_epoch" "$tries" "$last_result" "$items"
+    native="$(sh "$MODDIR/bin/fcm-monitor.sh" status)" || native='{"fcm_state":"unknown","fcm_source":"unavailable"}'
+    case "$native" in
+      *'{"fcm_state":"connected",'*) mc=1;;
+      *'{"fcm_state":"disconnected",'*|*'{"fcm_state":"connecting",'*) mc=0;;
+      *) mc=-1;;
+    esac
+    printf '{"probe":%s,"gms_installed":%s,"gms_stopped":%s,"gcm_persistent":%s,"mcs":%s,"receivers":%s,"guard":%s,"doze":%s,"doze_owned":%s,"data_saver":%s,"net_allowed":%s,"net_owned":%s,"notification":%s,"targets":[%s],%s\n' "$probe" "$g" "$s" "$proc" "$mc" "$recv" "$auto" "$dz" "$dz_owned" "$ns" "$na" "$na_owned" "$nt" "$items" "${native#\{}"
 }
 heartbeat() {
     ok=0
@@ -341,8 +253,8 @@ link() {
 case "${1:-}" in
     check) check ;;
     netdiag) network_test ;;
-    fcm-monitor) fcm_monitor ;;
-    reconnect) manual_reconnect ;;
+    fcm-monitor) sh "$MODDIR/bin/fcm-monitor.sh" monitor ;;
+    reconnect) sh "$MODDIR/bin/fcm-monitor.sh" reconnect ;;
     fix) fix ;;
     watch) watch ;;
     targets)
@@ -366,9 +278,9 @@ case "${1:-}" in
                 echo 1 > "$ENABLED"
                 # Service may be absent until next boot; launch after a user enables guard.
                 sh "$MODDIR/service.sh" </dev/null >/dev/null 2>&1 &
-                echo '自动守护已开启（30 秒检测 FCM，连续约 2 分钟未观察到连接则请求重连，至少间隔 5 分钟）'
+                echo '自动守护已开启（约 30 秒巡检 GMS，双重确认后限频恢复）'
                 ;;
-            off) echo 0 > "$ENABLED"; load_fcm_state; missing=0; save_fcm_state; echo '自动守护已关闭' ;;
+            off) echo 0 > "$ENABLED"; echo '自动守护已关闭' ;;
             status) cat "$ENABLED" ;;
             *) echo 'guard on|off|status' >&2; exit 2 ;;
         esac
