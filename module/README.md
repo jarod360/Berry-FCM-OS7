@@ -1,4 +1,4 @@
-# Berry-FCM KSU v1.0-rc.1
+# Berry-FCM KSU v1.0-rc.2
 
 KernelSU Root（UID 0）模块。模块 ID 仍为 `berry_fcm_ksu`，升级保留守护名单、开关和旧 TCP 监控历史。新 GMS 监控写入单独的 `mcs-*` 文件。
 
@@ -15,7 +15,7 @@ KernelSU Root（UID 0）模块。模块 ID 仍为 `berry_fcm_ksu`，升级保留
 ## 安装与升级
 
 1. 确认 KernelSU 已授予本模块 Root。
-2. 从 KernelSU「模块」安装 `BerryFCM-KSU-v1.0-rc.1.zip`。
+2. 从 KernelSU「模块」安装 `BerryFCM-KSU-v1.0-rc.2.zip`。
 3. 若支持热安装，按管理器提示操作；临时 Root 设备不要为了更新而贸然重启。
 4. 从 KernelSU 模块 WebUI 打开页面，先点“立即检测”，再核对 Google 原生 Diagnostics 的 `Connected` / `Close` 记录。
 5. 自动守护默认沿用原配置。先观察事件时间线和真实推送，再决定是否开启。
