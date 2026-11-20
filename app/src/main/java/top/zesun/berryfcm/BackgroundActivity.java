@@ -2,6 +2,7 @@ package top.zesun.berryfcm;
 
 import android.os.Bundle;
 import android.widget.Switch;
+import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.RadioButton;
