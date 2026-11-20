@@ -1,4 +1,4 @@
-# Berry-FCM KSU v0.5.11-test
+# Berry-FCM KSU v0.5.12-test
 
 KernelSU Root（UID 0）模块。模块 ID 仍为 `berry_fcm_ksu`，升级保留守护名单、开关和旧 TCP 监控历史。新 GMS 监控写入单独的 `mcs-*` 文件。
 
@@ -10,10 +10,12 @@ KernelSU Root（UID 0）模块。模块 ID 仍为 `berry_fcm_ksu`，升级保留
 - 确认 GMS 未被停止后，Root 定向发送 `GCM_RECONNECT`。自动和手动共用 5 / 10 / 15 分钟退避，原生状态恢复连接后清零连续重试计数。
 - 广播完成只记为已请求。WebUI 用后续 GMS 原生采样确认连接，实际推送送达需单测。
 
+热安装时，如果 Root 服务继承了管理器的应用冻结组，服务仅迁移自身到 cgroup v2 根组，子进程继承该组。迁移失败会在 WebUI 和后台日志中显示。
+
 ## 安装与升级
 
 1. 确认 KernelSU 已授予本模块 Root。
-2. 从 KernelSU「模块」安装 `BerryFCM-KSU-v0.5.11-test.zip`。
+2. 从 KernelSU「模块」安装 `BerryFCM-KSU-v0.5.12-test.zip`。
 3. 若支持热安装，按管理器提示操作；临时 Root 设备不要为了更新而贸然重启。
 4. 从 KernelSU 模块 WebUI 打开页面，先点“立即检测”，再核对 Google 原生 Diagnostics 的 `Connected` / `Close` 记录。
 5. 自动守护默认沿用原配置。先观察事件时间线和真实推送，再决定是否开启。

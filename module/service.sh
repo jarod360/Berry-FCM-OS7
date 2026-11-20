@@ -13,6 +13,29 @@ if ! mkdir "$LOCK" 2>/dev/null; then
     mkdir "$LOCK" 2>/dev/null || exit 0
 fi
 echo $$ > "$LOCK/pid"
+cgroup_path() {
+    while IFS=: read -r hierarchy controllers group; do
+        if [ "$hierarchy" = 0 ] && [ -z "$controllers" ]; then
+            printf '%s\n' "$group"
+            return
+        fi
+    done < "/proc/$$/cgroup"
+}
+group="$(cgroup_path)"
+cgroup_ready=1
+case "$group" in
+    /apps/*)
+        # Hot install and WebUI can inherit the Manager's app freezer group.
+        # Move only this service; workers inherit the verified group.
+        if { printf '%s\n' "$$" > /sys/fs/cgroup/cgroup.procs; } 2>/dev/null &&
+           [ "$(cgroup_path)" = / ]; then
+            printf '[%s] service_cgroup_detached pid=%s from=%s to=/\n' "$(date '+%F %T')" "$$" "$group" >> "$DATA/guard.log"
+        else
+            cgroup_ready=0
+            printf '[%s] service_cgroup_detach_failed pid=%s group=%s\n' "$(date '+%F %T')" "$$" "$group" >> "$DATA/guard.log"
+        fi
+        ;;
+esac
 wait_pid=
 timer_pid=
 service_pid=$$
@@ -73,8 +96,12 @@ sync_timer() {
     stop_timer
     if [ "$(cat "$DATA/enabled" 2>/dev/null)" = 1 ] &&
        [ "$(cat "$DATA/wake-mode" 2>/dev/null)" = timed ]; then
-        timer_worker &
-        timer_pid=$!
+        if [ "$cgroup_ready" = 1 ]; then
+            timer_worker &
+            timer_pid=$!
+        else
+            echo cgroup_failed > "$DATA/wake-status"
+        fi
     else
         echo passive > "$DATA/wake-status"
     fi

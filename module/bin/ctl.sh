@@ -171,7 +171,7 @@ check() {
       *) mc=-1;;
     esac
     wake_status="$(cat "$DATA/wake-status" 2>/dev/null)"
-    case "$wake_status" in timed|fallback|passive) :;; *) wake_status=passive;; esac
+    case "$wake_status" in timed|fallback|passive|cgroup_failed) :;; *) wake_status=passive;; esac
     printf '{"probe":%s,"gms_installed":%s,"gms_stopped":%s,"gcm_persistent":%s,"mcs":%s,"receivers":%s,"guard":%s,"doze":%s,"doze_owned":%s,"data_saver":%s,"net_allowed":%s,"net_owned":%s,"notification":%s,"fcm_check_exit":%s,"wake_mode":"%s","wake_status":"%s","targets":[%s],%s\n' "$probe" "$g" "$s" "$proc" "$mc" "$recv" "$auto" "$dz" "$dz_owned" "$ns" "$na" "$na_owned" "$nt" "$monitor_rc" "$(wake_mode)" "$wake_status" "$items" "${native#\{}"
 }
 heartbeat() {
