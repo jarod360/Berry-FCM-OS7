@@ -612,7 +612,7 @@ assert 'gap >= RESCUE_GAP_MS' in run
 assert 'getLong("sample_elapsed", -1L)' in service
 assert 'runRescueEpisode(now + 120000L)' in run and 'runOnce(true, false)' in run
 assert 'WATCHDOG_CHECK.equals(action)' not in run
-assert 'RESCUE_COOLDOWN_MS = 300000L' in service
+assert 'RESCUE_COOLDOWN_MS = 60000L' in service
 assert 'Thread.sleep' not in episode
 assert 'SystemClock.elapsedRealtime() + 50000L >= deadline' in episode
 assert 'queueCheck(false, "rescue_followup")' in episode

@@ -222,9 +222,14 @@ parse_mcs() {
         else if(line~/^streamId=/){
           if(line~/^streamId=[0-9]+\/[0-9]+(,|$)/) has_stream=1
           n=split(line,a,",")
-          for(i=1;i<=n;i++)if(a[i]~/^lastConnectionErrorCode=[A-Za-z0-9_]+$/){
-            err=a[i];sub(/^lastConnectionErrorCode=/,"",err)
+          for(i=1;i<=n;i++){
+            sub(/^[[:space:]]+/,"",a[i])
+            if(a[i]~/^lastConnectionErrorCode=[A-Za-z0-9_]+$/){
+              err=a[i];sub(/^lastConnectionErrorCode=/,"",err)
+            }
           }
+        } else if(line~/^lastConnectionErrorCode=[A-Za-z0-9_]+$/){
+          err=line;sub(/^lastConnectionErrorCode=/,"",err)
         }
       }
       END {
@@ -232,11 +237,12 @@ parse_mcs() {
         if(conflict || state=="" || state=="unknown" ||
           (!header && !corroborated && !has_stream) ||
           (!header && remote=="" && !corroborated)){
-          print "unknown||||-1|";exit
+          detail=(conflict ? "conflicting_state" : (state=="" ? "no_current_state" : (state=="unknown" ? "disabled_or_unknown" : "missing_metadata")))
+          print "unknown||||-1||" detail;exit
         }
         if((state=="connected" && has_dt && !has_ct) ||
            (state!="connected" && has_ct && !has_dt)){
-          print "unknown||||-1|";exit
+          print "unknown||||-1||inconsistent_timing";exit
         }
         if(port!~/^[0-9]+$/ || port+0<1 || port+0>65535)port=""
         duration=-1
@@ -265,6 +271,7 @@ import_native_events() {
             msg=(msg~/WiFi\(/ ? "WiFi" : "Cell") " connection attempt; " (msg~/FALLBACK_ALTERNATIVE_HOSTPORT/ ? "fallback" : "primary")
           }
           else if(msg~/^net=-?[0-9]+: Heartbeat alarm delay: [0-9]+ ms$/)kind="gms_heartbeat_delay"
+          else if(msg~/^net=-?[0-9]+: Reconnect alarm delay: [0-9]+ ms$/)kind="gms_reconnect_delay"
           else next
           gsub(/[|]/," ",msg)
           print stamp "|" kind "|" substr(msg,1,160)
@@ -283,7 +290,8 @@ auto_enabled() {
 }
 
 retry_interval() {
-    case "$retry_streak" in 0|1) echo 300;; 2) echo 600;; *) echo 900;; esac
+    # Fresh outages retain only a short global anti-flap floor; ongoing outages back off.
+    case "$retry_streak" in 0) echo 30;; 1) echo 60;; 2) echo 120;; *) echo 180;; esac
 }
 
 request_reconnect() {
@@ -338,7 +346,19 @@ observe() {
     # Keep the previous observation only as a hint across a suspend gap.
     # Never represent that gap as proven continuous downtime.
     previous_down_observed=0; previous_down_state="$state"; previous_missing_epoch="$missing_epoch"
-    case "$state" in connecting|disconnected) previous_down_observed="$down_observed";; esac
+    # An unknown sample may retain a prior down observation as a hint, never as
+    # proof of continuous downtime. Fresh native down evidence is required again.
+    case "$state" in
+      connecting|disconnected|unknown) previous_down_observed="$down_observed";;
+    esac
+    if [ "$previous_down_observed" -gt "$nowm" ] ||
+       [ $((nowm-previous_down_observed)) -gt 900 ]; then
+        previous_down_observed=0
+    fi
+    previous_native_reason=
+    if [ -f "$EVIDENCE" ]; then
+        IFS='|' read -r old_source old_duration old_close old_tcp previous_native_reason old_decision < "$EVIDENCE" || :
+    fi
     decision=not_evaluated
     gap_detected=0
     if [ "$sample_epoch" -gt 0 ] && [ "$nowe" -gt "$sample_epoch" ] && [ $((nowe-sample_epoch)) -gt 90 ]; then
@@ -362,10 +382,13 @@ observe() {
     fi
     if [ "$native_reason" = none ]; then
         result="$(printf '%s\n' "$dump" | parse_mcs)"
+        # Keep native lifecycle history even if the current-state parser rejects
+        # an otherwise successful dump. Historical Close alone never authorizes recovery.
+        import_native_events "$dump"
     else
         result='unknown||||-1|'
     fi
-    IFS='|' read -r observed new_transport new_remote source duration close_code <<EOF_RESULT
+    IFS='|' read -r observed new_transport new_remote source duration close_code parse_detail <<EOF_RESULT
 $result
 EOF_RESULT
     tcp_hint=none
@@ -378,18 +401,22 @@ EOF_RESULT
         tcp_hint="$(printf '%s' "$socket" | cut -d '|' -f 1)"
         case "$tcp_hint" in connected) tcp_hint=established;; connecting|absent|unknown) :;; *) tcp_hint=unknown;; esac
         source=unavailable; duration=-1; close_code=
+        if [ "$previous_down_state" != unknown ] ||
+           [ "$previous_native_reason" != "$native_reason" ]; then
+            record_event sample_unknown "reason=$native_reason parser=${parse_detail:-none} tcp=$tcp_hint prior_down=$previous_down_observed；不将读取异常当作断联"
+        fi
     else
         # Reject implausible wall-clock-derived durations (e.g. no prior session).
         if [ "$duration" -gt "$nowm" ]; then duration=-1; fi
-        import_native_events "$dump"
     fi
     case "$observed" in
       connected)
-        if [ "$previous_down_state" = connecting ] || [ "$previous_down_state" = disconnected ]; then
+        if [ "$previous_down_state" = connecting ] || [ "$previous_down_state" = disconnected ] ||
+           [ "$previous_down_observed" -gt 0 ]; then
             last_restore="$nowe"
             if [ "$last_result" = requested ] && [ "$last_try_epoch" -ge "$previous_missing_epoch" ] && [ "$last_try_epoch" -gt 0 ]; then last_result=restored; fi
-            if [ "$gap_detected" = 1 ]; then
-                record_event connection_restored '采样间隔后发现 GMS 已恢复连接；恢复具体时刻未知'
+            if [ "$gap_detected" = 1 ] || [ "$previous_down_state" = unknown ]; then
+                record_event connection_restored '采样间隔或状态未知后发现 GMS 已恢复连接；恢复具体时刻未知'
             else
                 record_event connection_restored 'GMS 原生状态确认连接成功（不保证每条消息送达）'
             fi
@@ -414,7 +441,11 @@ EOF_RESULT
       connecting|disconnected)
         if [ "$state" != connecting ] && [ "$state" != disconnected ]; then
             missing_since="$nowm"; missing_epoch="$nowe"; down_observed="$nowm"
-            record_event connection_down 'GMS 原生状态确认尚未连接'
+            if [ "$previous_down_state" = unknown ] && [ "$previous_down_observed" -gt 0 ]; then
+                record_event down_reconfirmed '读取恢复后再次确认 GMS 未连接；保留先前断联证据用于确认'
+            else
+                record_event connection_down 'GMS 原生状态确认尚未连接'
+            fi
         fi
         [ "$down_observed" -gt 0 ] && [ "$down_observed" -le "$nowm" ] || down_observed="$nowm"
         if [ "$duration" -ge 0 ] && [ "$duration" -le "$nowe" ]; then
@@ -424,7 +455,10 @@ EOF_RESULT
         state="$observed"; last_down="$missing_epoch"; conn_key=; conn_since=0; conn_since_mono=0
         ;;
       *)
-        state=unknown; conn_key=; missing_since=0; missing_epoch=0; conn_since=0; conn_since_mono=0; down_observed=0
+        state=unknown; conn_key=; missing_since=0; missing_epoch=0; conn_since=0; conn_since_mono=0
+        # Store only the last genuine down hint across an unreadable sample.
+        down_observed="$previous_down_observed"
+        [ "$down_observed" -le 0 ] || missing_epoch="$previous_missing_epoch"
         new_transport=; new_remote=
         ;;
     esac
@@ -464,16 +498,17 @@ auto_recovery() {
     if [ "$duration" -ge 60 ] || [ "$observed_age" -ge "$required" ]; then
         decision=waiting_confirmation
         if [ "$observed_age" -ge 15 ]; then request_reconnect auto; return 0; fi
-    elif [ "$gap_detected" != 1 ] || [ "$previous_down_observed" -le 0 ] ||
+    elif [ "$previous_down_observed" -le 0 ] ||
         [ "$nowm" -lt "$previous_down_observed" ] ||
         [ $((nowm-previous_down_observed)) -lt "$required" ]; then
         return 0
     fi
-    # Sleep can reset the local observation clock indefinitely. A timed long
-    # outage or a prior down observation old enough to be eligible can trigger
-    # a second fresh read in the same awake window. No continuous-duration claim.
-    [ "$gap_detected" = 1 ] || return 0
-    if [ "$duration" -lt 60 ] && [ "$state" != "$previous_down_state" ]; then return 0; fi
+    # A sleep gap or an unreadable sample can interrupt the local timer.
+    # Use a second fresh down read in the same awake window, not historical
+    # Close events or presumed continuous downtime.
+    if [ "$gap_detected" != 1 ] && [ "$previous_down_state" != unknown ]; then return 0; fi
+    if [ "$duration" -lt 60 ] && [ "$previous_down_state" != unknown ] &&
+        [ "$state" != "$previous_down_state" ]; then return 0; fi
     decision=waiting_confirmation
     first_state="$state"; first_remote="$remote"; first_duration="$duration"
     [ "${BERRY_FCM_TEST_MODE:-0}" = 1 ] || sleep 2
@@ -541,9 +576,19 @@ case "${1:-status}" in
         status_json
         ;;
     monitor)
+        prior_decision=
+        if [ -f "$EVIDENCE" ]; then
+            IFS='|' read -r old_source old_duration old_close old_tcp old_reason prior_decision < "$EVIDENCE" || :
+        fi
         observe || exit $?
         auto_recovery || exit $?
         write_evidence
+        case "$state" in
+          connecting|disconnected)
+            if [ "$decision" != "$prior_decision" ]; then
+                record_event recovery_decision "decision=$decision state=$state native_s=$duration gate=${BERRY_AUTO_GATE:-ready} retry_streak=$retry_streak"
+            fi;;
+        esac
         ;;
     rescue)
         # Not a watchdog action and not the ordinary auto_recovery policy.

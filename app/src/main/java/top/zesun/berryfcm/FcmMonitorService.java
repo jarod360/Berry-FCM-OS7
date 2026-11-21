@@ -40,7 +40,7 @@ public final class FcmMonitorService extends Service {
     private static final String RECONNECT = "berryfcm.monitor.reconnect";
     private static final String REFRESH_DISPLAY = "berryfcm.monitor.display";
     private static final long RESCUE_GAP_MS = 90000L;
-    private static final long RESCUE_COOLDOWN_MS = 300000L;
+    private static final long RESCUE_COOLDOWN_MS = 60000L;
     private final ScheduledExecutorService monitorWorker = Executors.newSingleThreadScheduledExecutor();
     private final ScheduledExecutorService guardWorker = Executors.newSingleThreadScheduledExecutor();
     private volatile boolean scheduled;
@@ -482,8 +482,17 @@ public final class FcmMonitorService extends Service {
         boolean abnormal = "gms".equals(sample.optString("fcm_source"))
                 && ("disconnected".equals(state) || "connecting".equals(state))
                 && new AppPrefs(this).autoReconnect();
-        if (!abnormal || !AppPrefs.WAKE_SMART.equals(new AppPrefs(this).wakeMode())) {
-            releaseConfirmationWakeLock();
+        if (!new AppPrefs(this).autoReconnect()
+                || !AppPrefs.WAKE_SMART.equals(new AppPrefs(this).wakeMode())) {
+            resetConfirmationWindow();
+            return;
+        }
+        // A transient unreadable sample must not release the existing bounded
+        // confirmation lease prematurely. It still cannot authorize recovery.
+        if (!abnormal) {
+            if (!confirmationUsed || confirmationSince < 0
+                    || SystemClock.elapsedRealtime() - confirmationSince >= 90000L)
+                releaseConfirmationWakeLock();
             return;
         }
         if (confirmationUsed) {
@@ -1084,7 +1093,7 @@ public final class FcmMonitorService extends Service {
                 observedNetwork = current;
                 networkChangedAt = now;
             }
-            long remaining = 45000L - (now - networkChangedAt);
+            long remaining = 15000L - (now - networkChangedAt);
             if (remaining <= 0) return "ready";
             if (networkRecheck == null || networkRecheck.isDone()) {
                 networkRecheck = monitorWorker.schedule(

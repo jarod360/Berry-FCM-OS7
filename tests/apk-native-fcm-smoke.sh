@@ -115,25 +115,23 @@ export BERRY_FCM_AUTO=1
 run monitor; requests 1
 run monitor; requests 1
 j="$(run snapshot)"; assert_json "$j" fcm_last_result=requested
-assert_json "$j" fcm_retry_streak=1; assert_json "$j" fcm_retry_in=300
+assert_json "$j" fcm_retry_streak=1; assert_json "$j" fcm_retry_in=60
 # Confirm a long native outage twice in the same awake window after a gap.
 settime 10345
 run monitor; requests 2
 run recovery-events | grep -q 'recovery_confirmed'
-j="$(run snapshot)"; assert_json "$j" fcm_retry_in=600
+j="$(run snapshot)"; assert_json "$j" fcm_retry_in=120
 settime 10360
 run monitor; requests 2
-settime 10660
+settime 10400
 run monitor; requests 2
-settime 10675
+settime 10445
 run monitor; requests 2
-settime 10944
+settime 10464
 run monitor; requests 2
-settime 10945
-run monitor; requests 2
-settime 10960
+settime 10465
 run monitor; requests 3
-j="$(run snapshot)"; assert_json "$j" fcm_retry_in=900
+j="$(run snapshot)"; assert_json "$j" fcm_retry_in=180
 test "$(grep -c 'GCM_RECONNECT' "$MCS_AM_LOG")" = 3
 ! grep -q "MCS_HEARTBEAT" "$MCS_AM_LOG"
 run events | grep -q 'gms_network_attempt|Cell connection attempt; fallback'
@@ -269,7 +267,7 @@ settime 15100
 run monitor; requests 3
 # A full minute of unchanged Connecting state is enough for the first request.
 j="$(run snapshot)"; assert_json "$j" fcm_recovery_decision=requested
-settime 15160
+settime 15159
 run monitor; requests 3
 # Once requested, the retry cooldown prevents repeating the heartbeat.
 j="$(run snapshot)"; assert_json "$j" fcm_recovery_decision=cooldown
@@ -398,3 +396,46 @@ printf '%s\n' 'Permission Denial' > "$MCS_FIXTURE"
 run rescue; requests 0
 j="$(run snapshot)"; assert_json "$j" fcm_state=unknown
 echo 'PASS: rescue does not broadcast without a live native state or active network'
+
+# Field regression: intermittent unreadable samples must not restart the
+# outage confirmation indefinitely; a new outage must not inherit 5 min cooldown.
+rm -f "$BERRY_FCM_DATA"/mcs-monitor.state "$BERRY_FCM_DATA"/mcs-evidence "$BERRY_FCM_DATA"/mcs-monitor-events.log
+: > "$MCS_AM_LOG"
+settime 23000
+printf '%s\n' 'DeviceID: [fixture]' 'Not connected' 'lastConnectionErrorCode=ERR_IO_FIN' > "$MCS_FIXTURE"
+run monitor; requests 0
+settime 23008
+printf '%s\n' 'DUMP TIMEOUT' > "$MCS_FIXTURE"
+run monitor; requests 0
+j="$(run snapshot)"; assert_json "$j" fcm_state=unknown; assert_json "$j" fcm_native_reason=timeout
+run recovery-events | grep -q 'sample_unknown|reason=timeout'
+settime 23020
+printf '%s\n' 'DeviceID: [fixture]' 'Not connected' 'lastConnectionErrorCode=ERR_IO_FIN' > "$MCS_FIXTURE"
+run monitor; requests 1
+j="$(run snapshot)"; assert_json "$j" fcm_recovery_decision=requested; assert_json "$j" fcm_last_close_code=ERR_IO_FIN
+settime 23035
+printf '%s\n' 'DeviceID: [fixture]' 'connected=mtalk.google.com/142.250.157.188,port=5228' 'connectTime=00:03/00:00' > "$MCS_FIXTURE"
+run monitor; requests 1
+settime 23040
+printf '%s\n' 'DeviceID: [fixture]' 'Not connected' > "$MCS_FIXTURE"
+run monitor; requests 1
+settime 23055
+run monitor; requests 2
+j="$(run snapshot)"; assert_json "$j" fcm_retry_in=60
+# Native history is retained even when the current status fields conflict.
+settime 23065
+printf '%s\n' 'DeviceID: [fixture]' 'connected=mtalk.google.com/142.250.157.188,port=5228' 'pending=fixture,host=mtalk.google.com:5228' '11-21 16:02:42.645 net=1: Close err:20 time:15' '11-21 16:02:43.111 net=1: Reconnect alarm delay: 120000 ms' > "$MCS_FIXTURE"
+run monitor; requests 2
+j="$(run snapshot)"; assert_json "$j" fcm_state=unknown
+run recovery-events | grep -q 'parser=conflicting_state'
+run events | grep -q '11-21 16:02:42.645|gms_close'
+run events | grep -q 'gms_reconnect_delay'
+# If a fresh second read says online, never send a recovery broadcast.
+settime 23135
+printf '%s\n' 'DeviceID: [fixture]' 'Not connected' > "$MCS_FIXTURE"
+export MCS_NEXT_FIXTURE="$TMP/next-dump"
+printf '%s\n' 'DeviceID: [fixture]' 'connected=mtalk.google.com/142.250.157.188,port=5228' 'connectTime=00:02/00:00' > "$MCS_NEXT_FIXTURE"
+run monitor; requests 2
+j="$(run snapshot)"; assert_json "$j" fcm_state=connected
+unset MCS_NEXT_FIXTURE
+echo 'PASS: transient native read failure, fresh outage cooldown, native error history, no speculative recovery'
