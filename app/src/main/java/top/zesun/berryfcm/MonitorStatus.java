@@ -6,7 +6,7 @@ package top.zesun.berryfcm;
 final class MonitorStatus {
     enum State {
         AUTH_REQUIRED("需要授权"), DISABLED("监控未开启"), NOT_RUNNING("监控未运行"),
-        WAITING("等待有效检查"), FAILED("连接检查失败"), UNKNOWN("暂时无法确认 FCM 状态"),
+        WAITING("等待有效检查"), FAILED("连接检查失败"), UNKNOWN("本次未读到 GMS 连接状态"),
         CONNECTED("FCM 已连接"), CONNECTING("FCM 正在重连（尚未连接）"),
         DISCONNECTED("FCM 已断开");
         final String label;
