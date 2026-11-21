@@ -439,3 +439,30 @@ run monitor; requests 2
 j="$(run snapshot)"; assert_json "$j" fcm_state=connected
 unset MCS_NEXT_FIXTURE
 echo 'PASS: transient native read failure, fresh outage cooldown, native error history, no speculative recovery'
+
+# Multiple short unknown/down cycles cannot indefinitely reset the recovery hint.
+rm -f "$BERRY_FCM_DATA"/mcs-monitor.state "$BERRY_FCM_DATA"/mcs-evidence
+: > "$MCS_AM_LOG"
+settime 24000
+printf '%s\n' 'DeviceID: [fixture]' 'Not connected' > "$MCS_FIXTURE"
+run monitor; requests 0
+settime 24004
+printf '%s\n' 'DUMP TIMEOUT' > "$MCS_FIXTURE"
+run monitor; requests 0
+settime 24008
+printf '%s\n' 'DeviceID: [fixture]' 'Not connected' > "$MCS_FIXTURE"
+run monitor; requests 0
+j="$(run snapshot)"; assert_json "$j" fcm_observed_down_seconds=0
+settime 24012
+printf '%s\n' 'DUMP TIMEOUT' > "$MCS_FIXTURE"
+run monitor; requests 0
+settime 24016
+printf '%s\n' 'DeviceID: [fixture]' 'Not connected' > "$MCS_FIXTURE"
+run monitor; requests 1
+j="$(run snapshot)"; assert_json "$j" fcm_recovery_decision=requested
+# A pending fallback and a connecting attempt can coexist. Neither is connected.
+settime 24020
+printf '%s\n' 'DeviceID: [fixture]' 'connecting=alt7-mtalk.google.com:5228' 'pending=fixture,host=mtalk.google.com:5228' 'disconnectTime=00:20/00:00' > "$MCS_FIXTURE"
+j="$(run status)"; assert_json "$j" fcm_state=connecting
+run monitor; requests 1
+echo 'PASS: alternating unknown/down observations and parallel non-connected attempts'
