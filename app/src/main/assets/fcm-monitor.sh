@@ -486,7 +486,7 @@ EOF_RETRY
             if [ "$gap_detected" = 1 ] || [ "$previous_down_state" = unknown ]; then
                 record_event connection_restored '采样间隔或状态未知后发现 GMS 已恢复连接；恢复具体时刻未知'
             else
-                record_event connection_restored 'GMS 原生状态确认连接成功（不保证每条消息送达）'
+                record_event connection_restored 'GMS 已确认重新连接'
             fi
         fi
         # The native GMS 00:00 can be real immediately after connection.
