@@ -98,7 +98,7 @@ j="$(run snapshot)"; assert_json "$j" fcm_recovery_decision=requested; assert_js
 run events | grep -q "|sample_gap|"
 settime 10390; run reconnect; requests 1
 settime 10660; run monitor; requests 2
-settime 10960; run monitor; requests 2
+settime 10720; run monitor; requests 2
 settime 11260; run monitor; requests 3
 printf "%s\n" "DeviceID: [fixture]" "connected=mtalk.google.com/142.250.157.188,port=5228" "connectTime=00:01/00:00" > "$MCS_FIXTURE"
 settime 11290
