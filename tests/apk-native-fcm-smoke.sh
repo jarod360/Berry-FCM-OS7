@@ -466,3 +466,13 @@ printf '%s\n' 'DeviceID: [fixture]' 'connecting=alt7-mtalk.google.com:5228' 'pen
 j="$(run status)"; assert_json "$j" fcm_state=connecting
 run monitor; requests 1
 echo 'PASS: alternating unknown/down observations and parallel non-connected attempts'
+
+# ActivityManager can return only wrapper lines with exit code zero.
+export MCS_NEXT_FIXTURE="$TMP/next-state-dump"
+printf '%s\n' 'ACTIVITY MANAGER SERVICES' '  (service wrapper)' '  (no client detail)' > "$MCS_FIXTURE"
+printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Connected' > "$MCS_NEXT_FIXTURE"
+j="$(run status)"
+assert_json "$j" fcm_state=connected
+grep -q 'sample_retry|first=no_current_state retry_rc=0 state=connected' "$BERRY_FCM_DATA/mcs-monitor-events.log"
+unset MCS_NEXT_FIXTURE
+echo 'PASS: wrapper-only dump retries once and uses fresh GMS state'
