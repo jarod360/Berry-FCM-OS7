@@ -144,3 +144,13 @@ j="$(PATH="$TMP/bin:$TMP/compatible" /bin/sh "$MON" status)"
 assert_json "$j" fcm_state=connected
 [ ! -e "$BERRY_FCM_DATA/mcs-monitor-test-boot.lockdir" ]
 echo "PASS: native reading works with a KernelSU BusyBox lacking flock"
+
+# ActivityManager can return only wrapper lines with exit code zero.
+export MCS_NEXT_FIXTURE="$TMP/next-state-dump"
+printf '%s\n' 'ACTIVITY MANAGER SERVICES' '  (service wrapper)' '  (no client detail)' > "$MCS_FIXTURE"
+printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Connected' > "$MCS_NEXT_FIXTURE"
+j="$(run status)"
+assert_json "$j" fcm_state=connected
+grep -q 'sample_retry|first=no_current_state retry_rc=0 state=connected' "$BERRY_FCM_DATA/mcs-monitor-events.log"
+unset MCS_NEXT_FIXTURE
+echo 'PASS: wrapper-only dump retries once and uses fresh GMS state'
