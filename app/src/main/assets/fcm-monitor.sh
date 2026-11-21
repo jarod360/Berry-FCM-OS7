@@ -432,6 +432,27 @@ observe() {
     IFS='|' read -r observed new_transport new_remote source duration close_code parse_detail <<EOF_RESULT
 $result
 EOF_RESULT
+    # A successful service command can return only ActivityManager wrapper lines.
+    # Retry once with the same privileges before waiting for the next patrol.
+    retry_rc=none
+    if [ "$native_reason" = none ] && [ "$parse_detail" = no_current_state ]; then
+        [ "${BERRY_FCM_TEST_MODE:-0}" = 1 ] || sleep 1
+        retry_dump="$("$DUMPSYS_BIN" -t 2 activity service "$GMS/.gcm.GcmService" 2>&1)"
+        retry_rc=$?
+        if [ "$retry_rc" -eq 0 ] &&
+           ! printf '%s\n' "$retry_dump" | grep -qiE 'Permission Denial|SecurityException|Permission denied|DUMP TIMEOUT|dump timed out|dumpsys.*timed out|No services match|No service found'; then
+            retry_result="$(printf '%s\n' "$retry_dump" | parse_mcs)"
+            case "$retry_result" in
+              connected\|*|connecting\|*|disconnected\|*)
+                IFS='|' read -r observed new_transport new_remote source duration close_code parse_detail <<EOF_RETRY
+$retry_result
+EOF_RETRY
+                import_native_events "$retry_dump"
+                record_event sample_retry "first=no_current_state retry_rc=$retry_rc state=$observed"
+                ;;
+            esac
+        fi
+    fi
     tcp_hint=none
     if [ "$observed" = unknown ]; then
         [ "$native_reason" != none ] || native_reason=unrecognized
@@ -444,7 +465,7 @@ EOF_RESULT
         source=unavailable; duration=-1; close_code=
         if [ "$previous_down_state" != unknown ] ||
            [ "$previous_native_reason" != "$native_reason" ]; then
-            record_event sample_unknown "reason=$native_reason parser=${parse_detail:-none} tcp=$tcp_hint prior_down=$previous_down_observed dump_rc=$dump_rc"
+            record_event sample_unknown "reason=$native_reason parser=${parse_detail:-none} tcp=$tcp_hint prior_down=$previous_down_observed dump_rc=$dump_rc retry_rc=$retry_rc"
         fi
         dump_shape="parser=${parse_detail:-none} rc=$dump_rc $(printf '%s' "$dump" | dump_state_shape)"
         dump_shape="$(printf '%s' "$dump_shape" | cut -c1-220)"
