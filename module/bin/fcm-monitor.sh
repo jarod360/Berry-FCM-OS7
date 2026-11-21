@@ -40,10 +40,10 @@ load_state() {
     attempts=0; last_result=none; last_restore=0; outages=0
     transport=; remote=; sample_epoch=0; last_try_reason=none
     reconnects=0; last_down=0
-    down_observed=0; retry_streak=0
+    down_observed=0; retry_streak=0; outage_hint_mono=0
     prev_b=
     if [ -f "$STATE" ]; then
-        IFS='|' read -r prev_b state conn_key conn_since conn_since_mono last_seen missing_since missing_epoch last_try_mono last_try_epoch attempts last_result last_restore outages transport remote sample_epoch last_try_reason reconnects last_down down_observed retry_streak < "$STATE" || :
+        IFS='|' read -r prev_b state conn_key conn_since conn_since_mono last_seen missing_since missing_epoch last_try_mono last_try_epoch attempts last_result last_restore outages transport remote sample_epoch last_try_reason reconnects last_down down_observed retry_streak outage_hint_mono < "$STATE" || :
     fi
     conn_since="$(num "$conn_since")"; conn_since_mono="$(num "$conn_since_mono")"; last_seen="$(num "$last_seen")"
     missing_since="$(num "$missing_since")"; missing_epoch="$(num "$missing_epoch")"
@@ -52,12 +52,13 @@ load_state() {
     outages="$(num "$outages")"; sample_epoch="$(num "$sample_epoch")"
     reconnects="$(num "$reconnects")"; last_down="$(num "$last_down")"
     down_observed="$(num "${down_observed:-0}")"; retry_streak="$(num "${retry_streak:-0}")"
+    outage_hint_mono="$(num "${outage_hint_mono:-0}")"
     case "$state" in connected|connecting|disconnected|unknown|never_seen) : ;; *) state=unknown;; esac
     case "$last_result" in none|requested|failed|restored) : ;; *) last_result=none;; esac
-    case "$last_try_reason" in none|auto|manual) : ;; *) last_try_reason=none;; esac
+    case "$last_try_reason" in none|auto|manual|rescue) : ;; *) last_try_reason=none;; esac
     if [ -n "$prev_b" ] && [ "$prev_b" != "$b" ]; then
         state=never_seen; conn_key=; conn_since=0; conn_since_mono=0; missing_since=0; missing_epoch=0
-        last_try_mono=0; transport=; remote=; sample_epoch=0; down_observed=0; retry_streak=0
+        last_try_mono=0; transport=; remote=; sample_epoch=0; down_observed=0; retry_streak=0; outage_hint_mono=0
         : > "$LEARNED_IPS"
         record_event reboot '设备重启：清除上一启动周期的连接计时，保留历史事件'
     fi
@@ -65,10 +66,10 @@ load_state() {
 
 save_state() {
     tmp="$STATE.$$"
-    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
+    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
       "$b" "$state" "$conn_key" "$conn_since" "$conn_since_mono" "$last_seen" "$missing_since" "$missing_epoch" \
       "$last_try_mono" "$last_try_epoch" "$attempts" "$last_result" "$last_restore" "$outages" \
-      "$transport" "$remote" "$sample_epoch" "$last_try_reason" "$reconnects" "$last_down" "$down_observed" "$retry_streak" > "$tmp" && mv -f "$tmp" "$STATE"
+      "$transport" "$remote" "$sample_epoch" "$last_try_reason" "$reconnects" "$last_down" "$down_observed" "$retry_streak" "$outage_hint_mono" > "$tmp" && mv -f "$tmp" "$STATE"
 }
 
 record_event() {
@@ -180,7 +181,6 @@ parse_mcs() {
         r=0; for(i=1;i<=n;i++){if(a[i]!~/^[0-9]+$/ || (i>1 && a[i]+0>=60))return -1; r=r*60+a[i]}
         return r
       }
-      # POSIX bracket ordering works in BusyBox awk as well as system awk.
       function endpoint(v) {return v ~ /^[][A-Za-z0-9.\/:_-]+$/ ? v : ""}
       {
         sub(/\r$/, ""); line=$0; sub(/^[[:space:]]+/, "",line); sub(/[[:space:]]+$/, "",line)
@@ -204,18 +204,24 @@ parse_mcs() {
         } else if(line~/^connecting=/){
           v=line;sub(/^connecting=/,"",v)
           if(endpoint(v)!="" && v~/:[0-9]+$/){
-            if(state!="" && state!="connecting") conflict=1
+            if(state=="connected") conflict=1
             state="connecting"; remote=v; port=v;sub(/^.*:/,"",port)
           }
         } else if(line~/^pending=/ && line~/,host=/){
           v=line;sub(/^.*,host=/,"",v)
           if(endpoint(v)!="" && v~/:[0-9]+$/){
-            if(state!="" && state!="disconnected") conflict=1
-            state="disconnected"; remote=endpoint(v);port=v;sub(/^.*:/,"",port)
+            if(state=="connected") conflict=1
+            if(state!="connecting"){
+              state="disconnected"; remote=endpoint(v);port=v;sub(/^.*:/,"",port)
+            }
           }
-        } else if(line=="Not connected" && (header || scoped)){
-          if(state!="" && state!="disconnected") conflict=1
-          state="disconnected"
+        } else if(line=="Server: Connected" && (header || scoped)){
+          if(state!="" && state!="connected") conflict=1
+          state="connected"; explicit_status=1
+        } else if((line=="Not connected" || line=="Server: Not connected") && (header || scoped)){
+          if(line=="Server: Not connected") explicit_status=1
+          if(state=="connected") conflict=1
+          if(state!="connecting") state="disconnected"
         } else if(line=="Connecting" && state=="" && (header || scoped)){state="connecting"}
         else if(line=="Disabled" && (header || scoped)){state="unknown";done=1}
         else if(line~/^connectTime=/){v=line;sub(/^connectTime=/,"",v);ct=sec(v);has_ct=(ct>=0)}
@@ -223,27 +229,62 @@ parse_mcs() {
         else if(line~/^streamId=/){
           if(line~/^streamId=[0-9]+\/[0-9]+(,|$)/) has_stream=1
           n=split(line,a,",")
-          for(i=1;i<=n;i++)if(a[i]~/^lastConnectionErrorCode=[A-Za-z0-9_]+$/){
-            err=a[i];sub(/^lastConnectionErrorCode=/,"",err)
+          for(i=1;i<=n;i++){
+            sub(/^[[:space:]]+/,"",a[i])
+            if(a[i]~/^lastConnectionErrorCode=[A-Za-z0-9_]+$/){
+              err=a[i];sub(/^lastConnectionErrorCode=/,"",err)
+            }
           }
+        } else if(line~/^lastConnectionErrorCode=[A-Za-z0-9_]+$/){
+          err=line;sub(/^lastConnectionErrorCode=/,"",err)
         }
       }
       END {
         corroborated=(state=="connected" ? has_ct : has_dt)
         if(conflict || state=="" || state=="unknown" ||
-          (!header && !corroborated && !has_stream) ||
-          (!header && remote=="" && !corroborated)){
-          print "unknown||||-1|";exit
+          (!explicit_status && !header && !corroborated && !has_stream) ||
+          (!explicit_status && !header && remote=="" && !corroborated)){
+          detail=(conflict ? "conflicting_state" : (state=="" ? "no_current_state" : (state=="unknown" ? "disabled_or_unknown" : "missing_metadata")))
+          print "unknown||||-1||" detail;exit
         }
         if((state=="connected" && has_dt && !has_ct) ||
            (state!="connected" && has_ct && !has_dt)){
-          print "unknown||||-1|";exit
+          print "unknown||||-1||inconsistent_timing";exit
         }
         if(port!~/^[0-9]+$/ || port+0<1 || port+0>65535)port=""
         duration=-1
         if(state=="connected" && ct!="")duration=ct
         if((state=="connecting" || state=="disconnected") && dt!="")duration=dt
         printf "%s|%s|%s|%s|%d|%s\n",state,(port==""?"":"tcp"port),remote,"gms",duration,err
+      }'
+}
+
+dump_state_shape() {
+    # Keep status field spelling and order without recording endpoint values or identifiers.
+    awk '
+      {
+        line=$0
+        sub(/^[[:space:]]+/, "", line)
+        sub(/[[:space:]]+$/, "", line)
+        lower=tolower(line)
+        if (!history && line ~ /^[0-9][0-9]-[0-9][0-9] [0-9][0-9]:/) history=NR
+        if (!heading && line ~ /^(DeviceID:|Direct boot mode )/) heading=NR
+        if (lower ~ /^(not connected|connected|connecting|disconnected|disabled)$/) {
+          field=line
+        } else if (match(lower, /^(server([ _-]status)?|mcs[ _-]?(state|status)|connection[ _-]?(state|status)|state|status|connected|connecting|pending|connecttime|disconnecttime|time (dis)?connected)[[:space:]]*[:=]/)) {
+          field=substr(line,1,RLENGTH)
+          value=substr(lower,RLENGTH+1)
+          sub(/^[[:space:]]+/, "", value)
+          if (value ~ /^(not connected|connected|connecting|disconnected|pending|disabled|true|false)$/)
+            field=field " " value
+          else
+            field=field " <redacted>"
+        } else next
+        if (!seen[field]++ && ++fields <= 3) detail=detail " " NR ":" field
+      }
+      END {
+        printf "lines=%d heading=%d history=%d%s", NR, heading, history, detail
+        if (fields > 3) printf " more=%d", fields-3
       }'
 }
 
@@ -266,6 +307,7 @@ import_native_events() {
             msg=(msg~/WiFi\(/ ? "WiFi" : "Cell") " connection attempt; " (msg~/FALLBACK_ALTERNATIVE_HOSTPORT/ ? "fallback" : "primary")
           }
           else if(msg~/^net=-?[0-9]+: Heartbeat alarm delay: [0-9]+ ms$/)kind="gms_heartbeat_delay"
+          else if(msg~/^net=-?[0-9]+: Reconnect alarm delay: [0-9]+ ms$/)kind="gms_reconnect_delay"
           else next
           gsub(/[|]/," ",msg)
           print stamp "|" kind "|" substr(msg,1,160)
@@ -283,13 +325,14 @@ auto_enabled() {
 }
 
 retry_interval() {
-    case "$retry_streak" in 0|1) echo 300;; 2) echo 600;; *) echo 900;; esac
+    case "$retry_streak" in 0) echo 30;; 1) echo 60;; 2) echo 120;; *) echo 180;; esac
 }
 
 request_reconnect() {
     reason="$1"; nowm="$(num "$(monotime)")"; nowe="$(num "$(now_epoch)")"
     case "$state" in connecting|disconnected) :;; *) decision=not_disconnected; return 0;; esac
     interval="$(retry_interval)"
+    [ "$reason" != manual ] || interval=60
     if [ "$last_try_mono" -gt 0 ] && [ "$nowm" -ge "$last_try_mono" ] && [ $((nowm-last_try_mono)) -lt "$interval" ]; then
         decision=cooldown
         if [ "$reason" = manual ]; then
@@ -325,7 +368,24 @@ observe() {
     # Keep the previous observation only as a hint across a suspend gap.
     # Never represent that gap as proven continuous downtime.
     previous_down_observed=0; previous_down_state="$state"; previous_missing_epoch="$missing_epoch"
-    case "$state" in connecting|disconnected) previous_down_observed="$down_observed";; esac
+    # An unknown sample may retain a prior down observation as a hint, never as
+    # proof of continuous downtime. Fresh native down evidence is required again.
+    case "$state" in
+      connecting|disconnected|unknown)
+        previous_down_observed="$outage_hint_mono"
+        # Migrate the previous on-disk schema without losing a down sample.
+        [ "$previous_down_observed" -gt 0 ] || previous_down_observed="$down_observed"
+        ;;
+    esac
+    if [ "$previous_down_observed" -gt "$nowm" ] ||
+       [ $((nowm-previous_down_observed)) -gt 900 ]; then
+        previous_down_observed=0
+    fi
+    outage_hint_mono="$previous_down_observed"
+    previous_native_reason=
+    if [ -f "$EVIDENCE" ]; then
+        IFS='|' read -r old_source old_duration old_close old_tcp previous_native_reason old_decision < "$EVIDENCE" || :
+    fi
     decision=not_evaluated
     gap_detected=0
     if [ "$sample_epoch" -gt 0 ] && [ "$nowe" -gt "$sample_epoch" ] && [ $((nowe-sample_epoch)) -gt 90 ]; then
@@ -349,10 +409,13 @@ observe() {
     fi
     if [ "$native_reason" = none ]; then
         result="$(printf '%s\n' "$dump" | parse_mcs)"
+        # Keep native lifecycle history even if the current-state parser rejects
+        # an otherwise successful dump. Historical Close alone never authorizes recovery.
+        import_native_events "$dump"
     else
         result='unknown||||-1|'
     fi
-    IFS='|' read -r observed new_transport new_remote source duration close_code <<EOF_RESULT
+    IFS='|' read -r observed new_transport new_remote source duration close_code parse_detail <<EOF_RESULT
 $result
 EOF_RESULT
     tcp_hint=none
@@ -365,18 +428,28 @@ EOF_RESULT
         tcp_hint="$(printf '%s' "$socket" | cut -d '|' -f 1)"
         case "$tcp_hint" in connected) tcp_hint=established;; connecting|absent|unknown) :;; *) tcp_hint=unknown;; esac
         source=unavailable; duration=-1; close_code=
+        if [ "$previous_down_state" != unknown ] ||
+           [ "$previous_native_reason" != "$native_reason" ]; then
+            record_event sample_unknown "reason=$native_reason parser=${parse_detail:-none} tcp=$tcp_hint prior_down=$previous_down_observed dump_rc=$dump_rc"
+        fi
+        dump_shape="parser=${parse_detail:-none} rc=$dump_rc $(printf '%s' "$dump" | dump_state_shape)"
+        dump_shape="$(printf '%s' "$dump_shape" | cut -c1-220)"
+        previous_shape="$(awk -F '|' '$2=="sample_dump" { shape=$3 } END { print shape }' "$EVENTS" 2>/dev/null || :)"
+        if [ "$previous_down_state" != unknown ] || [ "$dump_shape" != "$previous_shape" ]; then
+            record_event sample_dump "$dump_shape"
+        fi
     else
         # Reject implausible wall-clock-derived durations (e.g. no prior session).
         if [ "$duration" -gt "$nowm" ]; then duration=-1; fi
-        import_native_events "$dump"
     fi
     case "$observed" in
       connected)
-        if [ "$previous_down_state" = connecting ] || [ "$previous_down_state" = disconnected ]; then
+        if [ "$previous_down_state" = connecting ] || [ "$previous_down_state" = disconnected ] ||
+           [ "$previous_down_observed" -gt 0 ]; then
             last_restore="$nowe"
             if [ "$last_result" = requested ] && [ "$last_try_epoch" -ge "$previous_missing_epoch" ] && [ "$last_try_epoch" -gt 0 ]; then last_result=restored; fi
-            if [ "$gap_detected" = 1 ]; then
-                record_event connection_restored '采样间隔后发现 GMS 已恢复连接；恢复具体时刻未知'
+            if [ "$gap_detected" = 1 ] || [ "$previous_down_state" = unknown ]; then
+                record_event connection_restored '采样间隔或状态未知后发现 GMS 已恢复连接；恢复具体时刻未知'
             else
                 record_event connection_restored 'GMS 原生状态确认连接成功（不保证每条消息送达）'
             fi
@@ -392,7 +465,7 @@ EOF_RESULT
             conn_since_mono="$nowm"
         fi
         conn_key="$current_key"
-        state=connected; last_seen="$nowe"; missing_since=0; missing_epoch=0; down_observed=0; retry_streak=0
+        state=connected; last_seen="$nowe"; missing_since=0; missing_epoch=0; down_observed=0; retry_streak=0; outage_hint_mono=0
         conn_since=0
         if [ "$duration" -ge 0 ] && [ "$duration" -le "$nowe" ]; then
             conn_since=$((nowe-duration))
@@ -402,9 +475,14 @@ EOF_RESULT
         if [ "$state" != connecting ] && [ "$state" != disconnected ]; then
             [ "$previous_down_state" != connected ] || outages=$((outages+1))
             missing_since="$nowm"; missing_epoch="$nowe"; down_observed="$nowm"
-            record_event connection_down 'GMS 原生状态确认尚未连接'
+            if [ "$previous_down_state" = unknown ] && [ "$previous_down_observed" -gt 0 ]; then
+                record_event down_reconfirmed '读取恢复后再次确认 GMS 未连接；保留先前断联证据用于确认'
+            else
+                record_event connection_down 'GMS 原生状态确认尚未连接'
+            fi
         fi
         [ "$down_observed" -gt 0 ] && [ "$down_observed" -le "$nowm" ] || down_observed="$nowm"
+        [ "$outage_hint_mono" -gt 0 ] || outage_hint_mono="$nowm"
         if [ "$duration" -ge 0 ] && [ "$duration" -le "$nowe" ]; then
             missing_epoch=$((nowe-duration))
             [ "$duration" -lt "$nowm" ] && missing_since=$((nowm-duration))
@@ -412,7 +490,11 @@ EOF_RESULT
         state="$observed"; last_down="$missing_epoch"; conn_key=; conn_since=0; conn_since_mono=0
         ;;
       *)
-        state=unknown; conn_key=; missing_since=0; missing_epoch=0; conn_since=0; conn_since_mono=0; down_observed=0
+        state=unknown; conn_key=; missing_since=0; missing_epoch=0; conn_since=0; conn_since_mono=0
+        # The separate hint survives alternating unknown/down samples, while
+        # the visible observation timer is reset and cannot imply continuity.
+        down_observed=0
+        [ "$outage_hint_mono" -le 0 ] || missing_epoch="$previous_missing_epoch"
         new_transport=; new_remote=
         ;;
     esac
@@ -438,6 +520,7 @@ confirm_recovery() {
 
 auto_recovery() {
     decision=not_disconnected
+    if [ "$state" = unknown ]; then decision=sample_unavailable; return 0; fi
     [ "$source" = gms ] || return 0
     case "$state" in connecting|disconnected) :;; *) return 0;; esac
     if ! auto_enabled; then decision=disabled; return 0; fi
@@ -453,7 +536,7 @@ auto_recovery() {
     [ "$state" = disconnected ] && required=15
     observed_age=$((nowm-down_observed))
     if [ "$duration" -ge 60 ] || [ "$observed_age" -ge "$required" ] ||
-       { [ "$gap_detected" = 1 ] && [ "$previous_down_observed" -gt 0 ] &&
+       { [ "$previous_down_observed" -gt 0 ] &&
          [ $((nowm-previous_down_observed)) -ge "$required" ]; }; then
         confirm_recovery auto
     else
@@ -467,7 +550,7 @@ status_json() {
     [ "$sample_epoch" -gt 0 ] && [ "$nowe" -ge "$sample_epoch" ] && age=$((nowe-sample_epoch))
     source=unavailable; duration=-1; close_code=; tcp_hint=none; native_reason=unrecognized; decision=not_evaluated
     if [ -f "$EVIDENCE" ]; then IFS='|' read -r source duration close_code tcp_hint native_reason decision < "$EVIDENCE" || :; fi
-    case "${decision:-}" in not_evaluated|not_disconnected|disabled|cooldown|gms_stopped_unknown|requested|request_failed|waiting_duration|waiting_confirmation|confirmation_changed) :;; *) decision=not_evaluated;; esac
+    case "${decision:-}" in not_evaluated|not_disconnected|sample_unavailable|disabled|cooldown|gms_stopped_unknown|requested|request_failed|waiting_duration|waiting_confirmation|confirmation_changed) :;; *) decision=not_evaluated;; esac
     case "$native_reason" in none|permission_denied|timeout|service_unavailable|dump_failed|empty|unrecognized|gms_stopped) :;; *) native_reason=unrecognized;; esac
     case "$duration" in -1) :;; *) is_uint "$duration" || duration=-1;; esac
     [ "$age" -ge 0 ] && [ "$age" -le 90 ] || state=stale
@@ -510,9 +593,19 @@ case "${1:-status}" in
         status_json
         ;;
     monitor)
+        prior_decision=
+        if [ -f "$EVIDENCE" ]; then
+            IFS='|' read -r old_source old_duration old_close old_tcp old_reason prior_decision < "$EVIDENCE" || :
+        fi
         observe || exit $?
         auto_recovery || exit $?
         write_evidence
+        case "$state" in
+          unknown|connecting|disconnected)
+            if [ "$decision" != "$prior_decision" ]; then
+                record_event recovery_decision "decision=$decision state=$state native_s=$duration reason=$native_reason parser=${parse_detail:-none} retry_streak=$retry_streak"
+            fi;;
+        esac
         ;;
     reconnect)
         observe || exit $?
