@@ -246,7 +246,7 @@ button>.ui-icon{margin-right:5px}.fcm-link>.ui-icon{color:var(--accent)}
    $('tSample').textContent=j.fcm_sample_time>0?fullTime(j.fcm_sample_time):'暂无';
  }
  async function loadEvents(){
-   const recoveryLabels={sample_gap:"巡检空档",recovery_confirmed:"断联二次确认",connection_down:"发现断联",connection_restored:"恢复连接",reconnect_requested:"已请求重连",reconnect_failed:"重连请求失败",reconnect_skipped:"跳过重连",reboot:"设备重启"};
+   const recoveryLabels={sample_gap:"巡检空档",sample_unknown:"原生状态读取失败",sample_dump:"脱敏状态字段",down_reconfirmed:"再次确认断联",recovery_decision:"恢复决策",recovery_confirmed:"断联二次确认",connection_down:"发现断联",connection_restored:"恢复连接",reconnect_requested:"已请求重连",reconnect_failed:"重连请求失败",reconnect_skipped:"跳过重连",reboot:"设备重启"};
    const nativeLabels={gms_connected:"连接成功",gms_close:"连接关闭",gms_network_attempt:"尝试连接",gms_failed:"连接失败",gms_heartbeat_delay:"心跳闹钟延迟"};
    for(const [action,id,labels] of [["native-events","nativeEvents",nativeLabels],["events","fcmEvents",recoveryLabels]]){
      try{
@@ -301,7 +301,7 @@ button>.ui-icon{margin-right:5px}.fcm-link>.ui-icon{color:var(--accent)}
    row('proc',j.gcm_persistent===1?'good':'bad',j.gcm_persistent===1?'运行中':'未运行');
    const fstate=j.fcm_state||'unknown',connected=fstate==='connected';
    const down=fstate==='disconnected'||fstate==='connecting';
-   const labels={connected:'FCM 已连接',connecting:'FCM 正在重连（尚未连接）',disconnected:'FCM 已断开',unknown:'暂时无法确认 FCM 状态',stale:'等待有效检查'};
+   const labels={connected:'FCM 已连接',connecting:'FCM 正在重连（尚未连接）',disconnected:'FCM 已断开',unknown:'本次未读到 GMS 连接状态',stale:'等待有效检查'};
    const failed=j.fcm_check_exit!==0&&j.fcm_check_exit!==13;
    const label=failed?'连接检查失败':(labels[fstate]||labels.unknown),color=connected?'good':fstate==='disconnected'?'bad':'warn';
    row('mcs',color,connected&&j.fcm_transport?label+' · '+j.fcm_transport:label);
