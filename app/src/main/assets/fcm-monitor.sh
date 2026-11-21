@@ -215,7 +215,11 @@ parse_mcs() {
               state="disconnected"; remote=endpoint(v);port=v;sub(/^.*:/,"",port)
             }
           }
-        } else if(line=="Not connected" && (header || scoped)){
+        } else if(line=="Server: Connected" && (header || scoped)){
+          if(state!="" && state!="connected") conflict=1
+          state="connected"; explicit_status=1
+        } else if((line=="Not connected" || line=="Server: Not connected") && (header || scoped)){
+          if(line=="Server: Not connected") explicit_status=1
           if(state=="connected") conflict=1
           if(state!="connecting") state="disconnected"
         } else if(line=="Connecting" && state=="" && (header || scoped)){state="connecting"}
@@ -238,8 +242,8 @@ parse_mcs() {
       END {
         corroborated=(state=="connected" ? has_ct : has_dt)
         if(conflict || state=="" || state=="unknown" ||
-          (!header && !corroborated && !has_stream) ||
-          (!header && remote=="" && !corroborated)){
+          (!explicit_status && !header && !corroborated && !has_stream) ||
+          (!explicit_status && !header && remote=="" && !corroborated)){
           detail=(conflict ? "conflicting_state" : (state=="" ? "no_current_state" : (state=="unknown" ? "disabled_or_unknown" : "missing_metadata")))
           print "unknown||||-1||" detail;exit
         }
@@ -252,6 +256,35 @@ parse_mcs() {
         if(state=="connected" && ct!="")duration=ct
         if((state=="connecting" || state=="disconnected") && dt!="")duration=dt
         printf "%s|%s|%s|%s|%d|%s\n",state,(port==""?"":"tcp"port),remote,"gms",duration,err
+      }'
+}
+
+dump_state_shape() {
+    # Keep status field spelling and order without recording endpoint values or identifiers.
+    awk '
+      {
+        line=$0
+        sub(/^[[:space:]]+/, "", line)
+        sub(/[[:space:]]+$/, "", line)
+        lower=tolower(line)
+        if (!history && line ~ /^[0-9][0-9]-[0-9][0-9] [0-9][0-9]:/) history=NR
+        if (!heading && line ~ /^(DeviceID:|Direct boot mode )/) heading=NR
+        if (lower ~ /^(not connected|connected|connecting|disconnected|disabled)$/) {
+          field=line
+        } else if (match(lower, /^(server([ _-]status)?|mcs[ _-]?(state|status)|connection[ _-]?(state|status)|state|status|connected|connecting|pending|connecttime|disconnecttime|time (dis)?connected)[[:space:]]*[:=]/)) {
+          field=substr(line,1,RLENGTH)
+          value=substr(lower,RLENGTH+1)
+          sub(/^[[:space:]]+/, "", value)
+          if (value ~ /^(not connected|connected|connecting|disconnected|pending|disabled|true|false)$/)
+            field=field " " value
+          else
+            field=field " <redacted>"
+        } else next
+        if (!seen[field]++ && ++fields <= 3) detail=detail " " NR ":" field
+      }
+      END {
+        printf "lines=%d heading=%d history=%d%s", NR, heading, history, detail
+        if (fields > 3) printf " more=%d", fields-3
       }'
 }
 
@@ -411,7 +444,13 @@ EOF_RESULT
         source=unavailable; duration=-1; close_code=
         if [ "$previous_down_state" != unknown ] ||
            [ "$previous_native_reason" != "$native_reason" ]; then
-            record_event sample_unknown "reason=$native_reason parser=${parse_detail:-none} tcp=$tcp_hint prior_down=$previous_down_observed；不将读取异常当作断联"
+            record_event sample_unknown "reason=$native_reason parser=${parse_detail:-none} tcp=$tcp_hint prior_down=$previous_down_observed dump_rc=$dump_rc"
+        fi
+        dump_shape="parser=${parse_detail:-none} rc=$dump_rc $(printf '%s' "$dump" | dump_state_shape)"
+        dump_shape="$(printf '%s' "$dump_shape" | cut -c1-220)"
+        previous_shape="$(awk -F '|' '$2=="sample_dump" { shape=$3 } END { print shape }' "$EVENTS" 2>/dev/null || :)"
+        if [ "$previous_down_state" != unknown ] || [ "$dump_shape" != "$previous_shape" ]; then
+            record_event sample_dump "$dump_shape"
         fi
     else
         # Reject implausible wall-clock-derived durations (e.g. no prior session).
@@ -483,6 +522,7 @@ write_evidence() {
 
 auto_recovery() {
     decision=not_disconnected
+    if [ "$state" = unknown ]; then decision=sample_unavailable; return 0; fi
     case "$state" in connecting|disconnected) :;; *) return 0;; esac
     if ! auto_enabled; then decision=disabled; return 0; fi
     case "${BERRY_AUTO_GATE:-ready}" in
@@ -542,7 +582,7 @@ status_json() {
     [ "$sample_epoch" -gt 0 ] && [ "$nowe" -ge "$sample_epoch" ] && age=$((nowe-sample_epoch))
     source=unavailable; duration=-1; close_code=; tcp_hint=none; native_reason=unrecognized; decision=not_evaluated
     if [ -f "$EVIDENCE" ]; then IFS='|' read -r source duration close_code tcp_hint native_reason decision < "$EVIDENCE" || :; fi
-    case "${decision:-}" in not_evaluated|not_disconnected|disabled|network_gate|cooldown|gms_stopped_unknown|requested|request_failed|waiting_duration|waiting_confirmation|confirmation_changed) :;; *) decision=not_evaluated;; esac
+    case "${decision:-}" in not_evaluated|not_disconnected|sample_unavailable|disabled|network_gate|cooldown|gms_stopped_unknown|requested|request_failed|waiting_duration|waiting_confirmation|confirmation_changed) :;; *) decision=not_evaluated;; esac
     case "$native_reason" in none|permission_denied|timeout|service_unavailable|dump_failed|empty|unrecognized|gms_stopped) :;; *) native_reason=unrecognized;; esac
     case "$duration" in -1) :;; *) is_uint "$duration" || duration=-1;; esac
     [ "$age" -ge 0 ] && [ "$age" -le 90 ] || state=stale
@@ -594,7 +634,7 @@ case "${1:-status}" in
         auto_recovery || exit $?
         write_evidence
         case "$state" in
-          connecting|disconnected)
+          unknown|connecting|disconnected)
             if [ "$decision" != "$prior_decision" ]; then
                 record_event recovery_decision "decision=$decision state=$state native_s=$duration gate=${BERRY_AUTO_GATE:-ready} retry_streak=$retry_streak"
             fi;;
