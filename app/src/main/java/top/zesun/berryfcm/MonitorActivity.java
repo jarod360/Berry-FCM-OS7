@@ -131,15 +131,15 @@ public final class MonitorActivity extends Ui {
         boolean nativeState = "gms".equals(j.optString("fcm_source"));
         long attempt = FcmMonitorService.lastAttemptAt(this);
         long serviceStart = FcmMonitorService.lastStartAt(this);
-        if (!prefs.monitorEnabled()) state = "unknown（监控未开启）";
-        else if (!FcmMonitorService.isRunning()) state = "unknown（后台服务未运行）";
+        if (!prefs.monitorEnabled()) state = "监控未开启";
+        else if (!FcmMonitorService.isRunning()) state = "后台服务未运行";
         else if (AppPrefs.WIRELESS.equals(prefs.mode()) && !PrivKitShell.isConnected())
-            state = "unknown（独立服务未运行）";
-        else if (!lastError.isEmpty()) state = "unknown（最近一次检查失败）";
+            state = "独立服务未运行";
+        else if (!lastError.isEmpty()) state = "最近一次检查失败";
         else if (sample <= 0 && (attempt > 0 || serviceStart > 0)) state = "waiting";
         else if (age < 0) state = "waiting";
-        else if (age > 90) state = "unknown（检查数据过期）";
-        else if (!nativeState) state = "unknown（原生状态不可读）";
+        else if (age > 90) state = "检查数据过期";
+        else if (!nativeState) state = "本次未读到 GMS 连接状态";
         MonitorStatus.State verdict = MonitorStatus.resolve(ready, prefs.monitorEnabled(),
                 FcmMonitorService.isRunning(), sample > 0 ? age : -1,
                 !lastError.isEmpty(), nativeState, j.optString("fcm_state"));

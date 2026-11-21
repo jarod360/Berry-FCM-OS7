@@ -215,7 +215,11 @@ parse_mcs() {
               state="disconnected"; remote=endpoint(v);port=v;sub(/^.*:/,"",port)
             }
           }
-        } else if(line=="Not connected" && (header || scoped)){
+        } else if(line=="Server: Connected" && (header || scoped)){
+          if(state!="" && state!="connected") conflict=1
+          state="connected"; explicit_status=1
+        } else if((line=="Not connected" || line=="Server: Not connected") && (header || scoped)){
+          if(line=="Server: Not connected") explicit_status=1
           if(state=="connected") conflict=1
           if(state!="connecting") state="disconnected"
         } else if(line=="Connecting" && state=="" && (header || scoped)){state="connecting"}
@@ -238,8 +242,8 @@ parse_mcs() {
       END {
         corroborated=(state=="connected" ? has_ct : has_dt)
         if(conflict || state=="" || state=="unknown" ||
-          (!header && !corroborated && !has_stream) ||
-          (!header && remote=="" && !corroborated)){
+          (!explicit_status && !header && !corroborated && !has_stream) ||
+          (!explicit_status && !header && remote=="" && !corroborated)){
           detail=(conflict ? "conflicting_state" : (state=="" ? "no_current_state" : (state=="unknown" ? "disabled_or_unknown" : "missing_metadata")))
           print "unknown||||-1||" detail;exit
         }
@@ -252,6 +256,28 @@ parse_mcs() {
         if(state=="connected" && ct!="")duration=ct
         if((state=="connecting" || state=="disconnected") && dt!="")duration=dt
         printf "%s|%s|%s|%s|%d|%s\n",state,(port==""?"":"tcp"port),remote,"gms",duration,err
+      }'
+}
+
+dump_state_shape() {
+    # Report only fixed field names and line numbers, never dump values.
+    awk '
+      {
+        line=$0
+        sub(/^[[:space:]]+/, "", line)
+        sub(/[[:space:]]+$/, "", line)
+        if (!history && line ~ /^[0-9][0-9]-[0-9][0-9] [0-9][0-9]:/) history=NR
+        if (!heading && line ~ /^(DeviceID:|Direct boot mode )/) heading=NR
+        if (!connected && line ~ /^connected=/) connected=NR
+        if (!connecting && line ~ /^(connecting=|Connecting$)/) connecting=NR
+        if (!pending && line ~ /^pending=/) pending=NR
+        if (!down && line == "Not connected") down=NR
+        if (!server_up && line == "Server: Connected") server_up=NR
+        if (!server_down && line == "Server: Not connected") server_down=NR
+        if (!timing && line ~ /^(connectTime|disconnectTime)=/) timing=NR
+      }
+      END {
+        printf "lines=%d heading=%d history=%d connected=%d connecting=%d pending=%d not_connected=%d server_connected=%d server_not_connected=%d timing=%d", NR, heading, history, connected, connecting, pending, down, server_up, server_down, timing
       }'
 }
 
@@ -411,7 +437,8 @@ EOF_RESULT
         source=unavailable; duration=-1; close_code=
         if [ "$previous_down_state" != unknown ] ||
            [ "$previous_native_reason" != "$native_reason" ]; then
-            record_event sample_unknown "reason=$native_reason parser=${parse_detail:-none} tcp=$tcp_hint prior_down=$previous_down_observed；不将读取异常当作断联"
+            dump_shape="$(printf '%s' "$dump" | dump_state_shape)"
+            record_event sample_unknown "reason=$native_reason parser=${parse_detail:-none} tcp=$tcp_hint prior_down=$previous_down_observed dump_rc=$dump_rc $dump_shape；不将读取异常当作断联"
         fi
     else
         # Reject implausible wall-clock-derived durations (e.g. no prior session).
