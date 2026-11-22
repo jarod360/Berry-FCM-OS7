@@ -20,7 +20,7 @@
 
 - 旧日志的 sample_retry first=no_current_state retry_rc=0 state=connected 属于旧 dump parser 的二次读取记录，不是 MCS socket 证据；RC5 procfs-only 路径不再有该重试。旧日志中的超长 sample_gap 表示服务采样长期没有执行，不能靠空档后重新读取状态来解决。
 - 后台服务新增陈旧 PID 锁身份验证：kill -0 只证明 PID 存在，不证明该 PID 仍是 Berry-FCM；现在还要核对 /proc/PID/cmdline 的模块服务路径。
-- 服务检查所有非根 cgroup v2 路径并尝试迁移至根组，避免只识别 /apps/* 而漏掉 /uid_*/pid_* 应用冻结组；迁移/读取失败必须留下明确日志。
+- 服务检查所有非根 cgroup v2 路径并尝试迁移至根组，避免只识别 /apps/* 而漏掉 /uid_*/pid_* 应用冻结组；迁移/读取失败必须留下明确日志，并记录 service_cgroup_initial。陈旧锁使用原子重命名方式回收，避免并发启动竞态。
 - 热安装替换旧服务时，已验证为本模块 guardian 的进程若 TERM 宽限期后仍存活，将被 KILL 回收，避免旧服务继续持锁。
 - wake smoke 已增加陈旧锁恢复和静态保护断言；尚未执行 Shell 语法检查、完整 smoke 或手机实测。不得宣称后台问题已解决。
 
