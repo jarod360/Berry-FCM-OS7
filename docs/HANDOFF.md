@@ -17,9 +17,9 @@
 - 重连请求：广播前先持久化 `last_result=pending`、尝试时间、次数和退避计数。广播前保存失败时不广播、不把未发生的请求记为一次持久化尝试。广播后结果保存失败时保留磁盘中的 pending，不伪装成 failed；后续观察到连接恢复再解析。
 - pending 结果的恢复判断区分普通断联恢复与 stalled-timer：普通断联后的新 connected 样本可确认恢复；stalled-timer 必须观察到 GMS 原生 connectTime 变化或 MCS endpoint 变化，不能因为状态仍显示 Connected 就误报 restored。设备重启时保留原生计时值/endpoint 作为比较基线，只清除 boot-scoped monotonic 锚点。
 - 重启与冷却：boot ID 变化时保留 `retry_streak`、`last_try_epoch` 和历史尝试次数；同一 boot 使用 monotonic，跨 boot 使用 epoch。墙钟回拨时以本次启动的 monotonic 时间保守等待完整退避间隔。自动重试退避为 30/60/120/180 秒；尚未确认结果的手动请求冷却为 60 秒；尚未确认/失败的 stalled-timer 请求冷却为 600 秒，并在重启后继续按 epoch 约束。
-- 回归用例新增/修正：精确注入第三次 state rename 失败以覆盖 `request_reconnect` 广播前保存；state 目标为目录时中止巡检；广播后 rename 失败时保留 pending；pending 重启后不重复广播并在连接证据出现时恢复；验证 27 字段记录、attempts/retry_streak、跨重启剩余冷却、墙钟回拨，以及 stalled-timer 600 秒冷却跨重启和原生计时推进后才标记 restored。
+- 回归用例新增/修正：精确注入第三次 state rename 失败以覆盖 `request_reconnect` 广播前保存；state 目标为目录时中止巡检；广播后结果 rename 失败时保留 pending；pending 重启后不重复广播并在连接证据出现时恢复，同时检查 `last_restore` 和恢复事件；验证 27 字段记录、attempts/retry_streak、跨重启剩余冷却、墙钟回拨，以及 stalled-timer 600 秒冷却跨重启和原生计时推进后才标记 restored。
 - 参考方案：GMS 原生状态解析继续依据交接中记录的 `XXhaos/OriginOS-FCM-Fix` `GcmServiceParser` 约束；没有引入不相关的持久化框架或新依赖。
-- 当前代码/测试提交：`module/bin/fcm-monitor.sh` 最近修复为 `57314c45b653fd8330f9310d4153cb9ca34a1f35`；测试断言修正为 `017456e7641854f828320638bc70e9d7102fd9df`。完整 smoke 尚未执行。仅对本轮改动片段运行了 POSIX `sh -n` 语法检查；这不是完整脚本语法检查或行为测试。
+- 当前监控脚本修复提交：`a92067d87e5dfc8f2bc76c239e28574a755fd1a6`；回归用例最近修正为 `e1725c37da5bff60db2cf508f18dd08041df2b8e`。完整 smoke 尚未执行。仅对本轮改动片段运行了 POSIX `sh -n` 语法检查；这不是完整脚本语法检查或行为测试。
 - 已存在的自动触发任务均为测试步骤，Go 定时器编译和 ZIP 打包步骤被跳过。此前 `d77df6e` 通过了前一个 socket fallback 场景，但该次仍在“unknown-only 连续 Socket 缺失”场景因事件名断言不匹配而失败；`017456e` 已把断言改为实际事件 `tcp_absence_confirmed` + `recovery_confirmed`。**修正后没有重跑**。本轮按用户要求不再触发 Actions、CI、云编译、ZIP 打包或 Release；完整验证证据仍为空，手机实测也未进行。
 - `.github/workflows/build-ksu.yml` 的 RC 修复分支默认跳过 Go 定时器编译与 ZIP 打包；最终云编译应由用户在全部修复完成后手动触发，并显式选择 package。**当前不能宣称 RC5 修复完成、CI 通过或可安装包已生成。**
 
