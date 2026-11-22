@@ -286,6 +286,9 @@ setboot 1 20331
 run monitor; requests 1
 test "$(awk -F '|' '{print $9}' "$BERRY_FCM_DATA/mcs-monitor.state")" = -31
 j="$(run snapshot)"; assert_json "$j" fcm_last_result=requested; assert_json "$j" fcm_retry_in=569
+setboot 301 20631
+run monitor; requests 1
+j="$(run snapshot)"; assert_json "$j" fcm_last_result=requested; assert_json "$j" fcm_retry_in=269
 setboot 570 20900
 run monitor; requests 2
 j="$(run snapshot)"; assert_json "$j" fcm_last_result=requested
@@ -316,8 +319,11 @@ echo timer-fail-reboot > "$TMP/bootid"
 setboot 1 22301
 run monitor; requests 1
 j="$(run snapshot)"; assert_json "$j" fcm_last_result=request_failed; assert_json "$j" fcm_retry_in=599
+setboot 301 22601
+run monitor; requests 1
+j="$(run snapshot)"; assert_json "$j" fcm_last_result=request_failed; assert_json "$j" fcm_retry_in=299
 printf '%s\n' 'DeviceID: [fixture]' 'connected=mtalk.google.com/142.250.157.188,port=5228' 'connectTime=10:01/00:00' > "$MCS_FIXTURE"
-setboot 2 22302
+setboot 302 22602
 j="$(run status)"
 assert_json "$j" fcm_last_result=restored
 test "$(awk -F '|' '{print $13}' "$BERRY_FCM_DATA/mcs-monitor.state")" -gt 0
