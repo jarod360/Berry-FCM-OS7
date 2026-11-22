@@ -13,13 +13,13 @@
 ## 2026-11-22 RC5 KSU 重连状态事务与重启冷却修复（待完整验证）
 
 - 本轮功能代码范围按用户最新指示收敛为 KernelSU/SU Root 版，只修改 `module/bin/fcm-monitor.sh` 与 `tests/fcm-monitor-smoke.sh`；另调整 KSU 工作流的手动打包门控，并同步根 README、模块 README、HANDOFF 与 PRODUCT_PLAN。APK 脚本和代码暂不处理。
-- 状态写入：临时文件使用 `umask 077`；拒绝 state 目标路径为目录；检查 printf 返回值；检查临时记录为单行、固定 27 字段后才原子替换。先持久化权威 state，再更新辅助 evidence；state 保存失败时不发布新 evidence，也不允许继续执行依赖该状态的重连广播。
+- 状态写入：临时文件使用 `umask 077`；拒绝 state 目标路径为目录；检查 printf 返回值；检查临时记录为单行、固定 27 字段后才原子替换。先持久化权威 state，再更新辅助 evidence；state 保存失败时不发布新 evidence，也不允许继续执行依赖该状态的重连广播。巡检结束时的最终 recovery evidence 写入失败也会返回错误并记录事件，不再静默忽略。
 - 重连请求：广播前先持久化 `last_result=pending`、尝试时间、次数和退避计数。广播前保存失败时不广播、不把未发生的请求记为一次持久化尝试。广播后结果保存失败时保留磁盘中的 pending，不伪装成 failed；后续观察到连接恢复再解析。
 - pending 结果的恢复判断区分普通断联恢复与 stalled-timer：普通断联后的新 connected 样本可确认恢复；stalled-timer 必须观察到 GMS 原生 connectTime 变化或 MCS endpoint 变化，不能因为状态仍显示 Connected 就误报 restored。设备重启时保留原生计时值/endpoint 作为比较基线，只清除 boot-scoped monotonic 锚点。
 - 重启与冷却：boot ID 变化时保留 `retry_streak`、`last_try_epoch` 和历史尝试次数；用 epoch 计算重启期间已流逝时间，再换算为本次启动的 signed monotonic anchor（即使 uptime 刚从 1 秒开始、锚点落在 uptime 零点之前，也能精确保留剩余冷却）。墙钟回拨/不可用时从新 boot 的 monotonic 当前值开始一个有界完整间隔；锚定后后续墙钟跳变不再影响冷却。自动重试退避为 30/60/120/180 秒；待确认手动请求冷却 60 秒；待确认/失败的 stalled-timer 请求冷却 600 秒。
 - 回归用例新增/修正：精确注入第三次 state rename 失败以覆盖 `request_reconnect` 广播前保存；state 目标为目录时中止巡检且不发布新 evidence；广播后结果 rename 失败时保留 pending；pending 重启后不重复广播并在连接证据出现时恢复，同时检查 `last_restore` 和恢复事件；验证 27 字段记录、attempts/retry_streak、自动/手动剩余冷却、墙钟回拨，以及 stalled-timer 成功/失败广播后的 600 秒冷却跨重启和原生计时推进后才标记 restored。重启用例将 uptime 真正重置为 1 秒，不再只模拟 boot ID 变化。
 - 参考方案：GMS 原生状态解析继续依据交接中记录的 `XXhaos/OriginOS-FCM-Fix` `GcmServiceParser` 约束；没有引入不相关的持久化框架或新依赖。
-- 当前监控脚本修复提交：`4c276dd100451b8954ffb94256982df1b6f6b3e1`；回归测试最新提交：`b0f21b1f8ad3c77450d7da81db5701bfe82d377b`。新增 smoke 用例覆盖广播前第三次 state 替换失败、state 目标异常且不发布新 evidence、广播后结果替换失败、pending 跨重启不重复广播、自动/手动冷却、时间回拨、stalled-timer 成功/失败请求的 600 秒冷却跨重启，以及原生计时推进后解除未决状态；重启测试会把 uptime 重置到 1 秒并断言 signed monotonic anchor。
+- 当前监控脚本修复提交：`942acd4dbfd9542b72268729c4e6dcab230eaaec`；回归测试最新提交：`b0f21b1f8ad3c77450d7da81db5701bfe82d377b`。新增 smoke 用例覆盖广播前第三次 state 替换失败、state 目标异常且不发布新 evidence、广播后结果替换失败、pending 跨重启不重复广播、自动/手动冷却、时间回拨、stalled-timer 成功/失败请求的 600 秒冷却跨重启，以及原生计时推进后解除未决状态；重启测试会把 uptime 重置到 1 秒并断言 signed monotonic anchor。
 - 已存在的自动触发任务均为测试步骤，Go 定时器编译和 ZIP 打包步骤被跳过。此前 `d77df6e` 通过了前一个 socket fallback 场景，但该次仍在“unknown-only 连续 Socket 缺失”场景因事件名断言不匹配而失败；`017456e` 已把断言改为实际事件 `tcp_absence_confirmed` + `recovery_confirmed`。**修正后没有重跑**。本轮按用户要求不再触发 Actions、CI、云编译、ZIP 打包或 Release；完整验证证据仍为空，手机实测也未进行。
 - `.github/workflows/build-ksu.yml` 的 RC 修复分支默认跳过 Go 定时器编译与 ZIP 打包；最终云编译应由用户在全部修复完成后手动触发，并显式选择 package。**当前不能宣称 RC5 修复完成、CI 通过或可安装包已生成。**
 
