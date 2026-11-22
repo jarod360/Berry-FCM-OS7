@@ -351,6 +351,8 @@ printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Not conn
 run monitor
 requests 0
 test "$(cat "$MCS_STATE_MV_COUNT_FILE")" = 3
+test "$(awk -F '|' '{print $9}' "$BERRY_FCM_DATA/mcs-monitor.state")" = 0
+test "$(awk -F '|' '{print $10}' "$BERRY_FCM_DATA/mcs-monitor.state")" = 0
 test "$(awk -F '|' '{print $11}' "$BERRY_FCM_DATA/mcs-monitor.state")" = 0
 test "$(awk -F '|' '{print $12}' "$BERRY_FCM_DATA/mcs-monitor.state")" = none
 grep -q '|reconnect_skipped|重连状态无法持久化，未发送广播' "$BERRY_FCM_DATA/mcs-monitor-events.log"
