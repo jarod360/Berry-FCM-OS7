@@ -6,8 +6,6 @@ mkdir -p "$DATA" || exit 0
 [ "$(id -u)" = 0 ] || exit 0
 LOCK="$DATA/service.lock"
 MAINTENANCE_LOCK="$DATA/maintenance.lock"
-LOCK="$DATA/service.lock"
-MAINTENANCE_LOCK="$DATA/maintenance.lock"
 if ! mkdir "$LOCK" 2>/dev/null; then
     old="$(cat "$LOCK/pid" 2>/dev/null)"
     case "$old" in ''|*[!0-9]*) old=0 ;; esac
@@ -36,23 +34,23 @@ cgroup_path() {
     done < "/proc/$$/cgroup"
 }
 group="$(cgroup_path)"
-printf '[%s] service_cgroup_initial pid=%s group=%s\\n' "$(date '+%F %T')" "$$" "${group:-unknown}" >> "$DATA/guard.log"
+printf '[%s] service_cgroup_initial pid=%s group=%s\n' "$(date '+%F %T')" "$$" "${group:-unknown}" >> "$DATA/guard.log"
 cgroup_ready=1
 case "$group" in
     "")
         cgroup_ready=0
-        printf '[%s] service_cgroup_unknown pid=%s reason=unified_cgroup_unavailable\\n' "$(date '+%F %T')" "$$" >> "$DATA/guard.log"
+        printf '[%s] service_cgroup_unknown pid=%s reason=unified_cgroup_unavailable\n' "$(date '+%F %T')" "$$" >> "$DATA/guard.log"
         ;;
     /) : ;;
     *)
         # Do not assume only the legacy /apps hierarchy is freezer-controlled.
         # Detach from every non-root unified cgroup and verify membership.
-        if { printf '%s\\n' "$$" > /sys/fs/cgroup/cgroup.procs; } 2>/dev/null &&
+        if { printf '%s\n' "$$" > /sys/fs/cgroup/cgroup.procs; } 2>/dev/null &&
            [ "$(cgroup_path)" = "/" ]; then
-            printf '[%s] service_cgroup_detached pid=%s from=%s to=/\\n' "$(date '+%F %T')" "$$" "$group" >> "$DATA/guard.log"
+            printf '[%s] service_cgroup_detached pid=%s from=%s to=/\n' "$(date '+%F %T')" "$$" "$group" >> "$DATA/guard.log"
         else
             cgroup_ready=0
-            printf '[%s] service_cgroup_detach_failed pid=%s group=%s\\n' "$(date '+%F %T')" "$$" "$group" >> "$DATA/guard.log"
+            printf '[%s] service_cgroup_detach_failed pid=%s group=%s\n' "$(date '+%F %T')" "$$" "$group" >> "$DATA/guard.log"
         fi
         ;;
 esac
