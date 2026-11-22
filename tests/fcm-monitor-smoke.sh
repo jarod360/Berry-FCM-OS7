@@ -327,7 +327,8 @@ if run monitor; then
     exit 1
 fi
 requests 0
-echo 'PASS: invalid state target aborts patrol before recovery'
+test ! -f "$BERRY_FCM_DATA/mcs-evidence"
+echo 'PASS: invalid state target aborts patrol before recovery without publishing mismatched evidence'
 
 # Fail exactly the third state replacement: first observe, confirmation
 # observe, then request_reconnect's pre-broadcast pending transaction.
