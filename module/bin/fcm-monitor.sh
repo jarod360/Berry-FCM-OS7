@@ -664,7 +664,7 @@ EOF_SOCKET
     case "$observed" in
       connected)
         if [ "$last_try_reason" = stalled_timer ] &&
-           { [ "$last_result" = pending ] || [ "$last_result" = requested ]; }; then
+           { [ "$last_result" = pending ] || [ "$last_result" = requested ] || [ "$last_result" = failed ]; }; then
             if [ "$source" = gms ] &&
                { { is_uint "$duration" && [ "$previous_native_timer_duration" -gt 0 ] &&
                    [ "$duration" != "$previous_native_timer_duration" ]; } ||
