@@ -300,6 +300,7 @@ test "$(awk -F '|' '{print $12}' "$BERRY_FCM_DATA/mcs-monitor.state")" = pending
 j="$(run snapshot)"; assert_json "$j" fcm_last_result=pending
 rm -f "$MCS_FAIL_STATE_MV_MARKER"
 unset MCS_FAIL_STATE_MV
+echo pending-reboot > "$TMP/bootid"
 settime 31001
 printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Connected' 'connectTime=00:01/00:00' > "$MCS_FIXTURE"
 j="$(run status)"
