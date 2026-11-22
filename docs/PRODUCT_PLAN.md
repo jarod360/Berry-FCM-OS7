@@ -593,3 +593,9 @@ alpha.46（#44228259741）已通过 API 37.0 SDK 安装、依赖解析、原生�
 - **已发行测试预发布，不是稳定版**：`v0.1.0-alpha.94`，源代码构建 CI [#94](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44419769428)、原 APK 晋升 [#95](https://github.com/jarod360/Berry-FCM-OS7/actions/runs/44420397868) 均成功；[测试 APK Release](https://github.com/jarod360/Berry-FCM-OS7/releases/tag/v0.1.0-alpha.94)。本期静态检查、编译和签名均通过。
 - **Release 一致性**：采用 CI 原签名制品而非重新编译。构建源 `45550adc213f1de7606d3f0dfefe0ef6df4e773e`；标签快照 `087bc8febf9d3b51329227bfb454e156b272d507` 仅 CI 工作流一文件不同，且两个 workflow 与 main 一致。SHA-256 `13f8ca1943e438c83e242581feacea074ff0e1db406a6fa68efcf9402d9ac301`。无变更证书、包名或数据目录。
 - **待验收/保留开放**：Issue #1 UI 需要实际 OriginOS 图标、尺寸与系统缓存核验；Issue #2 智能/持续不同省电、温度、系统挂起、Binder 失败与实测断联闭环须对照。PR #3 保持草稿，main 和 KSU 不改。
+
+
+### 2026-11-23 RC5 测试字段索引复核
+- 继续对照 `save_state()` 的 27 字段固定顺序与 `tests/fcm-monitor-smoke.sh` 的 awk 断言，发现两处 retry_streak 断言误读为第 23 列。实际第 22 列是 `retry_streak`，第 23 列是 `outage_hint_mono`；旧断言会把正常运行中的 uptime 锚点误当作 `1`，导致相关 smoke 用例失败。
+- 已将结果持久化失败场景和重启冷却场景的断言从 `$23` 改为 `$22`。其他字段断言逐项对照：9=last_try_mono、10=last_try_epoch、11=attempts、12=last_result、13=last_restore，当前索引匹配。
+- 测试修正提交：`6d7608169cd9efe111a3d958ad83e47df3888575`（`[skip ci]`）。本次仅修正测试断言；尚未运行完整 smoke 或 CI，不将其记为通过。
