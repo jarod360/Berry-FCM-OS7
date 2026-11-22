@@ -15,8 +15,9 @@ if is_guardian; then
         sleep 1
         n=$((n + 1))
     done
-    # 0.5.7 and older could return from their TERM trap and continue.
-    if is_guardian && [ "$(cat "$LOCK/wake-pid" 2>/dev/null)" != "$old" ]; then
+    # The PID was verified as this guardian above. If it remains alive
+    # after the grace period, reap that exact process regardless of wake-pid.
+    if is_guardian; then
         kill -KILL "$old" 2>/dev/null || :
         sleep 1
     fi
