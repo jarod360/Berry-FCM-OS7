@@ -139,7 +139,7 @@ update_native_timer_tracking() {
             native_timer_key="$timer_key"
         fi
     elif [ "$last_try_reason" = stalled_timer ] &&
-         { [ "$last_result" = pending ] || [ "$last_result" = requested ]; }; then
+         { [ "$last_result" = pending ] || [ "$last_result" = requested ] || [ "$last_result" = failed ]; }; then
         # Keep the last native timer baseline while the stalled request is
         # unresolved; a socket-only/unknown sample cannot prove timer recovery.
         :
