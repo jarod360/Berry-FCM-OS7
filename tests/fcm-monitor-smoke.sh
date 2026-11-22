@@ -295,6 +295,26 @@ test "$(awk -F '|' '{print $13}' "$BERRY_FCM_DATA/mcs-monitor.state")" -gt 0
 grep -q '|native_timer_restored|GMS 原生 connectTime' "$BERRY_FCM_DATA/mcs-monitor-events.log"
 echo 'PASS: stalled timer cooldown survives reboot and resolves only after native progress'
 
+# A failed stalled-timer broadcast must also retain its 600-second cooldown across reboot.
+export BERRY_FCM_DATA="$TMP/timer-fail-data"
+mkdir -p "$BERRY_FCM_DATA"
+echo 1 > "$BERRY_FCM_DATA/enabled"
+: > "$MCS_AM_LOG"
+settime 22000
+printf '%s\n' 'DeviceID: [fixture]' 'connected=mtalk.google.com/142.250.157.188,port=5228' 'connectTime=10:00/00:00' > "$MCS_FIXTURE"
+run monitor; requests 0
+settime 22299
+run monitor; requests 0
+export MCS_AM_FAIL=1
+settime 22300
+run monitor; requests 1
+j="$(run snapshot)"; assert_json "$j" fcm_last_result=request_failed; assert_json "$j" fcm_retry_in=600
+unset MCS_AM_FAIL
+echo timer-fail-reboot > "$TMP/bootid"
+settime 22301
+run monitor; requests 1
+j="$(run snapshot)"; assert_json "$j" fcm_last_result=request_failed; assert_json "$j" fcm_retry_in=599
+echo 'PASS: failed stalled-timer broadcast preserves cooldown across reboot'
 # A broken state target aborts sampling before recovery; no broadcast may run.
 export BERRY_FCM_DATA="$TMP/state-directory-data"
 mkdir -p "$BERRY_FCM_DATA" "$BERRY_FCM_DATA/mcs-monitor.state"
