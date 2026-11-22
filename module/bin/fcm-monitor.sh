@@ -384,7 +384,15 @@ auto_enabled() {
 }
 
 retry_interval() {
-    case "$retry_streak" in 0) echo 30;; 1) echo 60;; 2) echo 120;; *) echo 180;; esac
+    if [ "$last_try_reason" = stalled_timer ] &&
+       { [ "$last_result" = pending ] || [ "$last_result" = requested ]; }; then
+        echo 600
+    elif [ "$last_try_reason" = manual ] &&
+         { [ "$last_result" = pending ] || [ "$last_result" = requested ]; }; then
+        echo 60
+    else
+        case "$retry_streak" in 0) echo 30;; 1) echo 60;; 2) echo 120;; *) echo 180;; esac
+    fi
 }
 
 # Monotonic time is valid only within the same boot. Epoch restores cooldown
@@ -444,8 +452,10 @@ request_reconnect() {
         case "$state" in connecting|disconnected) :;; *) decision=not_disconnected; return 0;; esac
     fi
     interval="$(retry_interval)"
-    [ "$reason" != manual ] || interval=60
-    [ "$reason" != stalled_timer ] || interval=300
+    case "$reason" in
+        manual) [ "$interval" -ge 60 ] || interval=60;;
+        stalled_timer) [ "$interval" -ge 600 ] || interval=600;;
+    esac
     remaining="$(cooldown_remaining "$interval")"
     if [ "$remaining" -gt 0 ]; then
         decision=cooldown
