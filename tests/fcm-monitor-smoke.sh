@@ -412,6 +412,10 @@ setboot 1 33001
 run monitor
 requests 1
 j="$(run snapshot)"; assert_json "$j" fcm_retry_streak=1; assert_json "$j" fcm_attempts=1; assert_json "$j" fcm_retry_in=59
+setboot 20 33020
+run monitor
+requests 1
+j="$(run snapshot)"; assert_json "$j" fcm_retry_streak=1; assert_json "$j" fcm_retry_in=40
 setboot 60 33060
 run monitor
 requests 2
