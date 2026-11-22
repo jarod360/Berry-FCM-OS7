@@ -8,6 +8,7 @@ grep -Fq 'sh "$DIR/service.sh" </dev/null >/dev/null 2>&1 &' "$ROOT/module/hotin
 grep -Fq '*/berry_fcm_ksu/service.sh*' "$ROOT/module/service.sh"
 grep -Fq 'mv "$LOCK" "$stale"' "$ROOT/module/service.sh"
 grep -Fq 'service_cgroup_unknown' "$ROOT/module/service.sh"
+grep -Fq 'service_cgroup_initial' "$ROOT/module/service.sh"
 grep -Fq 'service_cgroup_detach_failed' "$ROOT/module/service.sh"
 grep -Fq 'kill -KILL "$old"' "$ROOT/module/hotinstall.sh"
 TMP="$(mktemp -d)"
