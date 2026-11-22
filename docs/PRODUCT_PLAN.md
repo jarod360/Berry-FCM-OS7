@@ -15,8 +15,8 @@
 - 总体产品路线仍保留 APK 优先与 KSU 双线；但本次用户明确要求先以 SU/KernelSU 的 RC5 最新提交为主，APK 相关脚本和代码暂不改。
 - 修复分支：`fix/rc5-mcs-patrol-20261122`。现有可安装 KSU 测试包仍是 RC4（`1.0-rc.4 / 10004`）；RC5（`1.0-rc.5 / 10005`）是当前源码候选，不代表已有 RC5 ZIP。
 - 本轮代码审查重点：状态文件原子保存完整性、重连前 pending 事务、广播结果保存失败、boot ID 变化后的 retry_streak/epoch 冷却、墙钟回拨，以及 stalled-timer 的原生恢复证据。实现要求是不引入数据库或第三方持久化依赖。
-- 当前监控脚本修复提交：`57314c45b653fd8330f9310d4153cb9ca34a1f35`；socket fallback 测试断言修正提交：`017456e7641854f828320638bc70e9d7102fd9df`。新增 smoke 用例覆盖精确的广播前第三次 state 替换失败、广播后结果替换失败、pending 跨重启不重复广播、退避计数/冷却、时间回拨和 stalled-timer 600 秒冷却。
-- 目前只完成源码静态审查及本轮改动片段的 POSIX `sh -n` 检查；**完整 `fcm-monitor-smoke.sh`、`ksu-wake-smoke.sh` 尚未执行**。最近一次旧 Actions 在 unknown-only socket absence 用例的事件名断言处失败，`017456e` 已修正为实际事件名，但未重跑。
+- 当前监控脚本修复提交：`a92067d87e5dfc8f2bc76c239e28574a755fd1a6`；socket fallback 测试断言修正提交：`e1725c37da5bff60db2cf508f18dd08041df2b8e`。新增 smoke 用例覆盖精确的广播前第三次 state 替换失败、广播后结果替换失败、pending 跨重启不重复广播、退避计数/冷却、时间回拨和 stalled-timer 600 秒冷却跨重启，并检查恢复时间及事件记录。
+- 目前只完成源码静态审查及本轮改动片段的 POSIX `sh -n` 检查；**完整 `fcm-monitor-smoke.sh`、`ksu-wake-smoke.sh` 尚未执行**。最近一次旧 Actions 在 unknown-only socket absence 用例的事件名断言处失败，`e1725c3` 已修正为实际事件名，但未重跑。
 - 按用户最新指示，修复阶段不触发 Actions/CI、云编译、打包或 Release。所有修复与核对完成后，再由用户手动触发最终云编译；在此之前不通知安装测试，不宣称 CI 通过。
 
 
