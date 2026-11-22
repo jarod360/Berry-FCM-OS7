@@ -421,11 +421,13 @@ run reconnect; requests 1
 j="$(run snapshot)"; assert_json "$j" fcm_last_try_reason=manual; assert_json "$j" fcm_retry_in=59
 echo 'PASS: manual reconnect cooldown survives reboot'
 # A backwards wall clock must never make a pending retry immediately eligible.
+export BERRY_FCM_DATA="$TMP/reboot-cooldown-data"
+: > "$MCS_AM_LOG"
 echo boot-three > "$TMP/bootid"
 setboot 1 33061
 echo 1699990000 > "$MCS_CLOCK"
 run monitor
-requests 2
+requests 0
 j="$(run snapshot)"; assert_json "$j" fcm_retry_streak=2; assert_json "$j" fcm_retry_in=120
 printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Connected' 'connectTime=00:01/00:00' > "$MCS_FIXTURE"
 setboot 2 33062
