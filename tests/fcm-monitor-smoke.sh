@@ -278,12 +278,19 @@ grep -q '|native_timer_stalled|GMS 原生仍报告 Connected' "$BERRY_FCM_DATA/m
 grep -q '|reconnect_requested|stalled_timer UID=0 GCM_RECONNECT' "$BERRY_FCM_DATA/mcs-monitor-events.log"
 settime 20330
 run monitor; requests 1
-j="$(run snapshot)"; assert_json "$j" fcm_last_result=requested
+j="$(run snapshot)"; assert_json "$j" fcm_last_result=requested; assert_json "$j" fcm_retry_in=570
+echo stalled-timer-reboot > "$TMP/bootid"
 settime 20331
-printf '%s\n' 'DeviceID: [fixture]' 'connected=mtalk.google.com/142.250.157.188,port=5228' 'connectTime=10:01/00:00' > "$MCS_FIXTURE"
 run monitor; requests 1
+j="$(run snapshot)"; assert_json "$j" fcm_last_result=requested; assert_json "$j" fcm_retry_in=569
+settime 20900
+run monitor; requests 2
+j="$(run snapshot)"; assert_json "$j" fcm_last_result=requested
+settime 20901
+printf '%s\n' 'DeviceID: [fixture]' 'connected=mtalk.google.com/142.250.157.188,port=5228' 'connectTime=10:01/00:00' > "$MCS_FIXTURE"
+run monitor; requests 2
 j="$(run snapshot)"; assert_json "$j" fcm_last_result=restored
-echo 'PASS: stalled timer remains requested until native timer advances'
+echo 'PASS: stalled timer cooldown survives reboot and resolves only after native progress'
 
 # A broken state target aborts sampling before recovery; no broadcast may run.
 export BERRY_FCM_DATA="$TMP/state-directory-data"
