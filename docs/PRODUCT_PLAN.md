@@ -604,3 +604,5 @@ alpha.46（#44228259741）已通过 API 37.0 SDK 安装、依赖解析、原生�
 - 复核 `tests/ksu-wake-smoke.sh` 发现测试只等待 `ctl.sh` 创建 `fix.done`，但该标记早于维护子 shell 写入 `maintenance_end` 日志和 EXIT trap 删除 `maintenance.lock`；紧接着立即 grep 会存在调度竞态。
 - 已增加有界等待：先等维护结束日志，再断言 `maintenance.lock` 清理；第二轮阻塞定时器场景也等待并检查维护锁清理，避免测试脚本提前删除临时目录。
 - 修正提交：`b311bb73bdaef6555ad8287b20662caffd6a3a61`（`[skip ci]`）。与前一项字段索引修正一样，仅是测试可靠性修复；完整 smoke/CI 尚未执行。
+
+- KSU wake smoke 第一轮维护任务：等待 `maintenance_end` 后增加有界等待，直到 `maintenance.lock` 被 EXIT trap 实际清理，避免日志写入与锁删除之间的竞态。该修正仅做源码静态核对，完整 smoke 尚未执行。
