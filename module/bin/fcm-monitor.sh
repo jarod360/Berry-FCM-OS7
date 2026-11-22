@@ -921,7 +921,7 @@ case "${1:-status}" in
         fi
         observe || exit $?
         auto_recovery || exit $?
-        write_evidence
+        write_evidence || { record_event evidence_save_failed "恢复决策证据无法持久化"; exit 13; }
         case "$state" in
           unknown|connecting|disconnected)
             if [ "$decision" != "$prior_decision" ]; then
