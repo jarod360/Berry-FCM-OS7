@@ -540,3 +540,9 @@ Removed the full `cmd appops get top.zesun.berryfcm` dump incorrectly labeled as
 - **GMS 自身恢复情况**：05:29、05:34、05:59、06:09、06:14、06:24、07:24、08:14、08:34 等见 heartbeat delay / close err:28，常常 1–3 秒重新 connected；日志中最大可见延迟 298,550ms（08:14:52），是心跳定时器迟到，并非直接等于断联持续时间；err:20/24/28 不应在无 GMS 源码佐证时强行译成固定网络错误含义。累计 GMS native close=126、connected=127，不能当作当夜次数或单条推送送达证据。
 - **未通过/尚无证据的事项**：任一轮 3 次救援仍未恢复后的完整退出与 CPU 锁释放、动作真正导致恢复的因果、夜间 FCM 消息端到端送达与耗时、整体耗电/待机电量损耗。快照 `fcm_last_result=requested` 是最后命令状态，不等于当前 GMS 未连接；当前为 `connected`。历史“ADB 认证已通过·当前待验证”与 Binder 可运行不能混同。
 - **下一批改进建议（只登记）**：(1) `sample_gap` 日志拆分“预期 Doze 延迟”和“可能异常停摆”，降低每 90s 以上反复报错的误导；(2) 统计每轮 `rescue_started` / `rescue_request` / `rescue_restored` / `rescue_finished` 及每次请求后原生连接时间，确保脚本与 Java 重名 `rescue_finished` 在诊断界面不混淆；(3) 继续以 GMS 原生连接证据为门槛，切勿仅因 watchdog 延迟就发心跳；(4) 连同已登记的诊断页图标和通知计时去秒一次处理。本次**只保存诊断结论，不改代码、不构建、不发布新 Release**。
+
+
+### 2026-11-23 RC5 测试字段索引复核
+- 继续对照 `save_state()` 的 27 字段固定顺序与 `tests/fcm-monitor-smoke.sh` 的 awk 断言，发现两处 retry_streak 断言误读为第 23 列。实际第 22 列是 `retry_streak`，第 23 列是 `outage_hint_mono`；旧断言会把正常运行中的 uptime 锚点误当作 `1`，导致相关 smoke 用例失败。
+- 已将结果持久化失败场景和重启冷却场景的断言从 `$23` 改为 `$22`。其他字段断言逐项对照：9=last_try_mono、10=last_try_epoch、11=attempts、12=last_result、13=last_restore，当前索引匹配。
+- 测试修正提交：`6d7608169cd9efe111a3d958ad83e47df3888575`（`[skip ci]`）。本次仅修正测试断言；尚未运行完整 smoke 或 CI，不将其记为通过。
