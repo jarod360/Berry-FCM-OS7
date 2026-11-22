@@ -1,15 +1,21 @@
 # Berry-FCM-OS7 开发进度与接续交接
 
+## 2026-11-22 本地 KSU RC4 测试包
+
+- 用户要求先提供本地 SU/KernelSU 测试包；本轮仅将 KSU 模块版本升至 `1.0-rc.4 / 10004`，APK 版本仍为 `1.0-rc.3 / 10003`。
+- RC4 使用 `71e6ba4` 的巡检诊断和恢复逻辑，构建 ARM64 `wake-timer` 后打包。此包用于设备测试，不代表 GitHub Actions、回归套件或手机验收通过，也不创建 Release。
+- 模块安装脚本请求 KernelSU 官方热安装。模块内没有设备重启命令；`reboot` 只用于记录启动周期变化。若管理器仍提示重启，先以安装输出确认当前管理器是否支持模块热安装。
+
 > 最近整理：2026-11-22。**唯一产品基线：** [PRODUCT_PLAN.md](PRODUCT_PLAN.md)。本文件只记录当前真实状态、构建证据、未验证项目和接续动作。全部代码和文档在 GitHub；不跳转 Work。用户电脑文件仅允许存放 D:\Codex，未获许可不触碰 C 盘。
 
 ## 0. 2026-11-22 接续：SU/KSU 原生状态与长采样空档
 
 - 用户确认这次检查的是 SU/KSU 版本；手机持续亮屏，后台模式设为定时巡检 1 分钟。现有记录中的空档为 128、162、512 秒。**不能用熄屏 Doze 解释，也不能从旧日志判定是定时器、GMS 检查调用、守护修复命令还是服务进程造成**；旧版没有逐次调用的开始/结束证据。
-- 当前准备的 `v1.0-rc.3` 会在 `guard.log` 记录 `service_started`、每次 `fcm_check_start/end` 及每轮 `maintenance_start/end`；`wake-timer.log` 自带 `wake_timer_armed/fired`、迟到和 suspend 时长。以后可按最后一条完整记录定位空档所在阶段。**这些字段不会补写旧空档。**
+- `v1.0-rc.4` KSU 测试包在 `guard.log` 记录 `service_started`、每次 `fcm_check_start/end` 及每轮 `maintenance_start/end`；`wake-timer.log` 自带 `wake_timer_armed/fired`、迟到和 suspend 时长。以后可按最后一条完整记录定位空档所在阶段。**这些字段不会补写旧空档。**
 - 当 `dumpsys` 只有 ActivityManager wrapper 行时，SU/KSU 将读取 Root 可见的精确 GMS UID MCS TCP：连接/连接中作为正证据；连续缺失至少 60 秒并复核后才可判定断开并进入原有恢复判断。普通 443、UID 表读取失败不当作断联。APK UID2000 不使用 Root 才能观察到的缺失判断。
 - 若原生仍报 Connected 且 `connectTime` 正数连续 5 分钟不增长，SU/KSU 会二次采样；自动守护开启时仅发定向 `GCM_RECONNECT`，不会 force-stop GMS。计时恢复则取消。
 - 更新和安装：保留 KernelSU 官方 hot-install 入口，启动新服务替代旧服务；源码没有发出设备 reboot 命令。`reboot` 事件只是观察到启动周期变化。
-- 代码和新增回归已改在工作树，下一步为检查完整 diff、推送 `main`、等待 APK/KSU GitHub Actions，再依据成功云产物发布测试 prerelease。尚未云编译、无新的 Release，也未在手机实测。
+- 诊断与恢复源码在 `71e6ba4` 已推送 `main`；其最近一次 GitHub Actions 未通过，RC4 不宣称 CI 验证完成。本地 KSU 包基于该提交，仅升级模块版本号并编译 ARM64 定时器；本轮未推送版本号更新、未创建 Release、未运行回归、未在手机实测。后续根据手机日志和失败 CI 定位修复，再走云端完整验证与测试 Release。
 
 ## 1. 不可变更的产品目标
 

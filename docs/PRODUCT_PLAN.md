@@ -1,16 +1,16 @@
 # Berry-FCM-OS7：统一产品目标、功能基线与开发计划
 
-> **唯一产品基线 / Single Source of Truth** · 更新：2026-11-22 · 状态：原生状态兜底与 SU/KSU 巡检诊断在 `v1.0-rc.3` 进行云端验证；手机空档仍待新包日志实证。
+> **唯一产品基线 / Single Source of Truth** · 更新：2026-11-22 · 状态：SU/KSU 本地设备测试候选为 `v1.0-rc.4`；APK 仍为 `v1.0-rc.3`。新包巡检日志可用于定位空档，手机效果仍待实测。
 > 仓库：[jarod360/Berry-FCM-OS7](https://github.com/jarod360/Berry-FCM-OS7) · 交接：[HANDOFF.md](HANDOFF.md) · 签名：[SIGNING.md](SIGNING.md)
 >
 
 ## 0. 2026-11-22 最新状态：SU/KSU 1 分钟巡检空档
 
 - 用户确认手机持续亮屏、定时巡检 1 分钟；报告空档 128 / 162 / 512 秒。因此不能把这些空档归为熄屏休眠。RC2 旧日志没有服务/巡检/维护命令的成对时间点，空档成因尚无法回溯。
-- RC3 候选为每次 GMS 巡检和守护修复分别记录开始、结束、耗时；与 wake timer 里的 armed/fired/suspend/late 记录对照，判断下次空档发生在调度、状态读取、守护修复还是服务进程阶段。
+- RC4 KSU 测试包为每次 GMS 巡检和守护修复分别记录开始、结束、耗时；与 wake timer 里的 armed/fired/suspend/late 记录对照，判断下次空档发生在调度、状态读取、守护修复还是服务进程阶段。
 - `dumpsys` 无当前字段时，KernelSU Root 精确观察 GMS UID 的 MCS Socket；UID0 连续缺失 60 秒并通过二次采样才进入断开恢复。APK UID2000 没有 Root Socket 可见性，不据此判断缺失。
 - GMS 原生状态为 Connected 且正数 `connectTime` 5 分钟不前进时，KernelSU 复核后可发一次目标为 GMS 的 `GCM_RECONNECT`；不 force-stop 整个 GMS。需由云端模拟测试和手机实测分别验收。
-- 版本目标 `1.0-rc.3 / 10003`。本次发布范围为 APK 与 KSU 两条线；云构建、固定签名、完整 CI、GitHub 测试 Release 均尚未完成，不能宣称修复或验收通过。
+- 当前 APK 版本为 `1.0-rc.3 / 10003`；本地 KSU 测试包为 `1.0-rc.4 / 10004`。RC4 仅用于设备试测，最近的 GitHub Actions 未通过，尚无云构建/回归通过证据、GitHub 测试 Release 或手机验收，不能宣称修复已验收。
 > **执行约束**：只在当前聊天沟通并通过 GitHub 仓库改代码、GitHub Actions 编译和验证；不跳转 Work。不擅自删旧功能；任何分歧先列证据、成本和替代方案。每次功能变更须同步更新本文件与 HANDOFF.md，避免新会话失忆。用户 Windows 本地开发目录仅为 `D:\Codex`；不擅自写 C 盘。GitHub Runner 的云端临时环境不等于在用户电脑写 C 盘。
 
 ## 1. 已确定的八项目标（来自本轮需求）
