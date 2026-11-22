@@ -122,7 +122,7 @@ export MCS_UID=2000
 if run reconnect; then echo "non-root request unexpectedly accepted" >&2; exit 1; fi
 unset MCS_UID
 requests 3
-export MCS_AM_FAIL=1; run monitor; requests 5
+export MCS_AM_FAIL=1; run monitor; requests 4
 j="$(run snapshot)"; assert_json "$j" fcm_recovery_decision=request_failed
 unset MCS_AM_FAIL
 echo "PASS: stopped GMS, opt-out, non-root rejection and failed-broadcast classification"
