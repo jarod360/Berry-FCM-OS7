@@ -72,7 +72,9 @@ load_state() {
             fi
         fi
         transport=; remote=; sample_epoch=0; down_observed=0; outage_hint_mono=0
-        native_timer_duration=0; native_timer_since=0; native_timer_last_request=0; native_timer_key=
+        # Keep the last native duration/endpoint as evidence for a pending
+        # stalled-timer request; only monotonic anchors are boot-scoped.
+        native_timer_since=0; native_timer_last_request=0
         : > "$LEARNED_IPS"
         record_event reboot '设备重启：清除上一启动周期的连接计时，保留历史事件'
     fi
@@ -112,6 +114,11 @@ update_native_timer_tracking() {
             native_timer_last_request=0
             native_timer_key="$timer_key"
         fi
+    elif [ "$last_try_reason" = stalled_timer ] &&
+         { [ "$last_result" = pending ] || [ "$last_result" = requested ]; }; then
+        # Keep the last native timer baseline while the stalled request is
+        # unresolved; a socket-only/unknown sample cannot prove timer recovery.
+        :
     else
         native_timer_duration=0
         native_timer_since=0
@@ -480,6 +487,8 @@ observe() {
     # Keep the previous observation only as a hint across a suspend gap.
     # Never represent that gap as proven continuous downtime.
     previous_down_observed=0; previous_down_state="$state"; previous_missing_epoch="$missing_epoch"
+    previous_native_timer_duration="$native_timer_duration"
+    previous_native_timer_key="$native_timer_key"
     # An unknown sample may retain a prior down observation as a hint, never as
     # proof of continuous downtime. Fresh native down evidence is required again.
     case "$state" in
@@ -613,8 +622,14 @@ EOF_SOCKET
     fi
     case "$observed" in
       connected)
-        if [ "$last_result" = pending ] ||
-           { [ "$last_result" = requested ] && [ "$last_try_epoch" -ge "$previous_missing_epoch" ] && [ "$last_try_epoch" -gt 0 ]; }; then
+        if [ "$last_try_reason" = stalled_timer ] &&
+           { [ "$last_result" = pending ] || [ "$last_result" = requested ]; }; then
+            if [ "$source" = gms ] &&
+               { [ "$duration" != "$previous_native_timer_duration" ] || [ "$remote" != "$previous_native_timer_key" ]; }; then
+                last_result=restored
+            fi
+        elif [ "$last_result" = pending ] ||
+             { [ "$last_result" = requested ] && [ "$last_try_epoch" -ge "$previous_missing_epoch" ] && [ "$last_try_epoch" -gt 0 ]; }; then
             last_result=restored
         fi
         if [ "$previous_down_state" = connecting ] || [ "$previous_down_state" = disconnected ] ||
