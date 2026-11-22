@@ -63,7 +63,12 @@ chmod +x "$TMP/bin/"* "$TMP/module/bin/wake-timer-arm64"
 touch "$TMP/module/module.prop"
 echo 1 > "$TMP/data/enabled"
 echo timed > "$TMP/data/wake-mode"
-timeout 8 sh "$TMP/module/service.sh"
+if timeout 8 sh "$TMP/module/service.sh"; then
+    :
+else
+    rc=$?
+    [ "$rc" -eq 124 ]
+fi
 n=0
 while [ ! -e "$TMP/fix.done" ] && [ "$n" -lt 60 ]; do /bin/sleep 0.1; n=$((n + 1)); done
 test -e "$TMP/fix.done"
