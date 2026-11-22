@@ -82,6 +82,7 @@ export BERRY_FCM_TEST_MODE=1 BERRY_FCM_DATA="$TMP/data"
 export BERRY_UPTIME_FILE="$TMP/uptime" BERRY_BOOT_ID_FILE="$TMP/bootid"
 export MCS_FIXTURE="$TMP/dump" MCS_AM_LOG="$TMP/am.log" MCS_CLOCK="$TMP/epoch"
 settime() { printf '%s\n' "$1" > "$TMP/uptime"; printf '%s\n' "$((1700000000+$1))" > "$MCS_CLOCK"; }
+setboot() { printf '%s\n' "$1" > "$TMP/uptime"; printf '%s\n' "$((1700000000+$2))" > "$MCS_CLOCK"; }
 settime 10000
 run() { sh "$MON" "$1"; }
 requests() { [ "$(wc -l < "$MCS_AM_LOG" | tr -d ' ')" = "$1" ]; }
@@ -281,13 +282,13 @@ settime 20330
 run monitor; requests 1
 j="$(run snapshot)"; assert_json "$j" fcm_last_result=requested; assert_json "$j" fcm_retry_in=570
 echo stalled-timer-reboot > "$TMP/bootid"
-settime 20331
+setboot 1 20331
 run monitor; requests 1
 j="$(run snapshot)"; assert_json "$j" fcm_last_result=requested; assert_json "$j" fcm_retry_in=569
-settime 20900
+setboot 570 20900
 run monitor; requests 2
 j="$(run snapshot)"; assert_json "$j" fcm_last_result=requested
-settime 20901
+setboot 571 20901
 printf '%s\n' 'DeviceID: [fixture]' 'connected=mtalk.google.com/142.250.157.188,port=5228' 'connectTime=10:01/00:00' > "$MCS_FIXTURE"
 run monitor; requests 2
 j="$(run snapshot)"; assert_json "$j" fcm_last_result=restored
@@ -311,7 +312,7 @@ run monitor; requests 1
 j="$(run snapshot)"; assert_json "$j" fcm_last_result=request_failed; assert_json "$j" fcm_retry_in=600
 unset MCS_AM_FAIL
 echo timer-fail-reboot > "$TMP/bootid"
-settime 22301
+setboot 1 22301
 run monitor; requests 1
 j="$(run snapshot)"; assert_json "$j" fcm_last_result=request_failed; assert_json "$j" fcm_retry_in=599
 echo 'PASS: failed stalled-timer broadcast preserves cooldown across reboot'
@@ -368,14 +369,14 @@ j="$(run snapshot)"; assert_json "$j" fcm_last_result=pending
 rm -f "$MCS_FAIL_STATE_MV_MARKER"
 unset MCS_FAIL_STATE_MV
 echo pending-reboot > "$TMP/bootid"
-settime 31001
+setboot 1 31001
 run monitor
 requests 1
 j="$(run snapshot)"
 assert_json "$j" fcm_last_result=pending
 assert_json "$j" fcm_retry_in=59
 printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Connected' 'connectTime=00:01/00:00' > "$MCS_FIXTURE"
-settime 31002
+setboot 2 31002
 j="$(run status)"
 assert_json "$j" fcm_last_result=restored
 assert_json "$j" fcm_retry_streak=0
@@ -396,11 +397,11 @@ awk -F '|' 'NF != 27 { exit 1 } END { if (NR != 1) exit 1 }' "$BERRY_FCM_DATA/mc
 test "$(awk -F '|' '{print $10}' "$BERRY_FCM_DATA/mcs-monitor.state")" -gt 0
 test "$(awk -F '|' '{print $23}' "$BERRY_FCM_DATA/mcs-monitor.state")" = 1
 echo boot-two > "$TMP/bootid"
-settime 33001
+setboot 1 33001
 run monitor
 requests 1
 j="$(run snapshot)"; assert_json "$j" fcm_retry_streak=1; assert_json "$j" fcm_attempts=1; assert_json "$j" fcm_retry_in=59
-settime 33060
+setboot 60 33060
 run monitor
 requests 2
 j="$(run snapshot)"; assert_json "$j" fcm_retry_streak=2; assert_json "$j" fcm_attempts=2; assert_json "$j" fcm_last_result=requested
@@ -415,19 +416,19 @@ settime 34000
 printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Not connected' 'disconnectTime=02:00/00:00' > "$MCS_FIXTURE"
 run reconnect; requests 1
 echo manual-reboot-two > "$TMP/bootid"
-settime 34001
+setboot 1 34001
 run reconnect; requests 1
 j="$(run snapshot)"; assert_json "$j" fcm_last_try_reason=manual; assert_json "$j" fcm_retry_in=59
 echo 'PASS: manual reconnect cooldown survives reboot'
 # A backwards wall clock must never make a pending retry immediately eligible.
 echo boot-three > "$TMP/bootid"
-settime 33061
+setboot 1 33061
 echo 1699990000 > "$MCS_CLOCK"
 run monitor
 requests 2
 j="$(run snapshot)"; assert_json "$j" fcm_retry_streak=2; assert_json "$j" fcm_retry_in=120
 printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Connected' 'connectTime=00:01/00:00' > "$MCS_FIXTURE"
-settime 33062
+setboot 2 33062
 j="$(run status)"
 assert_json "$j" fcm_retry_streak=0
 echo 'PASS: clock rollback preserves full cooldown; confirmed connection clears retry streak'
