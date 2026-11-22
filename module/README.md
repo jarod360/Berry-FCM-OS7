@@ -10,18 +10,18 @@ KernelSU Root（UID 0）模块。模块 ID 仍为 `berry_fcm_ksu`，升级保留
 - RC5 的 GMS 连接状态只依据 procfs：读取真实 GMS UID，检查 /proc/net/tcp 与 /proc/net/tcp6 的 MCS 5228/5229/5230 socket。dumpsys 不参与在线、断联、连接中、恢复或重连判断。ESTABLISHED 是连接正证据；SYN_SENT/SYN_RECV 是连接中；只有 TCP/TCP6 两份表均完整且无匹配 socket 才能确认断联。普通 443 不作 MCS 证据。
 - 完整无匹配通常等待 15 秒并进行独立二次 procfs 采样；连接中按 60 秒观察。跨采样空档不会沿用过期状态直接重连，而是重新读取 TCP/TCP6。
 - 不再使用原生 connectTime 停滞、Close 字段或 dumpsys 解析结果作为重连依据。重连必须由 procfs 的完整负证据和二次采样确认。
-- 确认 GMS 未被停止后，Root 定向发送 `GCM_RECONNECT`。自动断联请求间隔为 30 / 60 / 120 秒，之后封顶 180 秒；手动请求至少间隔 60 秒；同一计时停滞事件的请求至少间隔 10 分钟。原生状态恢复连接后清零连续重试计数。
+- 达到 procfs 断联确认条件后，Root 定向发送 `GCM_RECONNECT`。自动请求退避为 30 / 60 / 120 秒，之后封顶 180 秒；手动请求至少间隔 60 秒。后续观察到 MCS ESTABLISHED 后清零连续重试计数。
 - 广播完成只记为已请求；后续只有新的 GMS UID MCS ESTABLISHED socket 才能确认连接恢复。TCP 建立不等于 FCM 认证成功或消息送达。
 - 重连前先原子保存 pending、尝试次数和冷却锚点；保存失败不发广播。广播后结果保存失败保留 pending，重启后用 epoch 重建 monotonic 冷却锚点；时间回拨不会绕过或无限延长已建立的冷却。
 
-热安装或 WebUI 启动服务时，服务会检查自身 unified cgroup：不论路径是 /apps/* 还是 /uid_*/pid_*，只要不是根组就尝试迁移到 cgroup v2 根组，并回读确认；迁移失败或无法读取 cgroup 会写入 guard.log，定时唤醒标记为不可用。旧锁 PID 必须同时匹配 /proc/PID/cmdline 中的本模块 service.sh，不能只凭 kill -0 误判 PID 重用。
+热安装或 WebUI 启动服务时，服务会检查自身 unified cgroup：不论路径是 /apps/* 还是 /uid_*/pid_*，只要不是根组就尝试迁移到 cgroup v2 根组，并回读确认；迁移失败或无法读取 cgroup 会写入 guard.log，定时唤醒标记为不可用。旧锁 PID 必须同时匹配 /proc/PID/cmdline 中的本模块 service.sh；陈旧锁通过原子重命名后清理，避免 PID 重用和并发启动误判。服务启动时记录 service_cgroup_initial，便于判断实际继承的 cgroup。
 
 ## 安装与升级
 
 1. 确认 KernelSU 已授予本模块 Root。
 2. 从 KernelSU「模块」安装 `BerryFCM-KSU-v1.0-rc.4.zip`。
 3. KernelSU 支持热安装时，BerryFCM 会停止旧监控服务并启动新服务，不需要为本模块更新重启设备。若管理器仍显示需重启，代表当前 KernelSU/管理器未完成热安装；请查看安装输出。
-4. 从 KernelSU 模块 WebUI 打开页面，先点“立即检测”，再核对 Google 原生 Diagnostics 的 `Connected` / `Close` 记录。
+4. 从 KernelSU 模块 WebUI 打开页面，先点“立即检测”；Google FCM Diagnostics 仅作独立旁路参考，不参与 RC5 状态判定。
 5. 自动守护默认沿用原配置。先观察事件时间线和真实推送，再决定是否开启。
 
 ## 手动诊断
@@ -60,6 +60,6 @@ su -c 'sh /data/adb/modules/berry_fcm_ksu/bin/ctl.sh guard off'
 - 不修改 hosts、DNS、VPN、代理、路由或系统分区。
 - 不强制停止 / 重启 GMS，不清除数据，不声称永久保活。
 - TCP ESTABLISHED 只证明采样时观察到 GMS UID Socket；mtalk 地址匹配的 443 只是候选，不等于 MCS 已认证或消息一定送达。
-- 普通 GMS 443 不计为 FCM；若原生状态与 UID Socket 元信息都无法读取，页面会报告未取得有效样本，不会凭空推断断联。
+- 普通 GMS 443 不计为 FCM；若 GMS UID 或 TCP/TCP6 来源不可用，页面会报告 unknown，不会凭空推断断联。
 - 仅监控 Android 用户 0 的 GMS 主包 UID；厂商私有冻结、网络限制不保证可解除。
 - Doze 白名单和后台数据放行可能增加待机耗电 / 流量。
