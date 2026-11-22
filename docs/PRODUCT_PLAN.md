@@ -599,3 +599,8 @@ alpha.46（#44228259741）已通过 API 37.0 SDK 安装、依赖解析、原生�
 - 继续对照 `save_state()` 的 27 字段固定顺序与 `tests/fcm-monitor-smoke.sh` 的 awk 断言，发现两处 retry_streak 断言误读为第 23 列。实际第 22 列是 `retry_streak`，第 23 列是 `outage_hint_mono`；旧断言会把正常运行中的 uptime 锚点误当作 `1`，导致相关 smoke 用例失败。
 - 已将结果持久化失败场景和重启冷却场景的断言从 `$23` 改为 `$22`。其他字段断言逐项对照：9=last_try_mono、10=last_try_epoch、11=attempts、12=last_result、13=last_restore，当前索引匹配。
 - 测试修正提交：`6d7608169cd9efe111a3d958ad83e47df3888575`（`[skip ci]`）。本次仅修正测试断言；尚未运行完整 smoke 或 CI，不将其记为通过。
+
+### 2026-11-23 KSU 唤醒 smoke 维护任务清理竞态
+- 复核 `tests/ksu-wake-smoke.sh` 发现测试只等待 `ctl.sh` 创建 `fix.done`，但该标记早于维护子 shell 写入 `maintenance_end` 日志和 EXIT trap 删除 `maintenance.lock`；紧接着立即 grep 会存在调度竞态。
+- 已增加有界等待：先等维护结束日志，再断言 `maintenance.lock` 清理；第二轮阻塞定时器场景也等待并检查维护锁清理，避免测试脚本提前删除临时目录。
+- 修正提交：`b311bb73bdaef6555ad8287b20662caffd6a3a61`（`[skip ci]`）。与前一项字段索引修正一样，仅是测试可靠性修复；完整 smoke/CI 尚未执行。
