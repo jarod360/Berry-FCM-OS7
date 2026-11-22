@@ -6,15 +6,15 @@ KernelSU Root（UID 0）模块。模块 ID 仍为 `berry_fcm_ksu`，升级保留
 
 ## 监控与恢复
 
-- 「设置 → 后台保活」可选随系统唤醒（默认，约每 30 秒尝试巡检）或定时巡检（1–10 分钟，默认 3 分钟）。后者保留常规巡检，并由独立的 ARM64 Root 定时器增加检查机会。定时器失败或迟到时，常规巡检继续运行。两种方式都没有持续 CPU 唤醒锁。
-- 优先读取 GMS `GcmService` 原生状态。原生字段缺失时，精确的 GMS UID MCS TCP 建立/连接中可作为连接证据；Root 连续 60 秒未看到精确 MCS TCP 并通过二次采样后，按断联进入恢复判断。普通或不可见的 443 Socket 不作证据。
-- 明确断开通常等 15 秒，连接中通常等 60 秒。达到条件后在同一执行窗口二次确认。跨采样空档仅将此前断联当作复查线索。
-- 若 GMS 原生仍报告已连接，但精确原生连接时长连续 5 分钟不增长，自动守护会再采样确认，然后定向请求一次 `GCM_RECONNECT`；连接时长恢复增长后取消。此操作请求 GMS 重建 MCS 连接，不会强制停止 Google Play 服务。
+- 「设置 → 后台保活」可选常规巡检或定时唤醒巡检。主服务由 KernelSU service.sh 常驻运行；定时模式由独立 ARM64 CLOCK_BOOTTIME_ALARM 定时器唤醒。定时器失败时回退常规巡检，不持有持续 CPU 唤醒锁。
+- RC5 的 GMS 连接状态只依据 procfs：读取真实 GMS UID，检查 /proc/net/tcp 与 /proc/net/tcp6 的 MCS 5228/5229/5230 socket。dumpsys 不参与在线、断联、连接中、恢复或重连判断。ESTABLISHED 是连接正证据；SYN_SENT/SYN_RECV 是连接中；只有 TCP/TCP6 两份表均完整且无匹配 socket 才能确认断联。普通 443 不作 MCS 证据。
+- 完整无匹配通常等待 15 秒并进行独立二次 procfs 采样；连接中按 60 秒观察。跨采样空档不会沿用过期状态直接重连，而是重新读取 TCP/TCP6。
+- 不再使用原生 connectTime 停滞、Close 字段或 dumpsys 解析结果作为重连依据。重连必须由 procfs 的完整负证据和二次采样确认。
 - 确认 GMS 未被停止后，Root 定向发送 `GCM_RECONNECT`。自动断联请求间隔为 30 / 60 / 120 秒，之后封顶 180 秒；手动请求至少间隔 60 秒；同一计时停滞事件的请求至少间隔 10 分钟。原生状态恢复连接后清零连续重试计数。
-- 广播完成只记为已请求。WebUI 用后续 GMS 原生采样确认连接，实际推送送达需单测。
-- 重连前先原子保存 `pending`、尝试次数和冷却锚点；保存失败不发广播。广播后结果保存失败保留 `pending`，重启后用 epoch 重建 monotonic 冷却锚点；时间回拨不会绕过或无限延长已建立的冷却。stalled-timer 只有观察到原生 connectTime 或 MCS endpoint 变化才记为恢复。
+- 广播完成只记为已请求；后续只有新的 GMS UID MCS ESTABLISHED socket 才能确认连接恢复。TCP 建立不等于 FCM 认证成功或消息送达。
+- 重连前先原子保存 pending、尝试次数和冷却锚点；保存失败不发广播。广播后结果保存失败保留 pending，重启后用 epoch 重建 monotonic 冷却锚点；时间回拨不会绕过或无限延长已建立的冷却。
 
-热安装时，如果 Root 服务继承了管理器的应用冻结组，服务仅迁移自身到 cgroup v2 根组，子进程继承该组。迁移失败会在 WebUI 和后台日志中显示。
+热安装或 WebUI 启动服务时，服务会检查自身 unified cgroup：不论路径是 /apps/* 还是 /uid_*/pid_*，只要不是根组就尝试迁移到 cgroup v2 根组，并回读确认；迁移失败或无法读取 cgroup 会写入 guard.log，定时唤醒标记为不可用。旧锁 PID 必须同时匹配 /proc/PID/cmdline 中的本模块 service.sh，不能只凭 kill -0 误判 PID 重用。
 
 ## 安装与升级
 
@@ -42,10 +42,10 @@ su -c 'sh /data/adb/modules/berry_fcm_ksu/bin/ctl.sh guard off'
 - `/data/adb/berry_fcm_ksu/enabled`：自动守护开关
 - `/data/adb/berry_fcm_ksu/mcs-monitor.state`：当前连接状态与时间戳
 - `/data/adb/berry_fcm_ksu/mcs-monitor-events.log`：巡检空档 / 断联 / 重连事件
-- `/data/adb/berry_fcm_ksu/mcs-native-events.log`：筛选和去重后的 GMS 原生事件
+- `/data/adb/berry_fcm_ksu/mcs-native-events.log`：旧版本遗留事件文件；RC5 procfs 状态判定不依赖它
 - `/data/adb/berry_fcm_ksu/guard.log`：守护巡检日志
-- `guard.log` 中的 `fcm_check_start` / `fcm_check_end`：逐次巡检开始/结束、耗时、采样状态和恢复决策；`maintenance_start` / `maintenance_end` 记录守护修复命令。`wake-timer.log` 还记录 timer worker 的启动/退出、armed/fired、迟到和 suspend 时长。三者对照可判断空档发生在哪一阶段。
-- 导出这两类记录：`su -c 'sh /data/adb/modules/berry_fcm_ksu/bin/ctl.sh log'`。巡检有开始没有结束，表示检查调用未返回；修复命令有开始没有结束，表示守护修复未返回；定时器只看到 `wake_timer_armed` 没有 `wake_timer_fired`，表示定时器未按期完成。以上情况都要结合后续日志判断，不能仅凭一条记录推断进程已退出。
+- guard.log 中的 service_started、service_cgroup_*、fcm_check_start / fcm_check_end：分别记录服务启动/cgroup迁移和每次巡检开始结束；maintenance_start / maintenance_end 记录守护修复命令。wake-timer.log 记录 timer worker 的启动/退出、armed/fired、迟到和 suspend 时长。三者对照可定位空档发生在服务存活、cgroup 冻结、定时器唤醒还是检查调用阶段。
+- 导出记录：su -c 'sh /data/adb/modules/berry_fcm_ksu/bin/ctl.sh log'。若 fcm_check_start 无对应 fcm_check_end，检查调用可能未返回；若 wake_timer_armed 无 wake_timer_fired，定时器没有完成唤醒；若长时间无 fcm_check_start，需检查 service.lock/pid、/proc/PID/cmdline、/proc/PID/cgroup 与 service_cgroup_*，区分服务退出、冻结或启动失败。单凭 sample_gap 不能确定原因。
 
 ## 保留功能
 
