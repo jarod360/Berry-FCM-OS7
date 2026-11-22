@@ -569,3 +569,9 @@ Removed the full `cmd appops get top.zesun.berryfcm` dump incorrectly labeled as
 ### 2026-11-23 KSU timeout 条件块最终结构复核
 - 再次按完整行范围回读时发现，第一轮条件块仍残留了前一次替换产生的尾部 `fi; then ... fi`，仅检查调用次数无法发现该语法错误。已删除残留尾部，第一轮和第二轮现在都是独立、完整的 if/else/fi 条件块。
 - 最终脚本提交 `fe7fb2165839a97de44d0a22f9226a0b55fbf9f5`（`[skip ci]`）。后续必须以实际 `sh -n` 和完整 smoke 结果作为测试通过依据；本次尚未运行，不能宣称语法检查通过。
+
+
+### 2026-11-23 KSU 巡检休眠子进程回收
+- 复核 `module/service.sh` 的信号处理发现，`stop_wait()` 原先只向当前 30 秒巡检 sleep 子进程发送 TERM，没有显式 `wait` 回收；而 `stop_timer()` 已经对 timer worker 执行 kill+wait，二者清理策略不一致。
+- `stop_wait()` 现在在发送终止信号后立即 `wait`，但保留 `wait_pid`，让信号处理返回后的主循环仍可安全完成原有 wait/清空流程。此修改不改变巡检周期、timer worker 或维护任务逻辑。
+- 提交 `95c56abdfb54aa537beada01e306012cc3796e56`（`[skip ci]`）。已回读确认函数内容；尚未执行完整 Shell 语法检查、wake smoke 或实机信号测试。
