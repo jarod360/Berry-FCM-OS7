@@ -284,6 +284,7 @@ j="$(run snapshot)"; assert_json "$j" fcm_last_result=requested; assert_json "$j
 echo stalled-timer-reboot > "$TMP/bootid"
 setboot 1 20331
 run monitor; requests 1
+test "$(awk -F '|' '{print $9}' "$BERRY_FCM_DATA/mcs-monitor.state")" = -31
 j="$(run snapshot)"; assert_json "$j" fcm_last_result=requested; assert_json "$j" fcm_retry_in=569
 setboot 570 20900
 run monitor; requests 2
@@ -372,6 +373,7 @@ echo pending-reboot > "$TMP/bootid"
 setboot 1 31001
 run monitor
 requests 1
+test "$(awk -F '|' '{print $9}' "$BERRY_FCM_DATA/mcs-monitor.state")" = -1
 j="$(run snapshot)"
 assert_json "$j" fcm_last_result=pending
 assert_json "$j" fcm_retry_in=59
@@ -428,6 +430,7 @@ setboot 1 33061
 echo 1699990000 > "$MCS_CLOCK"
 run monitor
 requests 0
+test "$(awk -F '|' '{print $9}' "$BERRY_FCM_DATA/mcs-monitor.state")" = 1
 j="$(run snapshot)"; assert_json "$j" fcm_retry_streak=2; assert_json "$j" fcm_retry_in=120
 printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Connected' 'connectTime=00:01/00:00' > "$MCS_FIXTURE"
 setboot 2 33062
