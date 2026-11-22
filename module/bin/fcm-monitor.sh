@@ -716,8 +716,8 @@ EOF_SOCKET
     esac
     transport="$new_transport"; remote="$new_remote"; sample_epoch="$nowe"
     update_native_timer_tracking
-    write_evidence || return 13
     save_state || { record_event state_save_failed "FCM 采样状态无法持久化"; return 13; }
+    write_evidence || { record_event evidence_save_failed "FCM 采样证据无法持久化"; return 13; }
 }
 
 write_evidence() {
