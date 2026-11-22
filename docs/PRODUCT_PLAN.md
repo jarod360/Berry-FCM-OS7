@@ -15,7 +15,8 @@
 - 总体产品路线仍保留 APK 优先与 KSU 双线；但本次用户明确要求先以 SU/KernelSU 的 RC5 最新提交为主，APK 相关脚本和代码暂不改。
 - 修复分支：`fix/rc5-mcs-patrol-20261122`。现有可安装 KSU 测试包仍是 RC4（`1.0-rc.4 / 10004`）；RC5（`1.0-rc.5 / 10005`）是当前源码候选，不代表已有 RC5 ZIP。
 - 本轮代码审查重点：状态文件原子保存完整性、重连前 pending 事务、广播结果保存失败、boot ID 变化后的 retry_streak/epoch 冷却、墙钟回拨，以及 stalled-timer 的原生恢复证据。实现要求是不引入数据库或第三方持久化依赖。
-- 当前监控脚本修复提交：`2b522dcc9aeb79d003deabd3ae86e1a450ad21b6`；回归测试最新提交：`4bb7c88752b1d05db12ddc4af113ef83983c6770`。新增 smoke 用例覆盖广播前第三次 state 替换失败且尝试字段不落盘、state 目标异常且不发布新 evidence、广播后结果替换失败且 attempts/retry_streak 保留、pending 跨重启不重复广播、自动/手动冷却（含断联确认已满足但仍处于冷却的场景）、重启时和重启后墙钟回拨、stalled-timer 成功/失败请求的 600 秒冷却跨重启（含阈值已满足但仍被冷却阻止的场景，并检查 `timer_stalled_cooldown` 决策），以及原生计时推进后解除未决状态；重启测试把 uptime 重置到 1 秒并断言 signed monotonic anchor。stalled-timer 冷却期间不再重复做二次确认，避免巡检日志反复刷屏。
+- 当前监控脚本修复提交：`2b522dcc9aeb79d003deabd3ae86e1a450ad21b6`；回归测试最新提交：`994686ef936a0d070395ac0f313746f87f489e00`。新增 smoke 用例覆盖广播前第三次 state 替换失败且尝试字段不落盘、state 目标异常且不发布新 evidence、广播后结果替换失败且 attempts/retry_streak 保留、pending 跨重启不重复广播、自动/手动冷却（含断联确认已满足但仍处于冷却的场景）、重启时和重启后墙钟回拨、stalled-timer 成功/失败请求的 600 秒冷却跨重启（含阈值已满足但仍被冷却阻止的场景，并检查 `timer_stalled_cooldown` 决策），以及原生计时推进后解除未决状态；重启测试把 uptime 重置到 1 秒并断言 signed monotonic anchor。stalled-timer 冷却期间不再重复做二次确认，避免巡检日志反复刷屏。
+- 测试夹具复核发现原 smoke 虽设置 `MCS_CLOCK`，但未 mock 监控脚本实际调用的 `date +%s`；现已增加 fake-date mock 和启动断言，修正 epoch 冷却/墙钟回拨用例的时间来源。提交 `994686e`。**完整测试仍未运行，不能据此声称通过。**
 - 目前只完成源码静态审查、本轮改动片段的 POSIX `sh -n` 检查及独立 anchor/backoff 算术验证；**完整 `fcm-monitor-smoke.sh`、`ksu-wake-smoke.sh` 尚未执行**。最近一次旧 Actions 在 unknown-only socket absence 用例的事件名断言处失败，`e1725c3` 已修正为实际事件名，但未重跑。
 - 按用户最新指示，修复阶段不触发 Actions/CI、云编译、打包或 Release。所有修复与核对完成后，再由用户手动触发最终云编译；在此之前不通知安装测试，不宣称 CI 通过。
 
