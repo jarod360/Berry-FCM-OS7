@@ -9,7 +9,16 @@ MAINTENANCE_LOCK="$DATA/maintenance.lock"
 if ! mkdir "$LOCK" 2>/dev/null; then
     old="$(cat "$LOCK/pid" 2>/dev/null)"
     case "$old" in ''|*[!0-9]*) old=0 ;; esac
-    [ "$old" -gt 1 ] && kill -0 "$old" 2>/dev/null && exit 0
+    old_cmdline=
+    [ "$old" -gt 1 ] && [ -r "/proc/$old/cmdline" ] &&
+        old_cmdline="$(tr '\000' ' ' < "/proc/$old/cmdline" 2>/dev/null)"
+    case "$old_cmdline" in
+        *service.sh*)
+            # PID existence alone is not proof that the old guardian is alive:
+            # the kernel may have reused its PID after a crash or reboot.
+            [ "$old" -gt 1 ] && kill -0 "$old" 2>/dev/null && exit 0
+            ;;
+    esac
     rm -rf "$LOCK"
     mkdir "$LOCK" 2>/dev/null || exit 0
 fi
@@ -25,11 +34,16 @@ cgroup_path() {
 group="$(cgroup_path)"
 cgroup_ready=1
 case "$group" in
-    /apps/*)
-        # Hot install and WebUI can inherit the Manager's app freezer group.
-        # Move only this service; workers inherit the verified group.
+    "")
+        cgroup_ready=0
+        printf '[%s] service_cgroup_unknown pid=%s reason=unified_cgroup_unavailable\n' "$(date '+%F %T')" "$$" >> "$DATA/guard.log"
+        ;;
+    /) : ;;
+    *)
+        # Do not assume only the legacy /apps hierarchy is freezer-controlled.
+        # Detach from every non-root unified cgroup and verify membership.
         if { printf '%s\n' "$$" > /sys/fs/cgroup/cgroup.procs; } 2>/dev/null &&
-           [ "$(cgroup_path)" = / ]; then
+           [ "$(cgroup_path)" = "/" ]; then
             printf '[%s] service_cgroup_detached pid=%s from=%s to=/\n' "$(date '+%F %T')" "$$" "$group" >> "$DATA/guard.log"
         else
             cgroup_ready=0
