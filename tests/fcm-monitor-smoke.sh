@@ -370,6 +370,7 @@ settime 31000
 printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Not connected' 'disconnectTime=02:00/00:00' > "$MCS_FIXTURE"
 run monitor
 requests 1
+test "$(awk -F '|' '{print $11}' "$BERRY_FCM_DATA/mcs-monitor.state")" = 1
 test "$(awk -F '|' '{print $12}' "$BERRY_FCM_DATA/mcs-monitor.state")" = pending
 test "$(awk -F '|' '{print $23}' "$BERRY_FCM_DATA/mcs-monitor.state")" = 1
 j="$(run snapshot)"; assert_json "$j" fcm_last_result=pending
