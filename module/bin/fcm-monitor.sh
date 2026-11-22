@@ -444,12 +444,9 @@ request_reconnect() {
         return 0
     fi
     case "$reason" in auto|stalled_timer) auto_enabled || { decision=disabled; return 0; };; esac
-    if [ "$reason" = stalled_timer ]; then
-        native_timer_last_request="$nowm"
-        save_state || return $?
-    fi
     stopped="$(is_gms_stopped)"
     [ "$stopped" = 0 ] || { decision=gms_stopped_unknown; record_event reconnect_skipped "GMS stopped 状态为 $stopped，未发送广播"; return 0; }
+    [ "$reason" != stalled_timer ] || native_timer_last_request="$nowm"
     last_try_mono="$nowm"; last_try_epoch="$nowe"; attempts=$((attempts+1))
     retry_streak=$((retry_streak+1)); last_try_reason="$reason"; last_result=pending
     save_state || { decision=state_save_failed; record_event reconnect_skipped "重连状态无法持久化，未发送广播"; return 0; }
@@ -612,8 +609,8 @@ EOF_SOCKET
     fi
     case "$observed" in
       connected)
-        if { [ "$last_result" = pending ] && [ "$last_try_epoch" -gt 0 ]; } ||
-             { [ "$last_result" = requested ] && [ "$last_try_epoch" -ge "$previous_missing_epoch" ] && [ "$last_try_epoch" -gt 0 ]; }; then
+        if [ "$last_result" = pending ] ||
+           { [ "$last_result" = requested ] && [ "$last_try_epoch" -ge "$previous_missing_epoch" ] && [ "$last_try_epoch" -gt 0 ]; }; then
             last_result=restored
         fi
         if [ "$previous_down_state" = connecting ] || [ "$previous_down_state" = disconnected ] ||
@@ -808,7 +805,7 @@ status_json() {
     [ "$sample_epoch" -gt 0 ] && [ "$nowe" -ge "$sample_epoch" ] && age=$((nowe-sample_epoch))
     source=unavailable; duration=-1; close_code=; tcp_hint=none; native_reason=unrecognized; decision=not_evaluated
     if [ -f "$EVIDENCE" ]; then IFS='|' read -r source duration close_code tcp_hint native_reason decision < "$EVIDENCE" || :; fi
-    case "${decision:-}" in not_evaluated|not_disconnected|sample_unavailable|disabled|cooldown|gms_stopped_unknown|requested|request_failed|request_result_pending|waiting_duration|waiting_confirmation|confirmation_changed|timer_stalled_recovery|timer_stalled_disabled|timer_stalled_cooldown|timer_stalled_cancelled) :;; *) decision=not_evaluated;; esac
+    case "${decision:-}" in not_evaluated|not_disconnected|sample_unavailable|disabled|cooldown|gms_stopped_unknown|state_save_failed|requested|request_failed|request_result_pending|waiting_duration|waiting_confirmation|confirmation_changed|timer_stalled_recovery|timer_stalled_disabled|timer_stalled_cooldown|timer_stalled_cancelled) :;; *) decision=not_evaluated;; esac
     case "$native_reason" in none|permission_denied|timeout|service_unavailable|dump_failed|empty|unrecognized|gms_stopped) :;; *) native_reason=unrecognized;; esac
     case "$duration" in -1) :;; *) is_uint "$duration" || duration=-1;; esac
     [ "$age" -ge 0 ] && [ "$age" -le 90 ] || state=stale
@@ -884,6 +881,8 @@ case "${1:-status}" in
         case "$decision" in
           requested) echo "已请求 GMS 恢复，等待下一次连接采样确认";;
           request_failed) echo "Root 重连广播未确认，请查看恢复事件";;
+          request_result_pending) echo "重连命令结果未能持久化，等待后续 GMS 状态确认";;
+          state_save_failed) echo "重连状态无法保存，未发送广播";;
           cooldown) echo "仍在重连冷却期";;
           gms_stopped_unknown) echo "GMS 已停止或停止状态无法确认";;
           *) echo "GMS 已连接或状态不可确认，未发送重连";;
