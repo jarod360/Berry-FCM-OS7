@@ -13,7 +13,7 @@ if ! mkdir "$LOCK" 2>/dev/null; then
     [ "$old" -gt 1 ] && [ -r "/proc/$old/cmdline" ] &&
         old_cmdline="$(tr '\000' ' ' < "/proc/$old/cmdline" 2>/dev/null)"
     case "$old_cmdline" in
-        *service.sh*)
+        */berry_fcm_ksu/service.sh*)
             # PID existence alone is not proof that the old guardian is alive:
             # the kernel may have reused its PID after a crash or reboot.
             [ "$old" -gt 1 ] && kill -0 "$old" 2>/dev/null && exit 0
