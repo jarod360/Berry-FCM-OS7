@@ -217,15 +217,22 @@ echo 'PASS: exact GMS MCS TCP evidence resolves wrapper-only state'
 # still recover when subsequent dumps contain only ActivityManager wrappers.
 settime 11800
 printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Not connected' > "$MCS_FIXTURE"
-run monitor; requests 5
+run monitor
+echo "DEBUG socket-start requests=$(wc -l < "$MCS_AM_LOG")"
+requests 5
 export MCS_SS_MODE=absent
 settime 11820
 printf '%s\n' 'ACTIVITY MANAGER SERVICES' '  (service wrapper)' '  (no client detail)' > "$MCS_FIXTURE"
-j="$(run monitor)"; requests 5
+j="$(run monitor)"
+echo "DEBUG socket-unknown requests=$(wc -l < "$MCS_AM_LOG") json=$j"
+requests 5
 assert_json "$(run snapshot)" fcm_state=unknown
 settime 11860
-j="$(run monitor)"; requests 6
+j="$(run monitor)"
+echo "DEBUG socket-aged requests=$(wc -l < "$MCS_AM_LOG") json=$j"
+requests 6
 j="$(run snapshot)"
+echo "DEBUG socket-snapshot=$j"
 assert_json "$j" fcm_state=disconnected
 assert_json "$j" fcm_source=gms_socket_fallback
 assert_json "$j" fcm_recovery_decision=requested
