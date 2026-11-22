@@ -1,5 +1,15 @@
 # Berry-FCM-OS7 开发进度与接续交接
 
+## 2026-11-22 KSU RC5 修复分支（待 CI / 真机验收）
+
+- 修复分支：`fix/rc3-mcs-patrol-20261122`，基于 KSU RC3 源码提交 `71e6ba4`，不使用用户反馈无法运行的 RC4 本地包作为设备测试前提。
+- GMS 状态解析：参考开源项目 `XXhaos/OriginOS-FCM-Fix` 的 `GcmServiceParser`，补充严格识别 GMS 服务块中的 `Is client connected: true/false`。仅在目标 GMS 服务范围内接受；与其它状态冲突时仍返回 unknown。false 不把 connected 时长误当断联时长；保留双次确认、GMS stopped 检查和退避。
+- 巡检隔离：原 `service.sh` 在主巡检循环中同步执行 `ctl.sh fix`，其多包查询/广播可能阻塞下一轮 MCS 采样。改为独立后台维护事务，以 `maintenance.lock` 防重入；主循环不等待维护完成。保留 start/end、退出码和耗时日志，异常遗留锁可按 PID 清理。
+- 测试新增：GMS client true/false 真实格式解析与 false 自动恢复；仅 unknown + 连续 Root GMS UID MCS socket 缺失达到阈值后恢复；慢速 stopped 维护期间 MCS 巡检继续运行。
+- 模块版本候选：`1.0-rc.5 / 10005`。当前仅完成 GitHub 源码修改；尚未确认 Actions 成功、ZIP 可安装、OriginOS 实机恢复有效。不要宣称已修复验收。
+- 关键现场事实：RC3 设备的 `service.sh` 缺少逐轮 `fcm_check_start/end` 和维护计时日志；这说明旧日志不足以定位历史空档。新候选会补齐这些诊断，后续以设备端脚本 SHA256 对照确认安装内容与构建源码一致。
+
+
 > 最近整理：2026-11-22。**唯一产品基线：** [PRODUCT_PLAN.md](PRODUCT_PLAN.md)。本文件只记录当前真实状态、构建证据、未验证项目和接续动作。全部代码和文档在 GitHub；不跳转 Work。用户电脑文件仅允许存放 D:\Codex，未获许可不触碰 C 盘。
 
 ## 0. 2026-11-22 接续：SU/KSU 原生状态与长采样空档
