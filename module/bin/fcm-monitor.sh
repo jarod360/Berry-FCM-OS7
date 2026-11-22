@@ -625,7 +625,10 @@ EOF_SOCKET
         if [ "$last_try_reason" = stalled_timer ] &&
            { [ "$last_result" = pending ] || [ "$last_result" = requested ]; }; then
             if [ "$source" = gms ] &&
-               { [ "$duration" != "$previous_native_timer_duration" ] || [ "$remote" != "$previous_native_timer_key" ]; }; then
+               { { is_uint "$duration" && [ "$previous_native_timer_duration" -gt 0 ] &&
+                   [ "$duration" != "$previous_native_timer_duration" ]; } ||
+                 { [ -n "$previous_native_timer_key" ] && [ -n "$remote" ] &&
+                   [ "$remote" != "$previous_native_timer_key" ]; }; }; then
                 last_result=restored
             fi
         elif [ "$last_result" = pending ] ||
