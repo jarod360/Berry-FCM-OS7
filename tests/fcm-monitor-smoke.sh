@@ -122,7 +122,7 @@ export MCS_UID=2000
 if run reconnect; then echo "non-root request unexpectedly accepted" >&2; exit 1; fi
 unset MCS_UID
 requests 3
-export MCS_AM_FAIL=1; run monitor; requests 4
+export MCS_AM_FAIL=1; run monitor; requests 5
 j="$(run snapshot)"; assert_json "$j" fcm_recovery_decision=request_failed
 unset MCS_AM_FAIL
 echo "PASS: stopped GMS, opt-out, non-root rejection and failed-broadcast classification"
@@ -167,13 +167,13 @@ export BERRY_FCM_DATA="$TMP/client-state-data"
 mkdir -p "$BERRY_FCM_DATA"
 echo 1 > "$BERRY_FCM_DATA/enabled"
 settime 13000
-printf '%s\\n' 'SERVICE com.google.android.gms/.gcm.GcmService 1234abcd pid=321 user=0' '  Is client connected: true' '  connectTime=03:22/00:00' > "$MCS_FIXTURE"
+printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService 1234abcd pid=321 user=0' '  Is client connected: true' '  connectTime=03:22/00:00' > "$MCS_FIXTURE"
 j="$(run status)"
 assert_json "$j" fcm_state=connected
 assert_json "$j" fcm_source=gms
 assert_json "$j" fcm_native_duration=202
 settime 13001
-printf '%s\\n' 'SERVICE com.google.android.gms/.gcm.GcmService 1234abcd pid=321 user=0' '  Is client connected: false' > "$MCS_FIXTURE"
+printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService 1234abcd pid=321 user=0' '  Is client connected: false' > "$MCS_FIXTURE"
 j="$(run status)"
 assert_json "$j" fcm_state=disconnected
 assert_json "$j" fcm_source=gms
@@ -182,6 +182,7 @@ run monitor
 requests 5
 grep -q '|reconnect_requested|auto UID=0 GCM_RECONNECT' "$BERRY_FCM_DATA/mcs-monitor-events.log"
 echo 'PASS: explicit GMS client state triggers confirmed auto recovery'
+export BERRY_FCM_DATA="$TMP/data"
 
 # When a wrapper-only dump has no current fields, a Root-visible exact MCS
 # socket supplies positive connected evidence instead of leaving the card blank.
@@ -202,10 +203,10 @@ run monitor; requests 4
 export MCS_SS_MODE=absent
 settime 11820
 printf '%s\n' 'ACTIVITY MANAGER SERVICES' '  (service wrapper)' '  (no client detail)' > "$MCS_FIXTURE"
-j="$(run monitor)"; requests 4
+j="$(run monitor)"; requests 5
 assert_json "$(run snapshot)" fcm_state=unknown
 settime 11860
-j="$(run monitor)"; requests 5
+j="$(run monitor)"; requests 6
 j="$(run snapshot)"
 assert_json "$j" fcm_state=disconnected
 assert_json "$j" fcm_source=gms_socket_fallback
@@ -223,12 +224,12 @@ echo 1 > "$BERRY_FCM_DATA/enabled"
 export MCS_SS_MODE=absent
 settime 12500
 printf '%s\n' 'ACTIVITY MANAGER SERVICES' '  (service wrapper)' '  (no client detail)' > "$MCS_FIXTURE"
-run monitor; requests 5
+run monitor; requests 6
 assert_json "$(run snapshot)" fcm_state=unknown
 settime 12559
-run monitor; requests 5
-settime 12560
 run monitor; requests 6
+settime 12560
+run monitor; requests 7
 assert_json "$(run snapshot)" fcm_state=disconnected
 assert_json "$(run snapshot)" fcm_source=gms_socket_fallback
 grep -q '|recovery_socket_confirmed|' "$BERRY_FCM_DATA/mcs-monitor-events.log"
