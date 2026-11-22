@@ -5,6 +5,14 @@ MON="${BERRY_MONITOR_SCRIPT:-$ROOT/module/bin/fcm-monitor.sh}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT HUP INT TERM
 mkdir -p "$TMP/bin" "$TMP/data"
+cat > "$TMP/bin/date" <<'MOCK'
+#!/bin/sh
+if [ "$#" -eq 1 ] && [ "$1" = +%s ]; then
+    cat "$MCS_CLOCK"
+else
+    exec /bin/date "$@"
+fi
+MOCK
 cat > "$TMP/bin/dumpsys" <<'MOCK'
 #!/bin/sh
 case "$*" in
