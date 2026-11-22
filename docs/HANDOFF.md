@@ -9,6 +9,18 @@
 - 模块候选版本：`1.0-rc.5 / 10005`。当前尚未取得 CI 成功记录或 OriginOS 7 真机验收，不可宣称修复完成或发布。
 
 
+
+## 2026-11-22 RC5 KSU 状态持久化修复（待 CI 回归）
+
+- 本轮只处理 KernelSU Root 版 `module/bin/fcm-monitor.sh`，APK 暂不改动。
+- 重连前先持久化 `last_result=pending`；只有状态写入成功才发送广播。广播后结果写入失败时，磁盘保留 pending，不伪装成 failed；后续观察到 GMS connected 时将 pending 解析为 restored（包括设备重启后的首次在线样本）。
+- 状态文件写入拒绝目标路径为目录的情况，临时文件写入或替换失败会返回失败；巡检采样状态写入失败不再静默忽略。
+- 设备重启时保留 `retry_streak` 和 `last_try_epoch`，清除只在上一启动周期有效的 monotonic 观测。跨重启按 epoch 恢复剩余冷却；检测到墙钟回拨时，以本次启动的 monotonic 时间保守等待一个完整退避间隔，避免立即重连，也避免因墙钟长期落后而无限等待。
+- `tests/fcm-monitor-smoke.sh` 增加写入失败阻断广播、广播结果写入失败保留 pending、pending 跨重启恢复、重启后剩余冷却、墙钟回拨、恢复后 streak 清零用例。
+- `.github/workflows/build-ksu.yml` 增加手动 test-only 模式；`fix/**` 分支推送只执行 Shell/FCM/KSU 巡检回归，不执行 Go 定时器编译和 ZIP 打包。main/release 分支仍保留原构建行为。
+- 代码已推送到 RC5 修复分支；本段更新时尚未取得本轮新回归结果。**不代表 CI 通过，不代表设备验收，不生成安装包或 Release。**
+
+
 ## 2026-11-22 本地 KSU RC4 测试包
 
 - 用户要求先提供本地 SU/KernelSU 测试包；本轮仅将 KSU 模块版本升至 `1.0-rc.4 / 10004`，APK 版本仍为 `1.0-rc.3 / 10003`。
