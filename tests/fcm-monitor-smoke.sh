@@ -122,7 +122,7 @@ export MCS_UID=2000
 if run reconnect; then echo "non-root request unexpectedly accepted" >&2; exit 1; fi
 unset MCS_UID
 requests 3
-export MCS_AM_FAIL=1; run monitor; requests 4
+export MCS_AM_FAIL=1; run monitor; requests 5
 j="$(run snapshot)"; assert_json "$j" fcm_recovery_decision=request_failed
 unset MCS_AM_FAIL
 echo "PASS: stopped GMS, opt-out, non-root rejection and failed-broadcast classification"
@@ -162,6 +162,28 @@ grep -q 'sample_retry|first=no_current_state retry_rc=0 state=connected' "$BERRY
 unset MCS_NEXT_FIXTURE
 echo 'PASS: wrapper-only dump retries once and uses fresh GMS state'
 
+# OriginOS GMS current-state fields used by newer GMS builds.
+export BERRY_FCM_DATA="$TMP/client-state-data"
+mkdir -p "$BERRY_FCM_DATA"
+echo 1 > "$BERRY_FCM_DATA/enabled"
+settime 13000
+printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService 1234abcd pid=321 user=0' '  Is client connected: true' '  connectTime=03:22/00:00' > "$MCS_FIXTURE"
+j="$(run status)"
+assert_json "$j" fcm_state=connected
+assert_json "$j" fcm_source=gms
+assert_json "$j" fcm_native_duration=202
+settime 13001
+printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService 1234abcd pid=321 user=0' '  Is client connected: false' > "$MCS_FIXTURE"
+j="$(run status)"
+assert_json "$j" fcm_state=disconnected
+assert_json "$j" fcm_source=gms
+settime 13017
+run monitor
+requests 5
+grep -q '|reconnect_requested|auto UID=0 GCM_RECONNECT' "$BERRY_FCM_DATA/mcs-monitor-events.log"
+echo 'PASS: explicit GMS client state triggers confirmed auto recovery'
+export BERRY_FCM_DATA="$TMP/data"
+
 # When a wrapper-only dump has no current fields, a Root-visible exact MCS
 # socket supplies positive connected evidence instead of leaving the card blank.
 settime 11700
@@ -177,14 +199,14 @@ echo 'PASS: exact GMS MCS TCP evidence resolves wrapper-only state'
 # still recover when subsequent dumps contain only ActivityManager wrappers.
 settime 11800
 printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Not connected' > "$MCS_FIXTURE"
-run monitor; requests 4
+run monitor; requests 5
 export MCS_SS_MODE=absent
 settime 11820
 printf '%s\n' 'ACTIVITY MANAGER SERVICES' '  (service wrapper)' '  (no client detail)' > "$MCS_FIXTURE"
-j="$(run monitor)"; requests 4
+j="$(run monitor)"; requests 5
 assert_json "$(run snapshot)" fcm_state=unknown
 settime 11860
-j="$(run monitor)"; requests 5
+j="$(run monitor)"; requests 6
 j="$(run snapshot)"
 assert_json "$j" fcm_state=disconnected
 assert_json "$j" fcm_source=gms_socket_fallback
@@ -193,6 +215,27 @@ grep -q '|recovery_socket_confirmed|' "$BERRY_FCM_DATA/mcs-monitor-events.log"
 grep -q '|reconnect_requested|auto UID=0 GCM_RECONNECT' "$BERRY_FCM_DATA/mcs-monitor-events.log"
 unset MCS_SS_MODE
 echo 'PASS: recent native down + root TCP absence recovers through unreadable dumps'
+
+# Unknown native state plus continuous GMS UID socket absence must age into
+# a confirmed outage even when no earlier native disconnected sample exists.
+export BERRY_FCM_DATA="$TMP/unknown-absence-data"
+mkdir -p "$BERRY_FCM_DATA"
+echo 1 > "$BERRY_FCM_DATA/enabled"
+export MCS_SS_MODE=absent
+settime 12500
+printf '%s\n' 'ACTIVITY MANAGER SERVICES' '  (service wrapper)' '  (no client detail)' > "$MCS_FIXTURE"
+run monitor; requests 6
+assert_json "$(run snapshot)" fcm_state=unknown
+settime 12559
+run monitor; requests 6
+settime 12560
+run monitor; requests 7
+assert_json "$(run snapshot)" fcm_state=disconnected
+assert_json "$(run snapshot)" fcm_source=gms_socket_fallback
+grep -q '|recovery_socket_confirmed|' "$BERRY_FCM_DATA/mcs-monitor-events.log"
+grep -q '|reconnect_requested|auto UID=0 GCM_RECONNECT' "$BERRY_FCM_DATA/mcs-monitor-events.log"
+unset MCS_SS_MODE
+echo 'PASS: unknown-only state ages continuous Root socket absence into confirmed auto recovery'
 
 # A frozen positive native GMS connection timer is checked twice, then receives
 # one targeted reconnect request. It does not force-stop the GMS package.
