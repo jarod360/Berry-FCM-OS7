@@ -215,6 +215,27 @@ grep -q '|reconnect_requested|auto UID=0 GCM_RECONNECT' "$BERRY_FCM_DATA/mcs-mon
 unset MCS_SS_MODE
 echo 'PASS: recent native down + root TCP absence recovers through unreadable dumps'
 
+# Unknown native state plus continuous GMS UID socket absence must age into
+# a confirmed outage even when no earlier native disconnected sample exists.
+export BERRY_FCM_DATA="$TMP/unknown-absence-data"
+mkdir -p "$BERRY_FCM_DATA"
+echo 1 > "$BERRY_FCM_DATA/enabled"
+export MCS_SS_MODE=absent
+settime 12500
+printf '%s\n' 'ACTIVITY MANAGER SERVICES' '  (service wrapper)' '  (no client detail)' > "$MCS_FIXTURE"
+run monitor; requests 5
+assert_json "$(run snapshot)" fcm_state=unknown
+settime 12559
+run monitor; requests 5
+settime 12560
+run monitor; requests 6
+assert_json "$(run snapshot)" fcm_state=disconnected
+assert_json "$(run snapshot)" fcm_source=gms_socket_fallback
+grep -q '|recovery_socket_confirmed|' "$BERRY_FCM_DATA/mcs-monitor-events.log"
+grep -q '|reconnect_requested|auto UID=0 GCM_RECONNECT' "$BERRY_FCM_DATA/mcs-monitor-events.log"
+unset MCS_SS_MODE
+echo 'PASS: unknown-only state ages continuous Root socket absence into confirmed auto recovery'
+
 # A frozen positive native GMS connection timer is checked twice, then receives
 # one targeted reconnect request. It does not force-stop the GMS package.
 export BERRY_FCM_DATA="$TMP/timer-data"
