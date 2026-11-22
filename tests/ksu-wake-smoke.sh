@@ -65,6 +65,9 @@ exit 0
 MOCK
 chmod +x "$TMP/bin/"* "$TMP/module/bin/wake-timer-arm64"
 touch "$TMP/module/module.prop"
+# A live PID owned by another command is a stale lock, not a running guardian.
+mkdir -p "$TMP/data/service.lock"
+echo "$" > "$TMP/data/service.lock/pid"
 echo 1 > "$TMP/data/enabled"
 echo timed > "$TMP/data/wake-mode"
 if timeout 8 sh "$TMP/module/service.sh"; then
