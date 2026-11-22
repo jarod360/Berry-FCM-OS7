@@ -640,10 +640,14 @@ EOF_SOCKET
                  { [ -n "$previous_native_timer_key" ] && [ -n "$remote" ] &&
                    [ "$remote" != "$previous_native_timer_key" ]; }; }; then
                 last_result=restored
+                last_restore="$nowe"
+                record_event native_timer_restored "GMS 原生 connectTime 或 MCS endpoint 已变化；stalled-timer 请求解除待确认"
             fi
         elif [ "$last_result" = pending ] ||
              { [ "$last_result" = requested ] && [ "$last_try_epoch" -ge "$previous_missing_epoch" ] && [ "$last_try_epoch" -gt 0 ]; }; then
             last_result=restored
+            last_restore="$nowe"
+            record_event reconnect_result_restored "观察到 GMS 已连接；重连结果按连接证据更新，不代表广播导致恢复"
         fi
         if [ "$previous_down_state" = connecting ] || [ "$previous_down_state" = disconnected ] ||
            [ "$previous_down_observed" -gt 0 ]; then
