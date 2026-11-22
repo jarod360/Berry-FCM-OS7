@@ -28,6 +28,15 @@ mkdir -p "$DATA" || exit 11
 
 is_uint() { case "${1:-}" in ''|*[!0-9]*) return 1;; *) return 0;; esac; }
 num() { is_uint "${1:-}" && printf '%s\n' "$1" || printf '0\n'; }
+signed_num() {
+    case "${1:-}" in
+        -[0-9]*)
+            sn="${1#-}"
+            case "$sn" in ''|*[!0-9]*) printf '0\n';; *) printf '%s\n' "-$sn";; esac
+            ;;
+        *) num "${1:-}" ;;
+    esac
+}
 now_epoch() { date +%s 2>/dev/null | awk '/^[0-9]+$/ {print; found=1} END {if (!found) print 0}'; }
 monotime() { awk '{printf "%d\n", $1}' "$UPTIME_FILE" 2>/dev/null | head -n 1; }
 boot_id() { cat "$BOOT_ID_FILE" 2>/dev/null; }
@@ -48,7 +57,7 @@ load_state() {
     fi
     conn_since="$(num "$conn_since")"; conn_since_mono="$(num "$conn_since_mono")"; last_seen="$(num "$last_seen")"
     missing_since="$(num "$missing_since")"; missing_epoch="$(num "$missing_epoch")"
-    last_try_mono="$(num "$last_try_mono")"; last_try_epoch="$(num "$last_try_epoch")"
+    last_try_mono="$(signed_num "$last_try_mono")"; last_try_epoch="$(num "$last_try_epoch")"
     attempts="$(num "$attempts")"; last_restore="$(num "$last_restore")"
     outages="$(num "$outages")"; sample_epoch="$(num "$sample_epoch")"
     reconnects="$(num "$reconnects")"; last_down="$(num "$last_down")"
@@ -60,23 +69,38 @@ load_state() {
     case "$state" in connected|connecting|disconnected|unknown|never_seen) : ;; *) state=unknown;; esac
     case "$last_result" in none|pending|requested|failed|restored) : ;; *) last_result=none;; esac
     case "$last_try_reason" in none|auto|manual|rescue|stalled_timer) : ;; *) last_try_reason=none;; esac
+    boot_changed=0
     if [ -n "$prev_b" ] && [ "$prev_b" != "$b" ]; then
+        boot_changed=1
         state=never_seen; conn_key=; conn_since=0; conn_since_mono=0; missing_since=0; missing_epoch=0
         last_try_mono=0
-        if [ "$last_try_epoch" -gt 0 ]; then
-            boot_now_epoch="$(num "$(now_epoch)")"
-            if [ "$boot_now_epoch" -le 0 ] || [ "$boot_now_epoch" -lt "$last_try_epoch" ]; then
-                # Wall clock rolled back across reboot: start one full cooldown
-                # on this boot's monotonic clock instead of blocking forever.
-                last_try_mono="$(num "$(monotime)")"
-            fi
-        fi
         transport=; remote=; sample_epoch=0; down_observed=0; outage_hint_mono=0
         # Keep the last native duration/endpoint as evidence for a pending
         # stalled-timer request; only monotonic anchors are boot-scoped.
         native_timer_since=0; native_timer_last_request=0
         : > "$LEARNED_IPS"
         record_event reboot '设备重启：清除上一启动周期的连接计时，保留历史事件'
+    fi
+    # Re-anchor the prior attempt to this boot's monotonic clock. Store a
+    # negative offset when the epoch-derived anchor predates uptime zero; -1
+    # encodes an exact anchor of zero, while zero means no monotonic anchor.
+    if [ "$last_try_epoch" -gt 0 ] && { [ "$boot_changed" = 1 ] || [ "$last_try_mono" -eq 0 ]; }; then
+        boot_now_epoch="$(num "$(now_epoch)")"
+        boot_now_mono="$(num "$(monotime)")"
+        if [ "$boot_now_epoch" -gt 0 ] && [ "$boot_now_epoch" -ge "$last_try_epoch" ]; then
+            boot_elapsed=$((boot_now_epoch-last_try_epoch))
+            boot_anchor=$((boot_now_mono-boot_elapsed))
+        else
+            # Wall clock is unavailable or moved backwards: wait one full
+            # interval from this boot, but never depend on it catching up.
+            boot_anchor="$boot_now_mono"
+        fi
+        if [ "$boot_anchor" -ge 1 ]; then last_try_mono="$boot_anchor"
+        else last_try_mono=$((boot_anchor-1)); fi
+    elif [ "$boot_changed" = 1 ] && [ "$retry_streak" -gt 0 ]; then
+        boot_now_mono="$(num "$(monotime)")"
+        if [ "$boot_now_mono" -ge 1 ]; then last_try_mono="$boot_now_mono"
+        else last_try_mono=-1; fi
     fi
 }
 
@@ -400,8 +424,13 @@ retry_interval() {
 cooldown_remaining() {
     cd_interval="$1"
     cd_nowm="$(num "$(monotime)")"
-    if [ "$last_try_mono" -gt 0 ] && [ "$cd_nowm" -ge "$last_try_mono" ]; then
-        cd_elapsed=$((cd_nowm-last_try_mono))
+    cd_anchor=0
+    case "$last_try_mono" in
+        -*) cd_anchor=$((last_try_mono+1));;
+        *) cd_anchor="$last_try_mono";;
+    esac
+    if [ "$last_try_mono" -ne 0 ] && [ "$cd_nowm" -ge "$cd_anchor" ]; then
+        cd_elapsed=$((cd_nowm-cd_anchor))
     elif [ "$last_try_epoch" -gt 0 ]; then
         cd_nowe="$(num "$(now_epoch)")"
         if [ "$cd_nowe" -le 0 ] || [ "$cd_nowe" -lt "$last_try_epoch" ]; then
