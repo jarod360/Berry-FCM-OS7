@@ -92,6 +92,7 @@ export MCS_FIXTURE="$TMP/dump" MCS_AM_LOG="$TMP/am.log" MCS_CLOCK="$TMP/epoch"
 settime() { printf '%s\n' "$1" > "$TMP/uptime"; printf '%s\n' "$((1700000000+$1))" > "$MCS_CLOCK"; }
 setboot() { printf '%s\n' "$1" > "$TMP/uptime"; printf '%s\n' "$((1700000000+$2))" > "$MCS_CLOCK"; }
 settime 10000
+test "$(date +%s)" = "$(cat "$MCS_CLOCK")"
 run() { sh "$MON" "$1"; }
 requests() { [ "$(wc -l < "$MCS_AM_LOG" | tr -d ' ')" = "$1" ]; }
 assert_json() {
