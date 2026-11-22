@@ -327,6 +327,7 @@ printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Not conn
 run monitor
 requests 1
 test "$(awk -F '|' '{print $12}' "$BERRY_FCM_DATA/mcs-monitor.state")" = pending
+test "$(awk -F '|' '{print $23}' "$BERRY_FCM_DATA/mcs-monitor.state")" = 1
 j="$(run snapshot)"; assert_json "$j" fcm_last_result=pending
 rm -f "$MCS_FAIL_STATE_MV_MARKER"
 unset MCS_FAIL_STATE_MV
@@ -353,16 +354,18 @@ settime 33000
 printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Not connected' 'disconnectTime=02:00/00:00' > "$MCS_FIXTURE"
 run monitor
 requests 1
+awk -F '|' 'NF != 27 { exit 1 } END { if (NR != 1) exit 1 }' "$BERRY_FCM_DATA/mcs-monitor.state"
+test "$(awk -F '|' '{print $10}' "$BERRY_FCM_DATA/mcs-monitor.state")" -gt 0
 test "$(awk -F '|' '{print $23}' "$BERRY_FCM_DATA/mcs-monitor.state")" = 1
 echo boot-two > "$TMP/bootid"
 settime 33001
 run monitor
 requests 1
-j="$(run snapshot)"; assert_json "$j" fcm_retry_streak=1; assert_json "$j" fcm_retry_in=59
+j="$(run snapshot)"; assert_json "$j" fcm_retry_streak=1; assert_json "$j" fcm_attempts=1; assert_json "$j" fcm_retry_in=59
 settime 33060
 run monitor
 requests 2
-j="$(run snapshot)"; assert_json "$j" fcm_retry_streak=2; assert_json "$j" fcm_last_result=requested
+j="$(run snapshot)"; assert_json "$j" fcm_retry_streak=2; assert_json "$j" fcm_attempts=2; assert_json "$j" fcm_last_result=requested
 echo 'PASS: reboot retains retry streak and remaining epoch cooldown'
 
 # A backwards wall clock must never make a pending retry immediately eligible.
