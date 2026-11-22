@@ -92,6 +92,10 @@ save_state() {
     umask "$old_umask"
     [ "$write_rc" -eq 0 ] || { rm -f "$tmp"; return 1; }
     [ -s "$tmp" ] && [ ! -d "$STATE" ] || { rm -f "$tmp"; return 1; }
+    awk -F '|' 'NR == 1 && NF == 27 { valid=1 } END { exit !(valid && NR == 1) }' "$tmp" || {
+        rm -f "$tmp"
+        return 1
+    }
     mv -f "$tmp" "$STATE" || { rm -f "$tmp"; return 1; }
     [ -f "$STATE" ] || return 1
 }
