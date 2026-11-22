@@ -310,6 +310,7 @@ test "$(cat "$MCS_STATE_MV_COUNT_FILE")" = 3
 test "$(awk -F '|' '{print $11}' "$BERRY_FCM_DATA/mcs-monitor.state")" = 0
 test "$(awk -F '|' '{print $12}' "$BERRY_FCM_DATA/mcs-monitor.state")" = none
 grep -q '|reconnect_skipped|重连状态无法持久化，未发送广播' "$BERRY_FCM_DATA/mcs-monitor-events.log"
+assert_json "$(run snapshot)" fcm_recovery_decision=state_save_failed
 unset MCS_STATE_MV_COUNT_FILE MCS_FAIL_STATE_MV_AT
 echo 'PASS: request pending-save failure blocks broadcast without persisting an attempt'
 
@@ -331,11 +332,17 @@ rm -f "$MCS_FAIL_STATE_MV_MARKER"
 unset MCS_FAIL_STATE_MV
 echo pending-reboot > "$TMP/bootid"
 settime 31001
+run monitor
+requests 1
+j="$(run snapshot)"
+assert_json "$j" fcm_last_result=pending
+assert_json "$j" fcm_retry_in=59
 printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Connected' 'connectTime=00:01/00:00' > "$MCS_FIXTURE"
+settime 31002
 j="$(run status)"
 assert_json "$j" fcm_last_result=restored
 assert_json "$j" fcm_retry_streak=0
-echo 'PASS: failed result persistence remains pending until native recovery evidence'
+echo 'PASS: failed result persistence remains pending across reboot until native recovery evidence'
 
 # A reboot must retain the retry streak and enforce the remaining epoch cooldown.
 export BERRY_FCM_DATA="$TMP/reboot-cooldown-data"
