@@ -24,6 +24,7 @@ cat > "$TMP/bin/sleep" <<'MOCK'
 echo "$1" >> "$TEST_DIR/sleeps"
 /bin/sleep 0.15
 if [ "$(wc -l < "$TEST_DIR/samples")" -ge 3 ]; then
+    [ -e "$TEST_DIR/fix.done" ] || touch "$TEST_DIR/samples_during_fix"
     rm -f "$TEST_DIR/module/module.prop"
 fi
 MOCK
@@ -50,12 +51,23 @@ else
     echo "$1" >> "$TEST_DIR/samples"
 fi
 MOCK
-printf 'exit 0\n' > "$TMP/module/bin/ctl.sh"
+cat > "$TMP/module/bin/ctl.sh" <<'MOCK'
+#!/bin/sh
+if [ ! -e "$TEST_DIR/fix.done" ]; then
+    /bin/sleep 4
+    touch "$TEST_DIR/fix.done"
+fi
+exit 0
+MOCK
 chmod +x "$TMP/bin/"* "$TMP/module/bin/wake-timer-arm64"
 touch "$TMP/module/module.prop"
 echo 1 > "$TMP/data/enabled"
 echo timed > "$TMP/data/wake-mode"
 timeout 8 sh "$TMP/module/service.sh"
+n=0
+while [ ! -e "$TMP/fix.done" ] && [ "$n" -lt 60 ]; do /bin/sleep 0.1; n=$((n + 1)); done
+test -e "$TMP/fix.done"
+test -e "$TMP/samples_during_fix"
 test "$(cat "$TMP/data/wake-status")" = fallback
 test "$(wc -l < "$TMP/samples")" -ge 3
 test "$(wc -l < "$TMP/timer")" -eq 2
