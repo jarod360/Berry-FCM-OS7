@@ -553,3 +553,9 @@ Removed the full `cmd appops get top.zesun.berryfcm` dump incorrectly labeled as
 - 修正提交：`b311bb73bdaef6555ad8287b20662caffd6a3a61`（`[skip ci]`）。与前一项字段索引修正一样，仅是测试可靠性修复；完整 smoke/CI 尚未执行。
 
 - KSU wake smoke 第一轮维护任务：等待 `maintenance_end` 后增加有界等待，直到 `maintenance.lock` 被 EXIT trap 实际清理，避免日志写入与锁删除之间的竞态。该修正仅做源码静态核对，完整 smoke 尚未执行。
+
+
+### 2026-11-23 KSU wake smoke timeout 退出码修正
+- 继续静态审查发现 `tests/ksu-wake-smoke.sh` 开启 `set -e`，却直接执行两次 `timeout 8 sh service.sh`。测试场景本来就要求服务持续巡检到超时，因此 GNU `timeout` 的预期退出码 124 会被 `set -e` 当作失败，导致第一轮提前退出，第二轮和后续清理断言无法执行。
+- 两处调用均改为显式接受正常退出或超时退出码 124；其他非零退出码仍使测试失败。该修正只调整测试驱动，不改变 service 功能代码。
+- 提交 `080da9b213cce86622c30cc338a7b74c0f3d3c78`（`[skip ci]`）。仅静态核对替换位置和控制流，未运行完整 wake smoke、CI 或编译；因此不代表测试已通过。
