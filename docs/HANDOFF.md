@@ -16,9 +16,19 @@
 
 
 
+## 2026-11-23 后台巡检长期中断与守护进程存活修复（尚未实机验证）
+
+- 用户提供的旧日志出现 6645 秒、10843 秒等采样空档，远超服务设计的 30 秒主循环周期；sample_gap 只是恢复后识别空档，不会保证进程常驻。日志中的 sample_retry first=no_current_state retry_rc=0 state=connected 是旧版 GcmService dump parser 的重试记录：先得到 no_current_state，再重试 dump 得到 connected。该记录不能证明 GMS MCS socket 已建立，也不是当前 procfs-only 分支的日志格式。当前分支 fcm-monitor.sh 已移除这条 retry/dump 路径，空档日志改为“重新读取内核 TCP 表”。
+- 源码确认一个后台存活缺陷：service.sh 发现 service.lock 时原先只用 kill -0 PID 判断旧服务存在，未验证 PID 对应的命令行。进程退出后 PID 被其他进程复用，会导致服务误判旧守护仍在运行并直接退出；锁文件又会持续保留。现改为同时检查 /proc/PID/cmdline 是否属于本模块 /berry_fcm_ksu/service.sh，否则清理陈旧锁并重新建立。
+- cgroup 原先只处理 /apps/*，没有处理较新 Android 常见的 /uid_<uid>/pid_<pid> 等非根 unified cgroup。参考开源项目 [wg-user 的 Android cgroup 变更记录](https://github.com/loficore/wg-user/blob/aaa39381a6dbc5b5365d011f9984ab6802fed84f/docs/CHANGELOG.md)（说明 app 子 cgroup 会随应用冻结）和 [split 的 cgroup 服务隔离说明](https://github.com/xiaomou1111/split/blob/57be47bb80a1df2edfea2482eabbb51c0aa9ce2c/docs/03-ANDROID.md)，现改为检查所有非根 unified cgroup，尝试将服务自身迁移到 /sys/fs/cgroup/cgroup.procs 并回读确认；无法读取或迁移失败会明确记录，不再默认当作安全。
+- hotinstall.sh 原先在 TERM 等待后，仅当 wake-pid 与 guardian PID 不同时才 KILL；若仍是同一服务 PID，反而可能留下旧服务和锁。现在只对已通过 cmdline 验证的 guardian，在宽限期后仍存活时终止该 PID。
+- tests/ksu-wake-smoke.sh 增加陈旧锁场景：锁内 PID 指向一个仍存活但命令行不是本模块 service.sh 的进程，启动必须清锁并继续巡检；同时增加 guardian 路径、cgroup 失败/未知日志和强制回收代码的静态断言。
+- 当前验证边界：已从 GitHub 回读修改后的 service/hotinstall/test 文件，核对修改落点和分支内容；尚未运行 sh -n、完整 ksu-wake-smoke.sh、FCM smoke 或设备测试。不能据此宣称后台常驻已修复。用户日志还缺 guard.log 与 wake-timer.log，因此不能确定旧空档究竟是进程退出、应用 cgroup 冻结、定时器未唤醒还是巡检调用卡住。
+- 下一步：完成 Shell 静态检查和两套 smoke；之后需在手机上确认 service_started、service_cgroup_detached 或失败原因、PID/cmdline/cgroup，以及 timer armed/fired 与 fcm_check_start/end 连续性。当前不触发 Actions/CI/云编译/Release，APK 不在本轮范围。
+
 ## 2026-11-23 procfs-only 实现进展（尚未执行测试）
 
-- 当前工作分支：`work/rc5-procfs-no-dumpsys`；尚未合并到 `fix/rc5-mcs-patrol-20261122`，也未发布。本轮另仅修正 `module/service.sh` 的状态源注释，没有改变其调度行为。
+- 当前工作分支：`work/rc5-procfs-no-dumpsys`；尚未合并到 `fix/rc5-mcs-patrol-20261122`，也未发布。本轮除 procfs 状态源外，还修复 `service.sh` 陈旧 PID 锁误判、非根 unified cgroup 漏迁移，以及 `hotinstall.sh` 旧 guardian 回收条件；尚未完成运行测试。
 - 作用边界：`module/bin/ctl.sh` 仍使用 `dumpsys package` 读取 Android 包的 stopped 标志，并用 `dumpsys activity broadcasts` 做接收器诊断；这是独立的包维护/诊断逻辑，不进入 `fcm-monitor.sh` 的 MCS 在线、断联、恢复或重连门控。本轮未改写这部分，避免用不可靠替代接口破坏用户主动停止应用的语义。
 - 已移除 KSU monitor 中 dumpsys/ss 状态读取路径；GMS UID 通过有界 5 秒的 `cmd package list packages -U` 查询，失败时回退有界 5 秒的 `pm list packages -U`。重连广播也设 10 秒上限，避免 UID 查询或广播卡住主巡检；超时工具优先使用 Toybox，必要时回退 KernelSU BusyBox。TCP/TCP6 解析采用严格结构校验、单行/总字节/总行数上限，并区分完整无匹配、格式错误、截断、不可读和 UID 不可用。
 - 关键源码回读修正：Linux proc TCP 数据行实际为 10 个字段（表头仍为 12 列，队列与 timer 字段在数据行中分别合并），此前错误按 12 列解析会把有效行全部判为 malformed；现已按真实 10 列映射 UID=$8、remote port=$3 修正；并重新核算十进制端口到十六进制的映射，5228/5229/5230 对应 146C/146D/146E，代码和 fixture 已同步更正。
