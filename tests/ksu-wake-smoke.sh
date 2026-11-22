@@ -46,7 +46,11 @@ exit 1
 MOCK
 cat > "$TMP/module/bin/fcm-monitor.sh" <<'MOCK'
 if [ "$1" = snapshot ]; then
-    echo '{"fcm_state":"connected","fcm_sample_time":1234,"fcm_recovery_decision":"not_disconnected"}'
+    if [ "${TEST_FCM_STATE:-connected}" = unknown ]; then
+        echo '{"fcm_state":"unknown","fcm_sample_time":1234,"fcm_recovery_decision":"sample_unavailable"}'
+    else
+        echo '{"fcm_state":"connected","fcm_sample_time":1234,"fcm_recovery_decision":"not_disconnected"}'
+    fi
 else
     echo "$1" >> "$TEST_DIR/samples"
 fi
@@ -99,6 +103,7 @@ grep -q 'fixture permission denied' "$TMP/data/wake-timer.log"
 test ! -d "$TMP/data/service.lock"
 
 touch "$TMP/block-timer" "$TMP/module/module.prop"
+export TEST_FCM_STATE=unknown
 echo 10 > "$TMP/data/wake-minutes"
 : > "$TMP/samples"
 : > "$TMP/timer"
@@ -112,6 +117,7 @@ else
 fi
 test "$(wc -l < "$TMP/samples")" -ge 3
 test "$(cat "$TMP/timer")" = 10
+grep -q 'fcm_check_end rc=0 elapsed_s=.*state=unknown sample_epoch=1234 recovery=sample_unavailable' "$TMP/data/guard.log"
 ! grep -q 'wake_timer_fired' "$TMP/data/wake-timer.log"
 ! kill -0 "$(cat "$TMP/alarm-pid")" 2>/dev/null
 n=0

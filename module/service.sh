@@ -150,8 +150,9 @@ while [ -e "$MODDIR/module.prop" ]; do
     if [ "$(cat "$DATA/enabled" 2>/dev/null)" = 1 ]; then
         now="$(awk '{print int($1)}' /proc/uptime)"
         case "$now" in ''|*[!0-9]*) now=0 ;; esac
-        # Read the native GMS state; TCP sockets are auxiliary evidence.
-        # It never restarts/kills GMS and never changes DNS/VPN/proxy/routing.
+        # The monitor reads GMS-owned MCS sockets from procfs only.
+        # Unknown samples do not stop this loop; maintenance runs independently.
+        # It never force-stops GMS or changes DNS/VPN/proxy/routing.
         if [ "$wake_event" = 1 ]; then
             printf '[%s] 定时器触发，检查 GMS 原生状态\n' "$(date '+%F %T')" >> "$DATA/guard.log"
         fi

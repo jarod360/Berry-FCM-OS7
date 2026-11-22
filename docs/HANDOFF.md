@@ -1,25 +1,52 @@
 # Berry-FCM-OS7 开发进度与接续交接
 
+## 2026-11-23 用户明确冻结：GMS 状态判断禁止以 dumpsys 为依据
+
+> **最高优先级约束。与本节冲突的旧文档、旧实现和旧测试一律视为过期，必须按本节修正。**
+
+- **严禁把 `dumpsys activity service com.google.android.gms/.gcm.GcmService` 或任何 dumpsys 文本解析结果作为 GMS 在线、断联、连接中、恢复与否的主要判断依据。** 不允许它参与断联确认、二次确认、恢复门控、自动重连门控，也不允许它的 `unknown` 否决另一条独立且完整的连接证据。
+- 用户反馈该输出长期只有“连接/断联”两类有用状态，其余大量情况都是“未知”；断联后持续未知，导致系统无法判断和触发恢复。继续围绕 dump 格式补字段、重试解析或增加未知分支不是解决方案。
+- **SU/KernelSU RC5 的连接状态主判据采用 Root 可读的内核 TCP 表**：读取 GMS 包的真实 UID，并检查 `/proc/net/tcp` 与 `/proc/net/tcp6` 中该 UID 到 MCS 端口 5228/5229/5230 的 socket 状态。参考成熟开源实现 [XXhaos/OriginOS-FCM-Fix 固定参考提交 `653a47a`](https://github.com/XXhaos/OriginOS-FCM-Fix/commit/653a47accf7003a0539d2222eb1a486ca128b9e6)，重点借鉴其严格 socket parser、来源完整性和 UNKNOWN/NO_MATCH 分离原则，不盲目复制其整个架构。
+- 状态规则：匹配到 GMS UID 的 MCS `ESTABLISHED` 是 TCP 已建立的正证据；`SYN_SENT`/`SYN_RECV` 是连接建立中的正证据；只有 TCP 与 TCP6 两份表都成功读取、表头和每行结构完整、UID 可信且没有匹配 socket，才可形成“完整无匹配”负证据并进入断联计时/确认。其他 UID 的连接不能证明 GMS 在线；普通 443 不能代替 MCS 连接。
+- 权限拒绝、UID 不可解析、文件缺失、读取截断、格式异常、超时或两份地址族来源不完整，必须标为“检测不可用/未知”，不能伪装成断联，也不能无限期静默；必须记录具体失败原因并保持后续巡检继续运行。
+- `dumpsys` 如未来确有诊断价值，最多作为**旁路参考信息**展示，绝不能改变 procfs 主判定、不能否决 socket 证据、不能阻塞巡检或重连。RC5 当前实现目标是从监控主链路中移除 dumpsys 调用和依赖。
+- TCP ESTABLISHED 只证明内核存在匹配 TCP 连接，不等于 FCM 已认证或消息必达；重连广播返回也不等于连接已恢复。恢复必须由后续新的 socket 证据确认。
+- **禁止回归**：任何后续提交若重新引入 dump 作为主判据、让 dump unknown 阻止 socket 断联判定，或让 dump 调用阻塞巡检，均视为违反产品要求；必须由源码审查和回归测试拦截。
+- 当前本轮 procfs-only 改造仍属于开发候选，尚未完成完整 smoke、设备验证或最终云构建；不得在交接中写成已通过。用户要求所有修复和检查完成后由用户手动触发最终云编译，开发期间不得擅自触发 CI/Actions/云编译。
+
+
+
+## 2026-11-23 procfs-only 实现进展（尚未执行测试）
+
+- 当前工作分支：`work/rc5-procfs-no-dumpsys`；尚未合并到 `fix/rc5-mcs-patrol-20261122`，也未发布。本轮另仅修正 `module/service.sh` 的状态源注释，没有改变其调度行为。
+- 作用边界：`module/bin/ctl.sh` 仍使用 `dumpsys package` 读取 Android 包的 stopped 标志，并用 `dumpsys activity broadcasts` 做接收器诊断；这是独立的包维护/诊断逻辑，不进入 `fcm-monitor.sh` 的 MCS 在线、断联、恢复或重连门控。本轮未改写这部分，避免用不可靠替代接口破坏用户主动停止应用的语义。
+- 已移除 KSU monitor 中 dumpsys/ss 状态读取路径；GMS UID 通过有界 5 秒的 `cmd package list packages -U` 查询，失败时回退有界 5 秒的 `pm list packages -U`。重连广播也设 10 秒上限，避免 UID 查询或广播卡住主巡检；超时工具优先使用 Toybox，必要时回退 KernelSU BusyBox。TCP/TCP6 解析采用严格结构校验、单行/总字节/总行数上限，并区分完整无匹配、格式错误、截断、不可读和 UID 不可用。
+- 关键源码回读修正：Linux proc TCP 数据行实际为 10 个字段（表头仍为 12 列，队列与 timer 字段在数据行中分别合并），此前错误按 12 列解析会把有效行全部判为 malformed；现已按真实 10 列映射 UID=$8、remote port=$3 修正；并重新核算十进制端口到十六进制的映射，5228/5229/5230 对应 146C/146D/146E，代码和 fixture 已同步更正。
+- 另修复：procfs 不完整时原因字段此前取错列；status 采样此前未初始化 decision，`set -u` 下写 evidence 可能失败；重启路径残留已删除的 LEARNED_IPS 变量；此前替换误删的 `record_event()` 已恢复。
+- `tests/fcm-monitor-smoke.sh` 已改为 procfs fixture，覆盖 IPv4/IPv6 正证据、其他 UID 排除、真实 10 字段数据行、非法 TCP 状态/截断/缺表/UID 不可用不触发重连、普通 443 排除、UID 查询超时/部分输出丢弃及 cmd→pm 回退、15 秒确认后重连、广播失败/超时、pending 跨重启恢复、状态写入失败、自动/手动冷却、墙钟回拨、并发锁与 BusyBox 缺少 flock 时的锁目录回退；`ksu-wake-smoke.sh` 另增加 unknown 样本下服务主巡检仍持续运行的回归断言。以上均为已编写用例，未执行。
+- **验证状态：已完成 GitHub 源码回读、静态逻辑审查，并用独立 AWK fixture 样例核对 10 字段映射、146C–146E 端口、ESTABLISHED/connecting/malformed/非 MCS/错误 UID/截断分类；但未对仓库完整脚本执行 `sh -n`，也未执行完整 FCM smoke、KSU wake smoke 或设备测试。上述用例是已编写，不是已通过。没有触发 Actions、CI、云编译或 Release。**
+- 下一步先完成全脚本逐段审查和本地可执行测试；修复与测试全部完成后，再通知用户手动触发云编译。APK 不在本轮范围内。
+
 ## 2026-11-22 KSU RC5 巡检与状态解析修复候选
 
 - 修复分支：`fix/rc5-mcs-patrol-20261122`，从当前 main 建立，避免旧 RC3/RC4 分支的版本与文档冲突。
-- GMS 状态解析：参考开源项目 `XXhaos/OriginOS-FCM-Fix` 的 `GcmServiceParser`，补充严格识别 GMS 服务块中的 `Is client connected: true/false`。仅在目标 GMS 服务范围内接受；与其它状态冲突时仍返回 unknown。false 不把 connected 时长误当断联时长。
+- **旧方案，已废止**：曾尝试参考 `GcmServiceParser` 解析 dumpsys 的 `Is client connected: true/false`；该路径不得恢复到 RC5。当前参考的是 `XXhaos/OriginOS-FCM-Fix` 的 procfs socket parser 和来源完整性设计。
 - 巡检隔离：原 `service.sh` 在主巡检循环中同步执行 `ctl.sh fix`，其多包查询/广播可能阻塞下一轮 MCS 采样。改为独立后台维护事务，以 `maintenance.lock` 防重入；主循环不等待维护完成。保留开始/结束、退出码和耗时日志。
-- 测试新增：GMS client true/false 真实格式解析与 false 自动恢复；仅 unknown + 连续 Root GMS UID MCS socket 缺失达到阈值后恢复；慢速 stopped 维护期间 MCS 巡检继续运行。
+- 当前 procfs-only 回归以 TCP/TCP6 真实数据行、GMS UID/MCS 端口、完整负证据、异常源保护和重连事务为准；历史 GMS client true/false dump 测试已废止。
 - 模块候选版本：`1.0-rc.5 / 10005`。当前尚未取得 CI 成功记录或 OriginOS 7 真机验收，不可宣称修复完成或发布。
 
 
 
-## 2026-11-22 RC5 KSU 重连状态事务与重启冷却修复（待完整验证）
+## 2026-11-22 RC5 KSU 重连状态事务与重启冷却修复（历史基线，部分规则已废止）
 
 - 本轮功能代码范围按用户最新指示收敛为 KernelSU/SU Root 版，只修改 `module/bin/fcm-monitor.sh` 与 `tests/fcm-monitor-smoke.sh`；另调整 KSU 工作流的手动打包门控，并同步根 README、模块 README、HANDOFF 与 PRODUCT_PLAN。APK 脚本和代码暂不处理。
 - 状态写入：临时文件使用 `umask 077`；拒绝 state 目标路径为目录；检查 printf 返回值；检查临时记录为单行、固定 27 字段后才原子替换。先持久化权威 state，再更新辅助 evidence；state 保存失败时不发布新 evidence，也不允许继续执行依赖该状态的重连广播。巡检结束时的最终 recovery evidence 写入失败也会返回错误并记录事件，不再静默忽略。
 - 重连请求：广播前先持久化 `last_result=pending`、尝试时间、次数和退避计数。广播前保存失败时不广播、不把未发生的请求记为一次持久化尝试。广播后结果保存失败时保留磁盘中的 pending，不伪装成 failed；后续观察到连接恢复再解析。
-- pending 结果的恢复判断区分普通断联恢复与 stalled-timer：普通断联后的新 connected 样本可确认恢复；stalled-timer 必须观察到 GMS 原生 connectTime 变化或 MCS endpoint 变化，不能因为状态仍显示 Connected 就误报 restored。设备重启时保留原生计时值/endpoint 作为比较基线，只清除 boot-scoped monotonic 锚点。
-- 重启与冷却：boot ID 变化时保留 `retry_streak`、`last_try_epoch` 和历史尝试次数；用 epoch 计算重启期间已流逝时间，再换算为本次启动的 signed monotonic anchor（即使 uptime 刚从 1 秒开始、锚点落在 uptime 零点之前，也能精确保留剩余冷却）。墙钟回拨/不可用时从新 boot 的 monotonic 当前值开始一个有界完整间隔；锚定后后续墙钟跳变不再影响冷却。自动重试退避为 30/60/120/180 秒；待确认手动请求冷却 60 秒；待确认/失败的 stalled-timer 请求冷却 600 秒。
-- 回归用例新增/修正：精确注入第三次 state rename 失败以覆盖 `request_reconnect` 广播前保存；state 目标为目录时中止巡检且不发布新 evidence；广播后结果 rename 失败时保留 pending；pending 重启后不重复广播并在连接证据出现时恢复，同时检查 `last_restore` 和恢复事件；验证 27 字段记录、attempts/retry_streak、自动/手动剩余冷却、墙钟回拨，以及 stalled-timer 成功/失败广播后的 600 秒冷却跨重启和原生计时推进后才标记 restored。重启用例将 uptime 真正重置为 1 秒，不再只模拟 boot ID 变化。
-- 参考方案：GMS 原生状态解析继续依据交接中记录的 `XXhaos/OriginOS-FCM-Fix` `GcmServiceParser` 约束；没有引入不相关的持久化框架或新依赖。
-- 当前监控脚本修复提交：`2b522dcc9aeb79d003deabd3ae86e1a450ad21b6`；FCM monitor smoke 最新修正：`994686ef936a0d070395ac0f313746f87f489e00`；KSU wake smoke 最新修正：`e25be6e9d9739375b142dfde291054e1350a8225`。新增 smoke 用例覆盖广播前第三次 state 替换失败且尝试字段不落盘、state 目标异常且不发布新 evidence、广播后结果替换失败且 attempts/retry_streak 保留、pending 跨重启不重复广播、自动/手动冷却（含断联确认已满足但仍处于冷却的场景）、重启时和重启后墙钟回拨、stalled-timer 成功/失败请求的 600 秒冷却跨重启（含阈值已满足但仍被冷却阻止的场景，并检查 `timer_stalled_cooldown` 决策），以及原生计时推进后解除未决状态；重启测试把 uptime 重置到 1 秒并断言 signed monotonic anchor。stalled-timer 冷却期间不再重复做二次确认，避免巡检日志反复刷屏。
+- pending 结果的恢复判断：RC5 当前仅在后续 procfs 再次观察到 GMS UID 的 MCS ESTABLISHED socket 时标记 restored。旧版 stalled-timer/connectTime 方案已废止，不得参与状态判断。
+- 重启与冷却：保留 `retry_streak`、`last_try_epoch` 和历史尝试次数；使用 epoch 重建本次启动的 signed monotonic anchor，墙钟回拨/不可用时采用有界冷却。自动重试退避为 30/60/120/180 秒；手动请求冷却 60 秒。旧 stalled-timer 专属 600 秒冷却已废止。
+- 回归用例历史范围：第三次 state rename 失败时禁止广播；state 目标为目录时不发布 evidence；广播后结果保存失败时保留 pending；pending 跨重启不重复广播并在新 procfs 连接证据出现时恢复；验证 27 字段记录、attempts/retry_streak、自动/手动冷却和墙钟回拨。此前 stalled-timer 的 600 秒专属冷却与原生计时推进用例已废止，不属于当前 RC5 逻辑。
+- 参考方案：采用 `XXhaos/OriginOS-FCM-Fix` 的严格 procfs TCP/TCP6 parser、来源完整性与 UNKNOWN/NO_MATCH 分离原则；不引入持久化框架或第三方依赖。
+- 旧基线提交索引（仅供追溯）：监控脚本 `2b522dcc9aeb79d003deabd3ae86e1a450ad21b6`、旧版 FCM smoke `994686ef936a0d070395ac0f313746f87f489e00`；它们包含此前 dump/stalled-timer 方案，不能作为当前 procfs-only 代码或测试依据。KSU wake smoke `e25be6e9d9739375b142dfde291054e1350a8225` 仍是独立的 service 测试修正，完整 wake smoke 尚未执行。
 - 继续审查发现 smoke 测试虽写入 `MCS_CLOCK`，但监控脚本通过 `date +%s` 读取时间，测试此前没有 mock `date`，因此跨重启 epoch 冷却/墙钟回拨断言没有真正使用设定时钟。已在 `tests/fcm-monitor-smoke.sh` 增加 `date +%s` mock，并在启动时断言读数等于 `MCS_CLOCK`；测试文件提交 `994686ef936a0d070395ac0f313746f87f489e00`。这只是修正测试夹具，**完整 smoke 尚未执行**。
 - `tests/ksu-wake-smoke.sh` 原先断言 `hotinstall.sh` 含有不存在的 `starting updated background monitor service` 文案；对照实际脚本后改为精确检查后台启动 `service.sh` 的命令。测试文件修正提交 `e25be6e9d9739375b142dfde291054e1350a8225`。这是静态断言修正，完整 wake smoke 仍未执行。
 - 已存在的自动触发任务均为测试步骤，Go 定时器编译和 ZIP 打包步骤被跳过。此前 `d77df6e` 通过了前一个 socket fallback 场景，但该次仍在“unknown-only 连续 Socket 缺失”场景因事件名断言不匹配而失败；`017456e` 已把断言改为实际事件 `tcp_absence_confirmed` + `recovery_confirmed`。**修正后没有重跑**。本轮按用户要求不再触发 Actions、CI、云编译、ZIP 打包或 Release；完整验证证据仍为空，手机实测也未进行。
@@ -34,12 +61,15 @@
 
 > 最近整理：2026-11-22。**唯一产品基线：** [PRODUCT_PLAN.md](PRODUCT_PLAN.md)。本文件只记录当前真实状态、构建证据、未验证项目和接续动作。全部代码和文档在 GitHub；不跳转 Work。用户电脑文件仅允许存放 D:\Codex，未获许可不触碰 C 盘。
 
+> **历史记录说明：** 本文以下较早日期的日志和方案用于追溯旧版本，不代表当前 RC5 规则；凡与本页顶部 2026-11-23 procfs-only 冻结要求冲突者均已废止。
+
 ## 0. 2026-11-22 接续：SU/KSU 原生状态与长采样空档
 
 - 用户确认这次检查的是 SU/KSU 版本；手机持续亮屏，后台模式设为定时巡检 1 分钟。现有记录中的空档为 128、162、512 秒。**不能用熄屏 Doze 解释，也不能从旧日志判定是定时器、GMS 检查调用、守护修复命令还是服务进程造成**；旧版没有逐次调用的开始/结束证据。
 - `v1.0-rc.4` KSU 测试包在 `guard.log` 记录 `service_started`、每次 `fcm_check_start/end` 及每轮 `maintenance_start/end`；`wake-timer.log` 自带 `wake_timer_armed/fired`、迟到和 suspend 时长。以后可按最后一条完整记录定位空档所在阶段。**这些字段不会补写旧空档。**
-- 当 `dumpsys` 只有 ActivityManager wrapper 行时，SU/KSU 将读取 Root 可见的精确 GMS UID MCS TCP：连接/连接中作为正证据；连续缺失至少 60 秒并复核后才可判定断开并进入原有恢复判断。普通 443、UID 表读取失败不当作断联。APK UID2000 不使用 Root 才能观察到的缺失判断。
-- 若原生仍报 Connected 且 `connectTime` 正数连续 5 分钟不增长，SU/KSU 会二次采样；自动守护开启时仅发定向 `GCM_RECONNECT`，不会 force-stop GMS。计时恢复则取消。
+> 以下两条仅记录 RC4/更早版本的历史方案，已被 2026-11-23 顶部冻结规则废止，不得作为 RC5 当前实现或测试依据：
+> - 旧方案曾在 dumpsys 字段缺失时回退到 TCP，并保留原生 connectTime 停滞恢复分支。
+> - RC5 当前只依据 procfs TCP/TCP6 观察 GMS UID 的 MCS socket；不读取 dumpsys、不使用 connectTime/Close 字段参与任何状态或恢复判断。
 - 更新和安装：保留 KernelSU 官方 hot-install 入口，启动新服务替代旧服务；源码没有发出设备 reboot 命令。`reboot` 事件只是观察到启动周期变化。
 - 诊断与恢复源码在 `71e6ba4` 已推送 `main`；其最近一次 GitHub Actions 未通过，RC4 不宣称 CI 验证完成。本地 KSU 包基于该提交，仅升级模块版本号并编译 ARM64 定时器；本轮未推送版本号更新、未创建 Release、未运行回归、未在手机实测。后续根据手机日志和失败 CI 定位修复，再走云端完整验证与测试 Release。
 
