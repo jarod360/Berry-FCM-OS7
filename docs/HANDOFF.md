@@ -575,3 +575,10 @@ Removed the full `cmd appops get top.zesun.berryfcm` dump incorrectly labeled as
 - 复核 `module/service.sh` 的信号处理发现，`stop_wait()` 原先只向当前 30 秒巡检 sleep 子进程发送 TERM，没有显式 `wait` 回收；而 `stop_timer()` 已经对 timer worker 执行 kill+wait，二者清理策略不一致。
 - `stop_wait()` 现在在发送终止信号后立即 `wait`，但保留 `wait_pid`，让信号处理返回后的主循环仍可安全完成原有 wait/清空流程。此修改不改变巡检周期、timer worker 或维护任务逻辑。
 - 提交 `95c56abdfb54aa537beada01e306012cc3796e56`（`[skip ci]`）。已回读确认函数内容；尚未执行完整 Shell 语法检查、wake smoke 或实机信号测试。
+
+
+### 2026-11-23 RC5 后续静态回读
+- KSU wake smoke 最终回读：两处 timeout 条件块均完整，两个预期 124 检查匹配，未发现裸 timeout 或 `fi; then` 残片。
+- FCM smoke 的重启场景回读：共 15 次 `setboot`，对应 7 次显式 boot-id 写入；同一 boot 内的后续 `setboot` 仅推进 uptime/epoch，符合测试意图，不应每次都更换 boot-id。状态格式断言仍检查单行 27 字段。
+- `module/service.sh` 回读确认 `stop_wait()` 与 `stop_timer()` 均执行 kill 后 wait；`wait_pid` 在信号处理函数中保留，避免主循环恢复后因 PID 被清空而执行无参数 wait。
+- 以上均为仓库源码静态回读，不是 shell 语法检查或 smoke 执行结果。未触发 CI、云编译、打包或 Release。
