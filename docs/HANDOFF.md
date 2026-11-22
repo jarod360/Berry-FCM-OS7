@@ -12,7 +12,7 @@
 
 ## 2026-11-22 RC5 KSU 重连状态事务与重启冷却修复（待完整验证）
 
-- 本轮功能代码范围按用户最新指示收敛为 KernelSU/SU Root 版，只修改 `module/bin/fcm-monitor.sh` 与 `tests/fcm-monitor-smoke.sh`；另调整 KSU 工作流的手动打包门控并同步本交接/产品文档。APK 脚本和代码暂不处理。
+- 本轮功能代码范围按用户最新指示收敛为 KernelSU/SU Root 版，只修改 `module/bin/fcm-monitor.sh` 与 `tests/fcm-monitor-smoke.sh`；另调整 KSU 工作流的手动打包门控，并同步根 README、模块 README、HANDOFF 与 PRODUCT_PLAN。APK 脚本和代码暂不处理。
 - 状态写入：临时文件使用 `umask 077`；拒绝 state 目标路径为目录；检查 printf 返回值；检查临时记录为单行、固定 27 字段后才原子替换。先持久化权威 state，再更新辅助 evidence；state 保存失败时不发布新 evidence，也不允许继续执行依赖该状态的重连广播。
 - 重连请求：广播前先持久化 `last_result=pending`、尝试时间、次数和退避计数。广播前保存失败时不广播、不把未发生的请求记为一次持久化尝试。广播后结果保存失败时保留磁盘中的 pending，不伪装成 failed；后续观察到连接恢复再解析。
 - pending 结果的恢复判断区分普通断联恢复与 stalled-timer：普通断联后的新 connected 样本可确认恢复；stalled-timer 必须观察到 GMS 原生 connectTime 变化或 MCS endpoint 变化，不能因为状态仍显示 Connected 就误报 restored。设备重启时保留原生计时值/endpoint 作为比较基线，只清除 boot-scoped monotonic 锚点。
