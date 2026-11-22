@@ -422,6 +422,11 @@ setboot 20 33020
 run monitor
 requests 1
 j="$(run snapshot)"; assert_json "$j" fcm_retry_streak=1; assert_json "$j" fcm_retry_in=40
+echo 1699990000 > "$MCS_CLOCK"
+echo 21 > "$TMP/uptime"
+run monitor
+requests 1
+j="$(run snapshot)"; assert_json "$j" fcm_retry_streak=1; assert_json "$j" fcm_retry_in=39
 setboot 60 33060
 run monitor
 requests 2
