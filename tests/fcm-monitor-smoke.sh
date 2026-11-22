@@ -326,7 +326,7 @@ j="$(run snapshot)"; assert_json "$j" fcm_retry_streak=1; assert_json "$j" fcm_r
 settime 33060
 run monitor
 requests 2
-j="$(run snapshot)"; assert_json "$j" fcm_retry_streak=2
+j="$(run snapshot)"; assert_json "$j" fcm_retry_streak=2; assert_json "$j" fcm_last_result=requested
 echo 'PASS: reboot retains retry streak and remaining epoch cooldown'
 
 # A backwards wall clock must never make a pending retry immediately eligible.
