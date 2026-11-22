@@ -4,7 +4,7 @@ ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
 grep -q 'MODULE_HOT_INSTALL_REQUEST=true' "$ROOT/module/customize.sh"
 grep -q 'MODULE_HOT_RUN_SCRIPT=hotinstall.sh' "$ROOT/module/customize.sh"
 test -f "$ROOT/module/hotinstall.sh"
-grep -q 'starting updated background monitor service' "$ROOT/module/hotinstall.sh"
+grep -Fq 'sh "$DIR/service.sh" </dev/null >/dev/null 2>&1 &' "$ROOT/module/hotinstall.sh"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/data" "$TMP/module/bin" "$TMP/bin"
@@ -24,6 +24,7 @@ cat > "$TMP/bin/sleep" <<'MOCK'
 echo "$1" >> "$TEST_DIR/sleeps"
 /bin/sleep 0.15
 if [ "$(wc -l < "$TEST_DIR/samples")" -ge 3 ]; then
+    [ -e "$TEST_DIR/fix.done" ] || touch "$TEST_DIR/samples_during_fix"
     rm -f "$TEST_DIR/module/module.prop"
 fi
 MOCK
@@ -50,12 +51,34 @@ else
     echo "$1" >> "$TEST_DIR/samples"
 fi
 MOCK
-printf 'exit 0\n' > "$TMP/module/bin/ctl.sh"
+cat > "$TMP/module/bin/ctl.sh" <<'MOCK'
+#!/bin/sh
+if [ ! -e "$TEST_DIR/fix.done" ]; then
+    /bin/sleep 4
+    touch "$TEST_DIR/fix.done"
+fi
+exit 0
+MOCK
 chmod +x "$TMP/bin/"* "$TMP/module/bin/wake-timer-arm64"
 touch "$TMP/module/module.prop"
 echo 1 > "$TMP/data/enabled"
 echo timed > "$TMP/data/wake-mode"
-timeout 8 sh "$TMP/module/service.sh"
+if timeout 8 sh "$TMP/module/service.sh"; then
+    :
+else
+    rc=$?
+    [ "$rc" -eq 124 ]
+fi
+n=0
+while [ ! -e "$TMP/fix.done" ] && [ "$n" -lt 60 ]; do /bin/sleep 0.1; n=$((n + 1)); done
+test -e "$TMP/fix.done"
+n=0
+while ! grep -q 'maintenance_end pid=.*operation=guard_fix rc=0 elapsed_s=' "$TMP/data/guard.log" && [ "$n" -lt 60 ]; do /bin/sleep 0.1; n=$((n + 1)); done
+grep -q 'maintenance_end pid=.*operation=guard_fix rc=0 elapsed_s=' "$TMP/data/guard.log"
+n=0
+while [ -d "$TMP/data/maintenance.lock" ] && [ "$n" -lt 60 ]; do /bin/sleep 0.1; n=$((n + 1)); done
+test ! -d "$TMP/data/maintenance.lock"
+test -e "$TMP/samples_during_fix"
 test "$(cat "$TMP/data/wake-status")" = fallback
 test "$(wc -l < "$TMP/samples")" -ge 3
 test "$(wc -l < "$TMP/timer")" -eq 2
@@ -81,10 +104,18 @@ echo 10 > "$TMP/data/wake-minutes"
 : > "$TMP/timer"
 : > "$TMP/data/guard.log"
 : > "$TMP/data/wake-timer.log"
-timeout 8 sh "$TMP/module/service.sh"
+if timeout 8 sh "$TMP/module/service.sh"; then
+    :
+else
+    rc=$?
+    [ "$rc" -eq 124 ]
+fi
 test "$(wc -l < "$TMP/samples")" -ge 3
 test "$(cat "$TMP/timer")" = 10
 ! grep -q 'wake_timer_fired' "$TMP/data/wake-timer.log"
 ! kill -0 "$(cat "$TMP/alarm-pid")" 2>/dev/null
+n=0
+while [ -d "$TMP/data/maintenance.lock" ] && [ "$n" -lt 60 ]; do /bin/sleep 0.1; n=$((n + 1)); done
+test ! -d "$TMP/data/maintenance.lock"
 test ! -d "$TMP/data/service.lock"
 echo 'PASS: timer signals GMS checks; failed or blocked timer leaves passive polling active'

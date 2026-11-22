@@ -28,6 +28,15 @@ mkdir -p "$DATA" || exit 11
 
 is_uint() { case "${1:-}" in ''|*[!0-9]*) return 1;; *) return 0;; esac; }
 num() { is_uint "${1:-}" && printf '%s\n' "$1" || printf '0\n'; }
+signed_num() {
+    case "${1:-}" in
+        -[0-9]*)
+            sn="${1#-}"
+            case "$sn" in ''|*[!0-9]*) printf '0\n';; *) printf '%s\n' "-$sn";; esac
+            ;;
+        *) num "${1:-}" ;;
+    esac
+}
 now_epoch() { date +%s 2>/dev/null | awk '/^[0-9]+$/ {print; found=1} END {if (!found) print 0}'; }
 monotime() { awk '{printf "%d\n", $1}' "$UPTIME_FILE" 2>/dev/null | head -n 1; }
 boot_id() { cat "$BOOT_ID_FILE" 2>/dev/null; }
@@ -48,7 +57,7 @@ load_state() {
     fi
     conn_since="$(num "$conn_since")"; conn_since_mono="$(num "$conn_since_mono")"; last_seen="$(num "$last_seen")"
     missing_since="$(num "$missing_since")"; missing_epoch="$(num "$missing_epoch")"
-    last_try_mono="$(num "$last_try_mono")"; last_try_epoch="$(num "$last_try_epoch")"
+    last_try_mono="$(signed_num "$last_try_mono")"; last_try_epoch="$(num "$last_try_epoch")"
     attempts="$(num "$attempts")"; last_restore="$(num "$last_restore")"
     outages="$(num "$outages")"; sample_epoch="$(num "$sample_epoch")"
     reconnects="$(num "$reconnects")"; last_down="$(num "$last_down")"
@@ -58,24 +67,63 @@ load_state() {
     native_timer_since="$(num "${native_timer_since:-0}")"
     native_timer_last_request="$(num "${native_timer_last_request:-0}")"
     case "$state" in connected|connecting|disconnected|unknown|never_seen) : ;; *) state=unknown;; esac
-    case "$last_result" in none|requested|failed|restored) : ;; *) last_result=none;; esac
+    case "$last_result" in none|pending|requested|failed|restored) : ;; *) last_result=none;; esac
     case "$last_try_reason" in none|auto|manual|rescue|stalled_timer) : ;; *) last_try_reason=none;; esac
+    boot_changed=0
     if [ -n "$prev_b" ] && [ "$prev_b" != "$b" ]; then
+        boot_changed=1
         state=never_seen; conn_key=; conn_since=0; conn_since_mono=0; missing_since=0; missing_epoch=0
-        last_try_mono=0; transport=; remote=; sample_epoch=0; down_observed=0; retry_streak=0; outage_hint_mono=0
-        native_timer_duration=0; native_timer_since=0; native_timer_last_request=0; native_timer_key=
+        last_try_mono=0
+        transport=; remote=; sample_epoch=0; down_observed=0; outage_hint_mono=0
+        # Keep the last native duration/endpoint as evidence for a pending
+        # stalled-timer request; only monotonic anchors are boot-scoped.
+        native_timer_since=0; native_timer_last_request=0
         : > "$LEARNED_IPS"
         record_event reboot '设备重启：清除上一启动周期的连接计时，保留历史事件'
+    fi
+    # Re-anchor the prior attempt to this boot's monotonic clock. Store a
+    # negative offset when the epoch-derived anchor predates uptime zero; -1
+    # encodes an exact anchor of zero, while zero means no monotonic anchor.
+    if [ "$last_try_epoch" -gt 0 ] && { [ "$boot_changed" = 1 ] || [ "$last_try_mono" -eq 0 ]; }; then
+        boot_now_epoch="$(num "$(now_epoch)")"
+        boot_now_mono="$(num "$(monotime)")"
+        if [ "$boot_now_epoch" -gt 0 ] && [ "$boot_now_epoch" -ge "$last_try_epoch" ]; then
+            boot_elapsed=$((boot_now_epoch-last_try_epoch))
+            boot_anchor=$((boot_now_mono-boot_elapsed))
+        else
+            # Wall clock is unavailable or moved backwards: wait one full
+            # interval from this boot, but never depend on it catching up.
+            boot_anchor="$boot_now_mono"
+        fi
+        if [ "$boot_anchor" -ge 1 ]; then last_try_mono="$boot_anchor"
+        else last_try_mono=$((boot_anchor-1)); fi
+    elif [ "$boot_changed" = 1 ] && [ "$retry_streak" -gt 0 ]; then
+        boot_now_mono="$(num "$(monotime)")"
+        if [ "$boot_now_mono" -ge 1 ]; then last_try_mono="$boot_now_mono"
+        else last_try_mono=-1; fi
     fi
 }
 
 save_state() {
     tmp="$STATE.$$"
+    [ ! -d "$STATE" ] || return 1
+    old_umask="$(umask)"
+    umask 077
     printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
-      "$b" "$state" "$conn_key" "$conn_since" "$conn_since_mono" "$last_seen" "$missing_since" "$missing_epoch" \
-      "$last_try_mono" "$last_try_epoch" "$attempts" "$last_result" "$last_restore" "$outages" \
-      "$transport" "$remote" "$sample_epoch" "$last_try_reason" "$reconnects" "$last_down" "$down_observed" "$retry_streak" "$outage_hint_mono" \
-      "$native_timer_duration" "$native_timer_since" "$native_timer_last_request" "$native_timer_key" > "$tmp" && mv -f "$tmp" "$STATE"
+        "$b" "$state" "$conn_key" "$conn_since" "$conn_since_mono" "$last_seen" "$missing_since" "$missing_epoch" \
+        "$last_try_mono" "$last_try_epoch" "$attempts" "$last_result" "$last_restore" "$outages" \
+        "$transport" "$remote" "$sample_epoch" "$last_try_reason" "$reconnects" "$last_down" "$down_observed" "$retry_streak" "$outage_hint_mono" \
+        "$native_timer_duration" "$native_timer_since" "$native_timer_last_request" "$native_timer_key" > "$tmp"
+    write_rc=$?
+    umask "$old_umask"
+    [ "$write_rc" -eq 0 ] || { rm -f "$tmp"; return 1; }
+    [ -s "$tmp" ] && [ ! -d "$STATE" ] || { rm -f "$tmp"; return 1; }
+    awk -F '|' 'NR == 1 && NF == 27 { valid=1 } END { exit !(valid && NR == 1) }' "$tmp" || {
+        rm -f "$tmp"
+        return 1
+    }
+    mv -f "$tmp" "$STATE" || { rm -f "$tmp"; return 1; }
+    [ -f "$STATE" ] || return 1
 }
 
 update_native_timer_tracking() {
@@ -90,6 +138,11 @@ update_native_timer_tracking() {
             native_timer_last_request=0
             native_timer_key="$timer_key"
         fi
+    elif [ "$last_try_reason" = stalled_timer ] &&
+         { [ "$last_result" = pending ] || [ "$last_result" = requested ] || [ "$last_result" = failed ]; }; then
+        # Keep the last native timer baseline while the stalled request is
+        # unresolved; a socket-only/unknown sample cannot prove timer recovery.
+        :
     else
         native_timer_duration=0
         native_timer_since=0
@@ -244,6 +297,10 @@ parse_mcs() {
         } else if(line=="Server: Connected" && (header || scoped)){
           if(state!="" && state!="connected") conflict=1
           state="connected"; explicit_status=1
+        } else if((line=="Is client connected: true" || line=="Is client connected: false") && (header || scoped)){
+          client_state=(line=="Is client connected: true" ? "connected" : "disconnected")
+          if(state!="" && state!=client_state) conflict=1
+          state=client_state; explicit_status=1; explicit_client_status=1
         } else if((line=="Not connected" || line=="Server: Not connected") && (header || scoped)){
           if(line=="Server: Not connected") explicit_status=1
           if(state=="connected") conflict=1
@@ -274,7 +331,7 @@ parse_mcs() {
           print "unknown||||-1||" detail;exit
         }
         if((state=="connected" && has_dt && !has_ct) ||
-           (state!="connected" && has_ct && !has_dt)){
+           (state!="connected" && has_ct && !has_dt && !explicit_client_status)){
           print "unknown||||-1||inconsistent_timing";exit
         }
         if(port!~/^[0-9]+$/ || port+0<1 || port+0>65535)port=""
@@ -297,7 +354,7 @@ dump_state_shape() {
         if (!heading && line ~ /^(DeviceID:|Direct boot mode )/) heading=NR
         if (lower ~ /^(not connected|connected|connecting|disconnected|disabled)$/) {
           field=line
-        } else if (match(lower, /^(server([ _-]status)?|mcs[ _-]?(state|status)|connection[ _-]?(state|status)|state|status|connected|connecting|pending|connecttime|disconnecttime|time (dis)?connected)[[:space:]]*[:=]/)) {
+        } else if (match(lower, /^(is client connected|server([ _-]status)?|mcs[ _-]?(state|status)|connection[ _-]?(state|status)|state|status|connected|connecting|pending|connecttime|disconnecttime|time (dis)?connected)[[:space:]]*[:=]/)) {
           field=substr(line,1,RLENGTH)
           value=substr(lower,RLENGTH+1)
           sub(/^[[:space:]]+/, "", value)
@@ -351,7 +408,44 @@ auto_enabled() {
 }
 
 retry_interval() {
-    case "$retry_streak" in 0) echo 30;; 1) echo 60;; 2) echo 120;; *) echo 180;; esac
+    if [ "$last_try_reason" = stalled_timer ] &&
+       { [ "$last_result" = pending ] || [ "$last_result" = requested ] || [ "$last_result" = failed ]; }; then
+        echo 600
+    elif [ "$last_try_reason" = manual ] &&
+         { [ "$last_result" = pending ] || [ "$last_result" = requested ]; }; then
+        echo 60
+    else
+        case "$retry_streak" in 0) echo 30;; 1) echo 60;; 2) echo 120;; *) echo 180;; esac
+    fi
+}
+
+# Reconstruct a monotonic anchor from epoch once after reboot. Thereafter
+# cooldown is measured only by monotonic time, so later wall-clock jumps cannot
+# bypass it or keep extending it. A backwards/unavailable boot clock starts a
+# bounded full interval on the new monotonic clock.
+cooldown_remaining() {
+    cd_interval="$1"
+    cd_nowm="$(num "$(monotime)")"
+    cd_anchor=0
+    case "$last_try_mono" in
+        -*) cd_anchor=$((last_try_mono+1));;
+        *) cd_anchor="$last_try_mono";;
+    esac
+    if [ "$last_try_mono" -ne 0 ] && [ "$cd_nowm" -ge "$cd_anchor" ]; then
+        cd_elapsed=$((cd_nowm-cd_anchor))
+    elif [ "$last_try_epoch" -gt 0 ]; then
+        cd_nowe="$(num "$(now_epoch)")"
+        if [ "$cd_nowe" -le 0 ] || [ "$cd_nowe" -lt "$last_try_epoch" ]; then
+            echo "$cd_interval"
+            return 0
+        fi
+        cd_elapsed=$((cd_nowe-last_try_epoch))
+    else
+        echo 0
+        return 0
+    fi
+    if [ "$cd_elapsed" -ge "$cd_interval" ]; then echo 0
+    else echo $((cd_interval-cd_elapsed)); fi
 }
 
 # A down/absence sample remains useful for at most 15 minutes. Root can see the
@@ -389,25 +483,25 @@ request_reconnect() {
         case "$state" in connecting|disconnected) :;; *) decision=not_disconnected; return 0;; esac
     fi
     interval="$(retry_interval)"
-    [ "$reason" != manual ] || interval=60
-    [ "$reason" != stalled_timer ] || interval=300
-    if [ "$last_try_mono" -gt 0 ] && [ "$nowm" -ge "$last_try_mono" ] && [ $((nowm-last_try_mono)) -lt "$interval" ]; then
+    case "$reason" in
+        manual) [ "$interval" -ge 60 ] || interval=60;;
+        stalled_timer) [ "$interval" -ge 600 ] || interval=600;;
+    esac
+    remaining="$(cooldown_remaining "$interval")"
+    if [ "$remaining" -gt 0 ]; then
         decision=cooldown
         if [ "$reason" = manual ]; then
-            record_event reconnect_skipped "手动恢复未发送：距上次请求尚未达到退避间隔，剩余 $((interval-nowm+last_try_mono)) 秒"
+            record_event reconnect_skipped "手动恢复未发送：距上次请求尚未达到退避间隔，剩余 $remaining 秒"
         fi
         return 0
     fi
     case "$reason" in auto|stalled_timer) auto_enabled || { decision=disabled; return 0; };; esac
-    if [ "$reason" = stalled_timer ]; then
-        native_timer_last_request="$nowm"
-        save_state || return $?
-    fi
     stopped="$(is_gms_stopped)"
     [ "$stopped" = 0 ] || { decision=gms_stopped_unknown; record_event reconnect_skipped "GMS stopped 状态为 $stopped，未发送广播"; return 0; }
+    [ "$reason" != stalled_timer ] || native_timer_last_request="$nowm"
     last_try_mono="$nowm"; last_try_epoch="$nowe"; attempts=$((attempts+1))
-    retry_streak=$((retry_streak+1)); last_try_reason="$reason"; last_result=failed
-    save_state || return $?
+    retry_streak=$((retry_streak+1)); last_try_reason="$reason"; last_result=pending
+    save_state || { decision=state_save_failed; record_event reconnect_skipped "重连状态无法持久化，未发送广播"; return 0; }
     action=com.google.android.intent.action.GCM_RECONNECT
     reply="$("$AM_BIN" broadcast --user 0 -a "$action" -p "$GMS" 2>&1)"
     rc=$?
@@ -420,7 +514,11 @@ request_reconnect() {
         last_result=failed; decision=request_failed
         record_event reconnect_failed "$reason UID=0 ${action##*.} exit=$rc；请核对 KernelSU Root 和 GMS 版本"
     fi
-    save_state
+    if ! save_state; then
+        last_result=pending
+        decision=request_result_pending
+        record_event reconnect_result_pending "广播结果无法持久化；保留 pending，等待后续 GMS 状态确认"
+    fi
 }
 
 observe() {
@@ -430,6 +528,8 @@ observe() {
     # Keep the previous observation only as a hint across a suspend gap.
     # Never represent that gap as proven continuous downtime.
     previous_down_observed=0; previous_down_state="$state"; previous_missing_epoch="$missing_epoch"
+    previous_native_timer_duration="$native_timer_duration"
+    previous_native_timer_key="$native_timer_key"
     # An unknown sample may retain a prior down observation as a hint, never as
     # proof of continuous downtime. Fresh native down evidence is required again.
     case "$state" in
@@ -563,10 +663,26 @@ EOF_SOCKET
     fi
     case "$observed" in
       connected)
+        if [ "$last_try_reason" = stalled_timer ] &&
+           { [ "$last_result" = pending ] || [ "$last_result" = requested ] || [ "$last_result" = failed ]; }; then
+            if [ "$source" = gms ] &&
+               { { is_uint "$duration" && [ "$previous_native_timer_duration" -gt 0 ] &&
+                   [ "$duration" != "$previous_native_timer_duration" ]; } ||
+                 { [ -n "$previous_native_timer_key" ] && [ -n "$remote" ] &&
+                   [ "$remote" != "$previous_native_timer_key" ]; }; }; then
+                last_result=restored
+                last_restore="$nowe"
+                record_event native_timer_restored "GMS 原生 connectTime 或 MCS endpoint 已变化；stalled-timer 请求解除待确认"
+            fi
+        elif [ "$last_result" = pending ] ||
+             { [ "$last_result" = requested ] && [ "$last_try_epoch" -ge "$previous_missing_epoch" ] && [ "$last_try_epoch" -gt 0 ]; }; then
+            last_result=restored
+            last_restore="$nowe"
+            record_event reconnect_result_restored "观察到 GMS 已连接；重连结果按连接证据更新，不代表广播导致恢复"
+        fi
         if [ "$previous_down_state" = connecting ] || [ "$previous_down_state" = disconnected ] ||
            [ "$previous_down_observed" -gt 0 ]; then
             last_restore="$nowe"
-            if [ "$last_result" = requested ] && [ "$last_try_epoch" -ge "$previous_missing_epoch" ] && [ "$last_try_epoch" -gt 0 ]; then last_result=restored; fi
             if [ "$gap_detected" = 1 ] || [ "$previous_down_state" = unknown ]; then
                 if [ "$source" = gms_socket ]; then
                     record_event connection_restored 'UID0 重新观察到 GMS MCS TCP；本次 GMS 原生状态字段仍未读到'
@@ -631,8 +747,8 @@ EOF_SOCKET
     esac
     transport="$new_transport"; remote="$new_remote"; sample_epoch="$nowe"
     update_native_timer_tracking
-    write_evidence
-    save_state
+    save_state || { record_event state_save_failed "FCM 采样状态无法持久化"; return 13; }
+    write_evidence || { record_event evidence_save_failed "FCM 采样证据无法持久化"; return 13; }
 }
 
 write_evidence() {
@@ -708,9 +824,18 @@ auto_recovery() {
         if [ "$timer_stall_age" -ge 300 ]; then
             if ! auto_enabled; then
                 decision=timer_stalled_disabled
+            elif [ "$last_try_reason" = stalled_timer ] &&
+                 { [ "$last_result" = pending ] || [ "$last_result" = requested ] || [ "$last_result" = failed ]; }; then
+                timer_retry_remaining="$(cooldown_remaining 600)"
+                if [ "$timer_retry_remaining" -gt 0 ]; then
+                    decision=timer_stalled_cooldown
+                else
+                    confirm_stalled_timer
+                fi
             elif [ "$native_timer_last_request" -gt 0 ] &&
                  [ "$timer_now" -ge "$native_timer_last_request" ] &&
                  [ $((timer_now-native_timer_last_request)) -lt 600 ]; then
+                # Compatibility fallback for older state files.
                 decision=timer_stalled_cooldown
             else
                 confirm_stalled_timer
@@ -731,7 +856,8 @@ auto_recovery() {
     if ! auto_enabled; then decision=disabled; return 0; fi
     nowm="$(num "$(monotime)")"
     interval="$(retry_interval)"
-    if [ "$last_try_mono" -gt 0 ] && [ "$nowm" -ge "$last_try_mono" ] && [ $((nowm-last_try_mono)) -lt "$interval" ]; then
+    remaining="$(cooldown_remaining "$interval")"
+    if [ "$remaining" -gt 0 ]; then
         decision=cooldown
         return 0
     fi
@@ -755,7 +881,7 @@ status_json() {
     [ "$sample_epoch" -gt 0 ] && [ "$nowe" -ge "$sample_epoch" ] && age=$((nowe-sample_epoch))
     source=unavailable; duration=-1; close_code=; tcp_hint=none; native_reason=unrecognized; decision=not_evaluated
     if [ -f "$EVIDENCE" ]; then IFS='|' read -r source duration close_code tcp_hint native_reason decision < "$EVIDENCE" || :; fi
-    case "${decision:-}" in not_evaluated|not_disconnected|sample_unavailable|disabled|cooldown|gms_stopped_unknown|requested|request_failed|waiting_duration|waiting_confirmation|confirmation_changed|timer_stalled_recovery|timer_stalled_disabled|timer_stalled_cooldown|timer_stalled_cancelled) :;; *) decision=not_evaluated;; esac
+    case "${decision:-}" in not_evaluated|not_disconnected|sample_unavailable|disabled|cooldown|gms_stopped_unknown|state_save_failed|requested|request_failed|request_result_pending|waiting_duration|waiting_confirmation|confirmation_changed|timer_stalled_recovery|timer_stalled_disabled|timer_stalled_cooldown|timer_stalled_cancelled) :;; *) decision=not_evaluated;; esac
     case "$native_reason" in none|permission_denied|timeout|service_unavailable|dump_failed|empty|unrecognized|gms_stopped) :;; *) native_reason=unrecognized;; esac
     case "$duration" in -1) :;; *) is_uint "$duration" || duration=-1;; esac
     [ "$age" -ge 0 ] && [ "$age" -le 90 ] || state=stale
@@ -770,8 +896,8 @@ status_json() {
     fi
     auto=0; auto_enabled && auto=1
     interval="$(retry_interval)"
-    nowm="$(num "$(monotime)")"; retry_in=0
-    if [ "$last_try_mono" -gt 0 ] && [ "$nowm" -ge "$last_try_mono" ] && [ $((nowm-last_try_mono)) -lt "$interval" ]; then retry_in=$((interval-nowm+last_try_mono)); fi
+    nowm="$(num "$(monotime)")"
+    retry_in="$(cooldown_remaining "$interval")"
     observed_up=-1
     if [ "$state" = connected ] && [ -n "$conn_key" ] &&
        [ "$conn_since_mono" -gt 0 ] && [ "$nowm" -ge "$conn_since_mono" ] &&
@@ -804,7 +930,7 @@ case "${1:-status}" in
         fi
         observe || exit $?
         auto_recovery || exit $?
-        write_evidence
+        write_evidence || { record_event evidence_save_failed "恢复决策证据无法持久化"; exit 13; }
         case "$state" in
           unknown|connecting|disconnected)
             if [ "$decision" != "$prior_decision" ]; then
@@ -831,6 +957,8 @@ case "${1:-status}" in
         case "$decision" in
           requested) echo "已请求 GMS 恢复，等待下一次连接采样确认";;
           request_failed) echo "Root 重连广播未确认，请查看恢复事件";;
+          request_result_pending) echo "重连命令结果未能持久化，等待后续 GMS 状态确认";;
+          state_save_failed) echo "重连状态无法保存，未发送广播";;
           cooldown) echo "仍在重连冷却期";;
           gms_stopped_unknown) echo "GMS 已停止或停止状态无法确认";;
           *) echo "GMS 已连接或状态不可确认，未发送重连";;

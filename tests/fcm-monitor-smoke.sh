@@ -5,6 +5,14 @@ MON="${BERRY_MONITOR_SCRIPT:-$ROOT/module/bin/fcm-monitor.sh}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT HUP INT TERM
 mkdir -p "$TMP/bin" "$TMP/data"
+cat > "$TMP/bin/date" <<'MOCK'
+#!/bin/sh
+if [ "$#" -eq 1 ] && [ "$1" = +%s ]; then
+    cat "$MCS_CLOCK"
+else
+    exec /bin/date "$@"
+fi
+MOCK
 cat > "$TMP/bin/dumpsys" <<'MOCK'
 #!/bin/sh
 case "$*" in
@@ -38,6 +46,7 @@ if [ "${MCS_AM_FAIL:-0}" = 1 ]; then
     echo 'Broadcast completed: result=0'
     exit 1
 fi
+if [ "${MCS_FAIL_STATE_MV:-0}" = 1 ]; then : > "$MCS_FAIL_STATE_MV_MARKER"; fi
 echo 'Broadcast completed: result=0'
 # Model a reconnect that actually leads to a new native connected sample.
 if [ -n "${MCS_AM_CONNECTED_FIXTURE:-}" ]; then
@@ -50,9 +59,26 @@ if [ "$*" = "-u" ]; then
     echo "${MCS_UID:-0}"
 else /usr/bin/id "$@"; fi
 MOCK
-cat > "$TMP/bin/date" <<'MOCK'
+cat > "$TMP/bin/mv" <<'MOCK'
 #!/bin/sh
-if [ "$*" = '+%s' ]; then cat "$MCS_CLOCK"; else /bin/date "$@"; fi
+dest=
+for arg do dest="$arg"; done
+case "$dest" in
+  */mcs-monitor.state)
+    if [ -n "${MCS_STATE_MV_COUNT_FILE:-}" ]; then
+      count=0
+      [ ! -f "$MCS_STATE_MV_COUNT_FILE" ] || count="$(cat "$MCS_STATE_MV_COUNT_FILE")"
+      count=$((count+1))
+      echo "$count" > "$MCS_STATE_MV_COUNT_FILE"
+      if [ -n "${MCS_FAIL_STATE_MV_AT:-}" ] && [ "$count" -eq "$MCS_FAIL_STATE_MV_AT" ]; then
+        exit 1
+      fi
+    fi
+    if [ -n "${MCS_FAIL_STATE_MV_MARKER:-}" ] && [ -f "$MCS_FAIL_STATE_MV_MARKER" ]; then
+      exit 1
+    fi;;
+esac
+exec /bin/mv "$@"
 MOCK
 chmod +x "$TMP/bin/"*
 echo 10000 > "$TMP/uptime"
@@ -64,7 +90,9 @@ export BERRY_FCM_TEST_MODE=1 BERRY_FCM_DATA="$TMP/data"
 export BERRY_UPTIME_FILE="$TMP/uptime" BERRY_BOOT_ID_FILE="$TMP/bootid"
 export MCS_FIXTURE="$TMP/dump" MCS_AM_LOG="$TMP/am.log" MCS_CLOCK="$TMP/epoch"
 settime() { printf '%s\n' "$1" > "$TMP/uptime"; printf '%s\n' "$((1700000000+$1))" > "$MCS_CLOCK"; }
+setboot() { printf '%s\n' "$1" > "$TMP/uptime"; printf '%s\n' "$((1700000000+$2))" > "$MCS_CLOCK"; }
 settime 10000
+test "$(date +%s)" = "$(cat "$MCS_CLOCK")"
 run() { sh "$MON" "$1"; }
 requests() { [ "$(wc -l < "$MCS_AM_LOG" | tr -d ' ')" = "$1" ]; }
 assert_json() {
@@ -162,6 +190,33 @@ grep -q 'sample_retry|first=no_current_state retry_rc=0 state=connected' "$BERRY
 unset MCS_NEXT_FIXTURE
 echo 'PASS: wrapper-only dump retries once and uses fresh GMS state'
 
+# OriginOS GMS current-state fields used by newer GMS builds.
+export BERRY_FCM_DATA="$TMP/client-state-data"
+mkdir -p "$BERRY_FCM_DATA"
+echo 1 > "$BERRY_FCM_DATA/enabled"
+settime 13000
+printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService 1234abcd pid=321 user=0' '  Is client connected: true' '  connectTime=03:22/00:00' > "$MCS_FIXTURE"
+j="$(run status)"
+assert_json "$j" fcm_state=connected
+assert_json "$j" fcm_source=gms
+assert_json "$j" fcm_native_duration=202
+settime 13001
+printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService 1234abcd pid=321 user=0' '  Is client connected: false' > "$MCS_FIXTURE"
+j="$(run status)"
+assert_json "$j" fcm_state=disconnected
+assert_json "$j" fcm_source=gms
+settime 13017
+run monitor
+requests 5
+grep -q '|reconnect_requested|auto UID=0 GCM_RECONNECT' "$BERRY_FCM_DATA/mcs-monitor-events.log"
+echo 'PASS: explicit GMS client state triggers confirmed auto recovery'
+# Isolate this socket-fallback scenario from earlier retry history. Its
+# broadcast counter is shared with other scenarios, but its persisted cooldown
+# must start empty.
+export BERRY_FCM_DATA="$TMP/socket-fallback-data"
+mkdir -p "$BERRY_FCM_DATA"
+echo 1 > "$BERRY_FCM_DATA/enabled"
+
 # When a wrapper-only dump has no current fields, a Root-visible exact MCS
 # socket supplies positive connected evidence instead of leaving the card blank.
 settime 11700
@@ -177,22 +232,44 @@ echo 'PASS: exact GMS MCS TCP evidence resolves wrapper-only state'
 # still recover when subsequent dumps contain only ActivityManager wrappers.
 settime 11800
 printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Not connected' > "$MCS_FIXTURE"
-run monitor; requests 4
+run monitor; requests 5
 export MCS_SS_MODE=absent
 settime 11820
 printf '%s\n' 'ACTIVITY MANAGER SERVICES' '  (service wrapper)' '  (no client detail)' > "$MCS_FIXTURE"
-j="$(run monitor)"; requests 4
+j="$(run monitor)"; requests 5
 assert_json "$(run snapshot)" fcm_state=unknown
 settime 11860
-j="$(run monitor)"; requests 5
+j="$(run monitor)"; requests 6
 j="$(run snapshot)"
 assert_json "$j" fcm_state=disconnected
 assert_json "$j" fcm_source=gms_socket_fallback
 assert_json "$j" fcm_recovery_decision=requested
-grep -q '|recovery_socket_confirmed|' "$BERRY_FCM_DATA/mcs-monitor-events.log"
+grep -q '|recovery_confirmed|' "$BERRY_FCM_DATA/mcs-monitor-events.log"
 grep -q '|reconnect_requested|auto UID=0 GCM_RECONNECT' "$BERRY_FCM_DATA/mcs-monitor-events.log"
 unset MCS_SS_MODE
 echo 'PASS: recent native down + root TCP absence recovers through unreadable dumps'
+
+# Unknown native state plus continuous GMS UID socket absence must age into
+# a confirmed outage even when no earlier native disconnected sample exists.
+export BERRY_FCM_DATA="$TMP/unknown-absence-data"
+mkdir -p "$BERRY_FCM_DATA"
+echo 1 > "$BERRY_FCM_DATA/enabled"
+export MCS_SS_MODE=absent
+settime 12500
+printf '%s\n' 'ACTIVITY MANAGER SERVICES' '  (service wrapper)' '  (no client detail)' > "$MCS_FIXTURE"
+run monitor; requests 6
+assert_json "$(run snapshot)" fcm_state=unknown
+settime 12559
+run monitor; requests 6
+settime 12560
+run monitor; requests 7
+assert_json "$(run snapshot)" fcm_state=disconnected
+assert_json "$(run snapshot)" fcm_source=gms_socket_fallback
+grep -q '|tcp_absence_confirmed|' "$BERRY_FCM_DATA/mcs-monitor-events.log"
+grep -q '|recovery_confirmed|' "$BERRY_FCM_DATA/mcs-monitor-events.log"
+grep -q '|reconnect_requested|auto UID=0 GCM_RECONNECT' "$BERRY_FCM_DATA/mcs-monitor-events.log"
+unset MCS_SS_MODE
+echo 'PASS: unknown-only state ages continuous Root socket absence into confirmed auto recovery'
 
 # A frozen positive native GMS connection timer is checked twice, then receives
 # one targeted reconnect request. It does not force-stop the GMS package.
@@ -212,4 +289,184 @@ grep -q '|native_timer_stalled|GMS 原生仍报告 Connected' "$BERRY_FCM_DATA/m
 grep -q '|reconnect_requested|stalled_timer UID=0 GCM_RECONNECT' "$BERRY_FCM_DATA/mcs-monitor-events.log"
 settime 20330
 run monitor; requests 1
-echo 'PASS: stalled native connection timer gets one confirmed, targeted reconnect request'
+j="$(run snapshot)"; assert_json "$j" fcm_last_result=requested; assert_json "$j" fcm_retry_in=570
+echo stalled-timer-reboot > "$TMP/bootid"
+setboot 1 20331
+run monitor; requests 1
+test "$(awk -F '|' '{print $9}' "$BERRY_FCM_DATA/mcs-monitor.state")" = -31
+j="$(run snapshot)"; assert_json "$j" fcm_last_result=requested; assert_json "$j" fcm_retry_in=569
+setboot 301 20631
+run monitor; requests 1
+j="$(run snapshot)"; assert_json "$j" fcm_last_result=requested; assert_json "$j" fcm_retry_in=269; assert_json "$j" fcm_recovery_decision=timer_stalled_cooldown
+setboot 570 20900
+run monitor; requests 2
+j="$(run snapshot)"; assert_json "$j" fcm_last_result=requested
+setboot 571 20901
+printf '%s\n' 'DeviceID: [fixture]' 'connected=mtalk.google.com/142.250.157.188,port=5228' 'connectTime=10:01/00:00' > "$MCS_FIXTURE"
+run monitor; requests 2
+j="$(run snapshot)"; assert_json "$j" fcm_last_result=restored
+test "$(awk -F '|' '{print $13}' "$BERRY_FCM_DATA/mcs-monitor.state")" -gt 0
+grep -q '|native_timer_restored|GMS 原生 connectTime' "$BERRY_FCM_DATA/mcs-monitor-events.log"
+echo 'PASS: stalled timer cooldown survives reboot and resolves only after native progress'
+
+# A failed stalled-timer broadcast must also retain its 600-second cooldown across reboot.
+export BERRY_FCM_DATA="$TMP/timer-fail-data"
+mkdir -p "$BERRY_FCM_DATA"
+echo 1 > "$BERRY_FCM_DATA/enabled"
+: > "$MCS_AM_LOG"
+settime 22000
+printf '%s\n' 'DeviceID: [fixture]' 'connected=mtalk.google.com/142.250.157.188,port=5228' 'connectTime=10:00/00:00' > "$MCS_FIXTURE"
+run monitor; requests 0
+settime 22299
+run monitor; requests 0
+export MCS_AM_FAIL=1
+settime 22300
+run monitor; requests 1
+j="$(run snapshot)"; assert_json "$j" fcm_last_result=request_failed; assert_json "$j" fcm_retry_in=600
+unset MCS_AM_FAIL
+echo timer-fail-reboot > "$TMP/bootid"
+setboot 1 22301
+run monitor; requests 1
+j="$(run snapshot)"; assert_json "$j" fcm_last_result=request_failed; assert_json "$j" fcm_retry_in=599
+setboot 301 22601
+run monitor; requests 1
+j="$(run snapshot)"; assert_json "$j" fcm_last_result=request_failed; assert_json "$j" fcm_retry_in=299; assert_json "$j" fcm_recovery_decision=timer_stalled_cooldown
+printf '%s\n' 'DeviceID: [fixture]' 'connected=mtalk.google.com/142.250.157.188,port=5228' 'connectTime=10:01/00:00' > "$MCS_FIXTURE"
+setboot 302 22602
+j="$(run status)"
+assert_json "$j" fcm_last_result=restored
+test "$(awk -F '|' '{print $13}' "$BERRY_FCM_DATA/mcs-monitor.state")" -gt 0
+grep -q '|native_timer_restored|GMS 原生 connectTime' "$BERRY_FCM_DATA/mcs-monitor-events.log"
+echo 'PASS: failed stalled-timer cooldown survives reboot and clears on native progress'
+# A broken state target aborts sampling before recovery; no broadcast may run.
+export BERRY_FCM_DATA="$TMP/state-directory-data"
+mkdir -p "$BERRY_FCM_DATA" "$BERRY_FCM_DATA/mcs-monitor.state"
+echo 1 > "$BERRY_FCM_DATA/enabled"
+: > "$MCS_AM_LOG"
+settime 29000
+printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Not connected' 'disconnectTime=02:00/00:00' > "$MCS_FIXTURE"
+if run monitor; then
+    echo 'state directory unexpectedly allowed sample persistence' >&2
+    exit 1
+fi
+requests 0
+test ! -f "$BERRY_FCM_DATA/mcs-evidence"
+echo 'PASS: invalid state target aborts patrol before recovery without publishing mismatched evidence'
+
+# Fail exactly the third state replacement: first observe, confirmation
+# observe, then request_reconnect's pre-broadcast pending transaction.
+export BERRY_FCM_DATA="$TMP/pre-request-write-fail-data"
+mkdir -p "$BERRY_FCM_DATA"
+echo 1 > "$BERRY_FCM_DATA/enabled"
+: > "$MCS_AM_LOG"
+: > "$TMP/state-mv-count"
+export MCS_STATE_MV_COUNT_FILE="$TMP/state-mv-count" MCS_FAIL_STATE_MV_AT=3
+settime 29500
+printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Not connected' 'disconnectTime=02:00/00:00' > "$MCS_FIXTURE"
+run monitor
+requests 0
+test "$(cat "$MCS_STATE_MV_COUNT_FILE")" = 3
+test "$(awk -F '|' '{print $9}' "$BERRY_FCM_DATA/mcs-monitor.state")" = 0
+test "$(awk -F '|' '{print $10}' "$BERRY_FCM_DATA/mcs-monitor.state")" = 0
+test "$(awk -F '|' '{print $11}' "$BERRY_FCM_DATA/mcs-monitor.state")" = 0
+test "$(awk -F '|' '{print $12}' "$BERRY_FCM_DATA/mcs-monitor.state")" = none
+grep -q '|reconnect_skipped|重连状态无法持久化，未发送广播' "$BERRY_FCM_DATA/mcs-monitor-events.log"
+assert_json "$(run snapshot)" fcm_recovery_decision=state_save_failed
+unset MCS_STATE_MV_COUNT_FILE MCS_FAIL_STATE_MV_AT
+echo 'PASS: request pending-save failure blocks broadcast without persisting an attempt'
+
+# If the post-broadcast result write fails, the pre-written pending marker
+# remains on disk and a later positive GMS sample can resolve it.
+export BERRY_FCM_DATA="$TMP/result-pending-data"
+mkdir -p "$BERRY_FCM_DATA"
+echo 1 > "$BERRY_FCM_DATA/enabled"
+: > "$MCS_AM_LOG"
+export MCS_FAIL_STATE_MV=1 MCS_FAIL_STATE_MV_MARKER="$TMP/fail-state-mv"
+rm -f "$MCS_FAIL_STATE_MV_MARKER"
+settime 31000
+printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Not connected' 'disconnectTime=02:00/00:00' > "$MCS_FIXTURE"
+run monitor
+requests 1
+test "$(awk -F '|' '{print $11}' "$BERRY_FCM_DATA/mcs-monitor.state")" = 1
+test "$(awk -F '|' '{print $12}' "$BERRY_FCM_DATA/mcs-monitor.state")" = pending
+test "$(awk -F '|' '{print $22}' "$BERRY_FCM_DATA/mcs-monitor.state")" = 1
+j="$(run snapshot)"; assert_json "$j" fcm_last_result=pending
+rm -f "$MCS_FAIL_STATE_MV_MARKER"
+unset MCS_FAIL_STATE_MV
+echo pending-reboot > "$TMP/bootid"
+setboot 1 31001
+run monitor
+requests 1
+test "$(awk -F '|' '{print $9}' "$BERRY_FCM_DATA/mcs-monitor.state")" = -1
+j="$(run snapshot)"
+assert_json "$j" fcm_last_result=pending
+assert_json "$j" fcm_retry_in=59
+printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Connected' 'connectTime=00:01/00:00' > "$MCS_FIXTURE"
+setboot 2 31002
+j="$(run status)"
+assert_json "$j" fcm_last_result=restored
+assert_json "$j" fcm_retry_streak=0
+test "$(awk -F '|' '{print $13}' "$BERRY_FCM_DATA/mcs-monitor.state")" -gt 0
+grep -q '|reconnect_result_restored|观察到 GMS 已连接' "$BERRY_FCM_DATA/mcs-monitor-events.log"
+echo 'PASS: failed result persistence remains pending across reboot until native recovery evidence'
+
+# A reboot must retain the retry streak and enforce the remaining epoch cooldown.
+export BERRY_FCM_DATA="$TMP/reboot-cooldown-data"
+mkdir -p "$BERRY_FCM_DATA"
+echo 1 > "$BERRY_FCM_DATA/enabled"
+: > "$MCS_AM_LOG"
+settime 33000
+printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Not connected' 'disconnectTime=02:00/00:00' > "$MCS_FIXTURE"
+run monitor
+requests 1
+awk -F '|' 'NF != 27 { exit 1 } END { if (NR != 1) exit 1 }' "$BERRY_FCM_DATA/mcs-monitor.state"
+test "$(awk -F '|' '{print $10}' "$BERRY_FCM_DATA/mcs-monitor.state")" -gt 0
+test "$(awk -F '|' '{print $22}' "$BERRY_FCM_DATA/mcs-monitor.state")" = 1
+echo boot-two > "$TMP/bootid"
+setboot 1 33001
+run monitor
+requests 1
+j="$(run snapshot)"; assert_json "$j" fcm_retry_streak=1; assert_json "$j" fcm_attempts=1; assert_json "$j" fcm_retry_in=59
+setboot 20 33020
+run monitor
+requests 1
+j="$(run snapshot)"; assert_json "$j" fcm_retry_streak=1; assert_json "$j" fcm_retry_in=40
+echo 1699990000 > "$MCS_CLOCK"
+echo 21 > "$TMP/uptime"
+run monitor
+requests 1
+j="$(run snapshot)"; assert_json "$j" fcm_retry_streak=1; assert_json "$j" fcm_retry_in=39
+setboot 60 33060
+run monitor
+requests 2
+j="$(run snapshot)"; assert_json "$j" fcm_retry_streak=2; assert_json "$j" fcm_attempts=2; assert_json "$j" fcm_last_result=requested
+echo 'PASS: reboot retains retry streak and remaining epoch cooldown'
+
+# Manual reconnect keeps its 60-second request cooldown across a reboot.
+export BERRY_FCM_DATA="$TMP/manual-reboot-data"
+mkdir -p "$BERRY_FCM_DATA"
+echo 1 > "$BERRY_FCM_DATA/enabled"
+: > "$MCS_AM_LOG"
+settime 34000
+printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Not connected' 'disconnectTime=02:00/00:00' > "$MCS_FIXTURE"
+run reconnect; requests 1
+echo manual-reboot-two > "$TMP/bootid"
+setboot 1 34001
+run reconnect; requests 1
+j="$(run snapshot)"; assert_json "$j" fcm_last_try_reason=manual; assert_json "$j" fcm_retry_in=59
+echo 'PASS: manual reconnect cooldown survives reboot'
+# A backwards wall clock must never make a pending retry immediately eligible.
+export BERRY_FCM_DATA="$TMP/reboot-cooldown-data"
+: > "$MCS_AM_LOG"
+echo boot-three > "$TMP/bootid"
+setboot 1 33061
+echo 1699990000 > "$MCS_CLOCK"
+run monitor
+requests 0
+test "$(awk -F '|' '{print $9}' "$BERRY_FCM_DATA/mcs-monitor.state")" = 1
+j="$(run snapshot)"; assert_json "$j" fcm_retry_streak=2; assert_json "$j" fcm_retry_in=120
+printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Connected' 'connectTime=00:01/00:00' > "$MCS_FIXTURE"
+setboot 2 33062
+j="$(run status)"
+assert_json "$j" fcm_retry_streak=0
+echo 'PASS: clock rollback preserves full cooldown; confirmed connection clears retry streak'

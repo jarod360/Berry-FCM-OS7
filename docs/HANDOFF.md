@@ -1,5 +1,31 @@
 # Berry-FCM-OS7 开发进度与接续交接
 
+## 2026-11-22 KSU RC5 巡检与状态解析修复候选
+
+- 修复分支：`fix/rc5-mcs-patrol-20261122`，从当前 main 建立，避免旧 RC3/RC4 分支的版本与文档冲突。
+- GMS 状态解析：参考开源项目 `XXhaos/OriginOS-FCM-Fix` 的 `GcmServiceParser`，补充严格识别 GMS 服务块中的 `Is client connected: true/false`。仅在目标 GMS 服务范围内接受；与其它状态冲突时仍返回 unknown。false 不把 connected 时长误当断联时长。
+- 巡检隔离：原 `service.sh` 在主巡检循环中同步执行 `ctl.sh fix`，其多包查询/广播可能阻塞下一轮 MCS 采样。改为独立后台维护事务，以 `maintenance.lock` 防重入；主循环不等待维护完成。保留开始/结束、退出码和耗时日志。
+- 测试新增：GMS client true/false 真实格式解析与 false 自动恢复；仅 unknown + 连续 Root GMS UID MCS socket 缺失达到阈值后恢复；慢速 stopped 维护期间 MCS 巡检继续运行。
+- 模块候选版本：`1.0-rc.5 / 10005`。当前尚未取得 CI 成功记录或 OriginOS 7 真机验收，不可宣称修复完成或发布。
+
+
+
+## 2026-11-22 RC5 KSU 重连状态事务与重启冷却修复（待完整验证）
+
+- 本轮功能代码范围按用户最新指示收敛为 KernelSU/SU Root 版，只修改 `module/bin/fcm-monitor.sh` 与 `tests/fcm-monitor-smoke.sh`；另调整 KSU 工作流的手动打包门控，并同步根 README、模块 README、HANDOFF 与 PRODUCT_PLAN。APK 脚本和代码暂不处理。
+- 状态写入：临时文件使用 `umask 077`；拒绝 state 目标路径为目录；检查 printf 返回值；检查临时记录为单行、固定 27 字段后才原子替换。先持久化权威 state，再更新辅助 evidence；state 保存失败时不发布新 evidence，也不允许继续执行依赖该状态的重连广播。巡检结束时的最终 recovery evidence 写入失败也会返回错误并记录事件，不再静默忽略。
+- 重连请求：广播前先持久化 `last_result=pending`、尝试时间、次数和退避计数。广播前保存失败时不广播、不把未发生的请求记为一次持久化尝试。广播后结果保存失败时保留磁盘中的 pending，不伪装成 failed；后续观察到连接恢复再解析。
+- pending 结果的恢复判断区分普通断联恢复与 stalled-timer：普通断联后的新 connected 样本可确认恢复；stalled-timer 必须观察到 GMS 原生 connectTime 变化或 MCS endpoint 变化，不能因为状态仍显示 Connected 就误报 restored。设备重启时保留原生计时值/endpoint 作为比较基线，只清除 boot-scoped monotonic 锚点。
+- 重启与冷却：boot ID 变化时保留 `retry_streak`、`last_try_epoch` 和历史尝试次数；用 epoch 计算重启期间已流逝时间，再换算为本次启动的 signed monotonic anchor（即使 uptime 刚从 1 秒开始、锚点落在 uptime 零点之前，也能精确保留剩余冷却）。墙钟回拨/不可用时从新 boot 的 monotonic 当前值开始一个有界完整间隔；锚定后后续墙钟跳变不再影响冷却。自动重试退避为 30/60/120/180 秒；待确认手动请求冷却 60 秒；待确认/失败的 stalled-timer 请求冷却 600 秒。
+- 回归用例新增/修正：精确注入第三次 state rename 失败以覆盖 `request_reconnect` 广播前保存；state 目标为目录时中止巡检且不发布新 evidence；广播后结果 rename 失败时保留 pending；pending 重启后不重复广播并在连接证据出现时恢复，同时检查 `last_restore` 和恢复事件；验证 27 字段记录、attempts/retry_streak、自动/手动剩余冷却、墙钟回拨，以及 stalled-timer 成功/失败广播后的 600 秒冷却跨重启和原生计时推进后才标记 restored。重启用例将 uptime 真正重置为 1 秒，不再只模拟 boot ID 变化。
+- 参考方案：GMS 原生状态解析继续依据交接中记录的 `XXhaos/OriginOS-FCM-Fix` `GcmServiceParser` 约束；没有引入不相关的持久化框架或新依赖。
+- 当前监控脚本修复提交：`2b522dcc9aeb79d003deabd3ae86e1a450ad21b6`；FCM monitor smoke 最新修正：`994686ef936a0d070395ac0f313746f87f489e00`；KSU wake smoke 最新修正：`e25be6e9d9739375b142dfde291054e1350a8225`。新增 smoke 用例覆盖广播前第三次 state 替换失败且尝试字段不落盘、state 目标异常且不发布新 evidence、广播后结果替换失败且 attempts/retry_streak 保留、pending 跨重启不重复广播、自动/手动冷却（含断联确认已满足但仍处于冷却的场景）、重启时和重启后墙钟回拨、stalled-timer 成功/失败请求的 600 秒冷却跨重启（含阈值已满足但仍被冷却阻止的场景，并检查 `timer_stalled_cooldown` 决策），以及原生计时推进后解除未决状态；重启测试把 uptime 重置到 1 秒并断言 signed monotonic anchor。stalled-timer 冷却期间不再重复做二次确认，避免巡检日志反复刷屏。
+- 继续审查发现 smoke 测试虽写入 `MCS_CLOCK`，但监控脚本通过 `date +%s` 读取时间，测试此前没有 mock `date`，因此跨重启 epoch 冷却/墙钟回拨断言没有真正使用设定时钟。已在 `tests/fcm-monitor-smoke.sh` 增加 `date +%s` mock，并在启动时断言读数等于 `MCS_CLOCK`；测试文件提交 `994686ef936a0d070395ac0f313746f87f489e00`。这只是修正测试夹具，**完整 smoke 尚未执行**。
+- `tests/ksu-wake-smoke.sh` 原先断言 `hotinstall.sh` 含有不存在的 `starting updated background monitor service` 文案；对照实际脚本后改为精确检查后台启动 `service.sh` 的命令。测试文件修正提交 `e25be6e9d9739375b142dfde291054e1350a8225`。这是静态断言修正，完整 wake smoke 仍未执行。
+- 已存在的自动触发任务均为测试步骤，Go 定时器编译和 ZIP 打包步骤被跳过。此前 `d77df6e` 通过了前一个 socket fallback 场景，但该次仍在“unknown-only 连续 Socket 缺失”场景因事件名断言不匹配而失败；`017456e` 已把断言改为实际事件 `tcp_absence_confirmed` + `recovery_confirmed`。**修正后没有重跑**。本轮按用户要求不再触发 Actions、CI、云编译、ZIP 打包或 Release；完整验证证据仍为空，手机实测也未进行。
+- `.github/workflows/build-ksu.yml` 的 RC 修复分支默认跳过 Go 定时器编译与 ZIP 打包；最终云编译应由用户在全部修复完成后手动触发，并显式选择 package。**当前不能宣称 RC5 修复完成、CI 通过或可安装包已生成。**
+
+
 ## 2026-11-22 本地 KSU RC4 测试包
 
 - 用户要求先提供本地 SU/KernelSU 测试包；本轮仅将 KSU 模块版本升至 `1.0-rc.4 / 10004`，APK 版本仍为 `1.0-rc.3 / 10003`。
@@ -514,3 +540,32 @@ Removed the full `cmd appops get top.zesun.berryfcm` dump incorrectly labeled as
 - **GMS 自身恢复情况**：05:29、05:34、05:59、06:09、06:14、06:24、07:24、08:14、08:34 等见 heartbeat delay / close err:28，常常 1–3 秒重新 connected；日志中最大可见延迟 298,550ms（08:14:52），是心跳定时器迟到，并非直接等于断联持续时间；err:20/24/28 不应在无 GMS 源码佐证时强行译成固定网络错误含义。累计 GMS native close=126、connected=127，不能当作当夜次数或单条推送送达证据。
 - **未通过/尚无证据的事项**：任一轮 3 次救援仍未恢复后的完整退出与 CPU 锁释放、动作真正导致恢复的因果、夜间 FCM 消息端到端送达与耗时、整体耗电/待机电量损耗。快照 `fcm_last_result=requested` 是最后命令状态，不等于当前 GMS 未连接；当前为 `connected`。历史“ADB 认证已通过·当前待验证”与 Binder 可运行不能混同。
 - **下一批改进建议（只登记）**：(1) `sample_gap` 日志拆分“预期 Doze 延迟”和“可能异常停摆”，降低每 90s 以上反复报错的误导；(2) 统计每轮 `rescue_started` / `rescue_request` / `rescue_restored` / `rescue_finished` 及每次请求后原生连接时间，确保脚本与 Java 重名 `rescue_finished` 在诊断界面不混淆；(3) 继续以 GMS 原生连接证据为门槛，切勿仅因 watchdog 延迟就发心跳；(4) 连同已登记的诊断页图标和通知计时去秒一次处理。本次**只保存诊断结论，不改代码、不构建、不发布新 Release**。
+
+
+### 2026-11-23 RC5 测试字段索引复核
+- 继续对照 `save_state()` 的 27 字段固定顺序与 `tests/fcm-monitor-smoke.sh` 的 awk 断言，发现两处 retry_streak 断言误读为第 23 列。实际第 22 列是 `retry_streak`，第 23 列是 `outage_hint_mono`；旧断言会把正常运行中的 uptime 锚点误当作 `1`，导致相关 smoke 用例失败。
+- 已将结果持久化失败场景和重启冷却场景的断言从 `$23` 改为 `$22`。其他字段断言逐项对照：9=last_try_mono、10=last_try_epoch、11=attempts、12=last_result、13=last_restore，当前索引匹配。
+- 测试修正提交：`6d7608169cd9efe111a3d958ad83e47df3888575`（`[skip ci]`）。本次仅修正测试断言；尚未运行完整 smoke 或 CI，不将其记为通过。
+
+### 2026-11-23 KSU 唤醒 smoke 维护任务清理竞态
+- 复核 `tests/ksu-wake-smoke.sh` 发现测试只等待 `ctl.sh` 创建 `fix.done`，但该标记早于维护子 shell 写入 `maintenance_end` 日志和 EXIT trap 删除 `maintenance.lock`；紧接着立即 grep 会存在调度竞态。
+- 已增加有界等待：先等维护结束日志，再断言 `maintenance.lock` 清理；第二轮阻塞定时器场景也等待并检查维护锁清理，避免测试脚本提前删除临时目录。
+- 修正提交：`b311bb73bdaef6555ad8287b20662caffd6a3a61`（`[skip ci]`）。与前一项字段索引修正一样，仅是测试可靠性修复；完整 smoke/CI 尚未执行。
+
+- KSU wake smoke 第一轮维护任务：等待 `maintenance_end` 后增加有界等待，直到 `maintenance.lock` 被 EXIT trap 实际清理，避免日志写入与锁删除之间的竞态。该修正仅做源码静态核对，完整 smoke 尚未执行。
+
+
+### 2026-11-23 KSU wake smoke timeout 退出码修正
+- 继续静态审查发现 `tests/ksu-wake-smoke.sh` 开启 `set -e`，却直接执行两次 `timeout 8 sh service.sh`。测试场景本来就要求服务持续巡检到超时，因此 GNU `timeout` 的预期退出码 124 会被 `set -e` 当作失败，导致第一轮提前退出，第二轮和后续清理断言无法执行。
+- 两处调用均改为显式接受正常退出或超时退出码 124；其他非零退出码仍使测试失败。该修正只调整测试驱动，不改变 service 功能代码。
+- 提交 `080da9b213cce86622c30cc338a7b74c0f3d3c78`（`[skip ci]`）。仅静态核对替换位置和控制流，未运行完整 wake smoke、CI 或编译；因此不代表测试已通过。
+
+
+### 2026-11-23 KSU timeout 修正二次核对
+- 回读提交后的完整脚本时发现，前一次文本替换只正确处理了第一处调用，第二处仍是裸 `timeout`；随后的替换也曾短暂造成重复 `if`。已再次逐行核对并修正，当前两轮均为完整的 `if timeout ...; then ... else rc=$?; [ "$rc" -eq 124 ]; fi` 结构，不存在裸调用或重复 `if`。
+- 最终修正提交 `af594641cf9494a0deabdf6eaf6ebe77618d79fb`（`[skip ci]`）。这也说明此前仅凭替换脚本返回成功不足以证明文件正确，后续以重新读取仓库文件为准。尚未运行完整 smoke 或语法检查。
+
+
+### 2026-11-23 KSU timeout 条件块最终结构复核
+- 再次按完整行范围回读时发现，第一轮条件块仍残留了前一次替换产生的尾部 `fi; then ... fi`，仅检查调用次数无法发现该语法错误。已删除残留尾部，第一轮和第二轮现在都是独立、完整的 if/else/fi 条件块。
+- 最终脚本提交 `fe7fb2165839a97de44d0a22f9226a0b55fbf9f5`（`[skip ci]`）。后续必须以实际 `sh -n` 和完整 smoke 结果作为测试通过依据；本次尚未运行，不能宣称语法检查通过。
