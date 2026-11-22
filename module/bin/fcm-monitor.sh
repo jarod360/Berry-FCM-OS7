@@ -385,7 +385,7 @@ auto_enabled() {
 
 retry_interval() {
     if [ "$last_try_reason" = stalled_timer ] &&
-       { [ "$last_result" = pending ] || [ "$last_result" = requested ]; }; then
+       { [ "$last_result" = pending ] || [ "$last_result" = requested ] || [ "$last_result" = failed ]; }; then
         echo 600
     elif [ "$last_try_reason" = manual ] &&
          { [ "$last_result" = pending ] || [ "$last_result" = requested ]; }; then
