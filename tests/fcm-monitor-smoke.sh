@@ -276,7 +276,7 @@ mkdir -p "$BERRY_FCM_DATA" "$BERRY_FCM_DATA/mcs-monitor.state"
 echo 1 > "$BERRY_FCM_DATA/enabled"
 : > "$MCS_AM_LOG"
 settime 29000
-printf '%s\\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Not connected' 'disconnectTime=02:00/00:00' > "$MCS_FIXTURE"
+printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Not connected' 'disconnectTime=02:00/00:00' > "$MCS_FIXTURE"
 if run monitor; then
     echo 'state write failure unexpectedly allowed monitor to continue' >&2
     exit 1
@@ -293,7 +293,7 @@ echo 1 > "$BERRY_FCM_DATA/enabled"
 export MCS_FAIL_STATE_MV=1 MCS_FAIL_STATE_MV_MARKER="$TMP/fail-state-mv"
 rm -f "$MCS_FAIL_STATE_MV_MARKER"
 settime 31000
-printf '%s\\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Not connected' 'disconnectTime=02:00/00:00' > "$MCS_FIXTURE"
+printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Not connected' 'disconnectTime=02:00/00:00' > "$MCS_FIXTURE"
 run monitor
 requests 1
 test "$(awk -F '|' '{print $12}' "$BERRY_FCM_DATA/mcs-monitor.state")" = pending
@@ -301,7 +301,7 @@ j="$(run snapshot)"; assert_json "$j" fcm_last_result=pending
 rm -f "$MCS_FAIL_STATE_MV_MARKER"
 unset MCS_FAIL_STATE_MV
 settime 31001
-printf '%s\\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Connected' 'connectTime=00:01/00:00' > "$MCS_FIXTURE"
+printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Connected' 'connectTime=00:01/00:00' > "$MCS_FIXTURE"
 j="$(run status)"
 assert_json "$j" fcm_last_result=restored
 assert_json "$j" fcm_retry_streak=0
@@ -313,7 +313,7 @@ mkdir -p "$BERRY_FCM_DATA"
 echo 1 > "$BERRY_FCM_DATA/enabled"
 : > "$MCS_AM_LOG"
 settime 33000
-printf '%s\\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Not connected' 'disconnectTime=02:00/00:00' > "$MCS_FIXTURE"
+printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Not connected' 'disconnectTime=02:00/00:00' > "$MCS_FIXTURE"
 run monitor
 requests 1
 test "$(awk -F '|' '{print $23}' "$BERRY_FCM_DATA/mcs-monitor.state")" = 1
@@ -335,7 +335,7 @@ echo 1699990000 > "$MCS_CLOCK"
 run monitor
 requests 2
 j="$(run snapshot)"; assert_json "$j" fcm_retry_streak=2; assert_json "$j" fcm_retry_in=120
-printf '%s\\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Connected' 'connectTime=00:01/00:00' > "$MCS_FIXTURE"
+printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Connected' 'connectTime=00:01/00:00' > "$MCS_FIXTURE"
 settime 33062
 j="$(run status)"
 assert_json "$j" fcm_retry_streak=0
