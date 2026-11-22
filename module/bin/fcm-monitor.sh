@@ -244,6 +244,10 @@ parse_mcs() {
         } else if(line=="Server: Connected" && (header || scoped)){
           if(state!="" && state!="connected") conflict=1
           state="connected"; explicit_status=1
+        } else if((line=="Is client connected: true" || line=="Is client connected: false") && (header || scoped)){
+          client_state=(line=="Is client connected: true" ? "connected" : "disconnected")
+          if(state!="" && state!=client_state) conflict=1
+          state=client_state; explicit_status=1; explicit_client_status=1
         } else if((line=="Not connected" || line=="Server: Not connected") && (header || scoped)){
           if(line=="Server: Not connected") explicit_status=1
           if(state=="connected") conflict=1
@@ -274,7 +278,7 @@ parse_mcs() {
           print "unknown||||-1||" detail;exit
         }
         if((state=="connected" && has_dt && !has_ct) ||
-           (state!="connected" && has_ct && !has_dt)){
+           (state!="connected" && has_ct && !has_dt && !explicit_client_status)){
           print "unknown||||-1||inconsistent_timing";exit
         }
         if(port!~/^[0-9]+$/ || port+0<1 || port+0>65535)port=""
@@ -297,7 +301,7 @@ dump_state_shape() {
         if (!heading && line ~ /^(DeviceID:|Direct boot mode )/) heading=NR
         if (lower ~ /^(not connected|connected|connecting|disconnected|disabled)$/) {
           field=line
-        } else if (match(lower, /^(server([ _-]status)?|mcs[ _-]?(state|status)|connection[ _-]?(state|status)|state|status|connected|connecting|pending|connecttime|disconnecttime|time (dis)?connected)[[:space:]]*[:=]/)) {
+        } else if (match(lower, /^(is client connected|server([ _-]status)?|mcs[ _-]?(state|status)|connection[ _-]?(state|status)|state|status|connected|connecting|pending|connecttime|disconnecttime|time (dis)?connected)[[:space:]]*[:=]/)) {
           field=substr(line,1,RLENGTH)
           value=substr(lower,RLENGTH+1)
           sub(/^[[:space:]]+/, "", value)
