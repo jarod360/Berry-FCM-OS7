@@ -195,7 +195,12 @@ run monitor
 requests 5
 grep -q '|reconnect_requested|auto UID=0 GCM_RECONNECT' "$BERRY_FCM_DATA/mcs-monitor-events.log"
 echo 'PASS: explicit GMS client state triggers confirmed auto recovery'
-export BERRY_FCM_DATA="$TMP/data"
+# Isolate this socket-fallback scenario from earlier retry history. Its
+# broadcast counter is shared with other scenarios, but its persisted cooldown
+# must start empty.
+export BERRY_FCM_DATA="$TMP/socket-fallback-data"
+mkdir -p "$BERRY_FCM_DATA"
+echo 1 > "$BERRY_FCM_DATA/enabled"
 
 # When a wrapper-only dump has no current fields, a Root-visible exact MCS
 # socket supplies positive connected evidence instead of leaving the card blank.
