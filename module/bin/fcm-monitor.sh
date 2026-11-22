@@ -419,8 +419,10 @@ retry_interval() {
     fi
 }
 
-# Monotonic time is valid only within the same boot. Epoch restores cooldown
-# across reboot; a backwards/unavailable wall clock must not bypass it.
+# Reconstruct a monotonic anchor from epoch once after reboot. Thereafter
+# cooldown is measured only by monotonic time, so later wall-clock jumps cannot
+# bypass it or keep extending it. A backwards/unavailable boot clock starts a
+# bounded full interval on the new monotonic clock.
 cooldown_remaining() {
     cd_interval="$1"
     cd_nowm="$(num "$(monotime)")"
