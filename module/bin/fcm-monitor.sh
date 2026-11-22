@@ -824,9 +824,18 @@ auto_recovery() {
         if [ "$timer_stall_age" -ge 300 ]; then
             if ! auto_enabled; then
                 decision=timer_stalled_disabled
+            elif [ "$last_try_reason" = stalled_timer ] &&
+                 { [ "$last_result" = pending ] || [ "$last_result" = requested ] || [ "$last_result" = failed ]; }; then
+                timer_retry_remaining="$(cooldown_remaining 600)"
+                if [ "$timer_retry_remaining" -gt 0 ]; then
+                    decision=timer_stalled_cooldown
+                else
+                    confirm_stalled_timer
+                fi
             elif [ "$native_timer_last_request" -gt 0 ] &&
                  [ "$timer_now" -ge "$native_timer_last_request" ] &&
                  [ $((timer_now-native_timer_last_request)) -lt 600 ]; then
+                # Compatibility fallback for older state files.
                 decision=timer_stalled_cooldown
             else
                 confirm_stalled_timer
