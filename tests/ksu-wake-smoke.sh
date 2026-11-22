@@ -70,6 +70,8 @@ test -e "$TMP/fix.done"
 n=0
 while ! grep -q 'maintenance_end pid=.*operation=guard_fix rc=0 elapsed_s=' "$TMP/data/guard.log" && [ "$n" -lt 60 ]; do /bin/sleep 0.1; n=$((n + 1)); done
 grep -q 'maintenance_end pid=.*operation=guard_fix rc=0 elapsed_s=' "$TMP/data/guard.log"
+n=0
+while [ -d "$TMP/data/maintenance.lock" ] && [ "$n" -lt 60 ]; do /bin/sleep 0.1; n=$((n + 1)); done
 test ! -d "$TMP/data/maintenance.lock"
 test -e "$TMP/samples_during_fix"
 test "$(cat "$TMP/data/wake-status")" = fallback
