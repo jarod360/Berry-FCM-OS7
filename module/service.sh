@@ -19,10 +19,13 @@ if ! mkdir "$LOCK" 2>/dev/null; then
             [ "$old" -gt 1 ] && kill -0 "$old" 2>/dev/null && exit 0
             ;;
     esac
-    rm -rf "$LOCK"
+    stale="$LOCK.stale.$"
+    if mv "$LOCK" "$stale" 2>/dev/null; then
+        rm -rf "$stale"
+    fi
     mkdir "$LOCK" 2>/dev/null || exit 0
 fi
-echo $$ > "$LOCK/pid"
+echo $ > "$LOCK/pid"
 cgroup_path() {
     while IFS=: read -r hierarchy controllers group; do
         if [ "$hierarchy" = 0 ] && [ -z "$controllers" ]; then
