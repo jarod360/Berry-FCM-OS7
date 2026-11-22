@@ -35,6 +35,7 @@ cgroup_path() {
     done < "/proc/$$/cgroup"
 }
 group="$(cgroup_path)"
+printf '[%s] service_cgroup_initial pid=%s group=%s\n' "$(date '+%F %T')" "$" "${group:-unknown}" >> "$DATA/guard.log"
 cgroup_ready=1
 case "$group" in
     "")
