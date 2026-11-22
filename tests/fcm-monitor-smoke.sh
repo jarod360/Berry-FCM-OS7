@@ -57,15 +57,20 @@ dest=
 for arg do dest="$arg"; done
 case "$dest" in
   */mcs-monitor.state)
+    if [ -n "${MCS_STATE_MV_COUNT_FILE:-}" ]; then
+      count=0
+      [ ! -f "$MCS_STATE_MV_COUNT_FILE" ] || count="$(cat "$MCS_STATE_MV_COUNT_FILE")"
+      count=$((count+1))
+      echo "$count" > "$MCS_STATE_MV_COUNT_FILE"
+      if [ -n "${MCS_FAIL_STATE_MV_AT:-}" ] && [ "$count" -eq "$MCS_FAIL_STATE_MV_AT" ]; then
+        exit 1
+      fi
+    fi
     if [ -n "${MCS_FAIL_STATE_MV_MARKER:-}" ] && [ -f "$MCS_FAIL_STATE_MV_MARKER" ]; then
       exit 1
     fi;;
 esac
 exec /bin/mv "$@"
-MOCK
-cat > "$TMP/bin/date" <<'MOCK'
-#!/bin/sh
-if [ "$*" = '+%s' ]; then cat "$MCS_CLOCK"; else /bin/date "$@"; fi
 MOCK
 chmod +x "$TMP/bin/"*
 echo 10000 > "$TMP/uptime"
@@ -275,19 +280,38 @@ settime 20330
 run monitor; requests 1
 echo 'PASS: stalled native connection timer gets one confirmed, targeted reconnect request'
 
-# State persistence failure before a request must prevent the broadcast.
-export BERRY_FCM_DATA="$TMP/state-write-fail-data"
+# A broken state target aborts sampling before recovery; no broadcast may run.
+export BERRY_FCM_DATA="$TMP/state-directory-data"
 mkdir -p "$BERRY_FCM_DATA" "$BERRY_FCM_DATA/mcs-monitor.state"
 echo 1 > "$BERRY_FCM_DATA/enabled"
 : > "$MCS_AM_LOG"
 settime 29000
 printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Not connected' 'disconnectTime=02:00/00:00' > "$MCS_FIXTURE"
 if run monitor; then
-    echo 'state write failure unexpectedly allowed monitor to continue' >&2
+    echo 'state directory unexpectedly allowed sample persistence' >&2
     exit 1
 fi
 requests 0
-echo 'PASS: state write failure blocks reconnect before broadcast'
+echo 'PASS: invalid state target aborts patrol before recovery'
+
+# Fail exactly the third state replacement: first observe, confirmation
+# observe, then request_reconnect's pre-broadcast pending transaction.
+export BERRY_FCM_DATA="$TMP/pre-request-write-fail-data"
+mkdir -p "$BERRY_FCM_DATA"
+echo 1 > "$BERRY_FCM_DATA/enabled"
+: > "$MCS_AM_LOG"
+: > "$TMP/state-mv-count"
+export MCS_STATE_MV_COUNT_FILE="$TMP/state-mv-count" MCS_FAIL_STATE_MV_AT=3
+settime 29500
+printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Not connected' 'disconnectTime=02:00/00:00' > "$MCS_FIXTURE"
+run monitor
+requests 0
+test "$(cat "$MCS_STATE_MV_COUNT_FILE")" = 3
+test "$(awk -F '|' '{print $11}' "$BERRY_FCM_DATA/mcs-monitor.state")" = 0
+test "$(awk -F '|' '{print $12}' "$BERRY_FCM_DATA/mcs-monitor.state")" = none
+grep -q '|reconnect_skipped|重连状态无法持久化，未发送广播' "$BERRY_FCM_DATA/mcs-monitor-events.log"
+unset MCS_STATE_MV_COUNT_FILE MCS_FAIL_STATE_MV_AT
+echo 'PASS: request pending-save failure blocks broadcast without persisting an attempt'
 
 # If the post-broadcast result write fails, the pre-written pending marker
 # remains on disk and a later positive GMS sample can resolve it.
