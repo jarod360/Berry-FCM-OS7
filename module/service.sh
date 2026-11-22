@@ -44,7 +44,10 @@ mode_changed=0
 wake_count=0
 wake_seen=0
 stop_wait() {
-    [ -z "$wait_pid" ] || kill "$wait_pid" 2>/dev/null || :
+    if [ -n "$wait_pid" ]; then
+        kill "$wait_pid" 2>/dev/null || :
+        wait "$wait_pid" 2>/dev/null || :
+    fi
 }
 stop_timer() {
     [ -n "$timer_pid" ] || return 0
