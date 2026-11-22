@@ -63,7 +63,7 @@ chmod +x "$TMP/bin/"* "$TMP/module/bin/wake-timer-arm64"
 touch "$TMP/module/module.prop"
 echo 1 > "$TMP/data/enabled"
 echo timed > "$TMP/data/wake-mode"
-if if timeout 8 sh "$TMP/module/service.sh"; then
+if timeout 8 sh "$TMP/module/service.sh"; then
     :
 else
     rc=$?
@@ -109,7 +109,12 @@ echo 10 > "$TMP/data/wake-minutes"
 : > "$TMP/timer"
 : > "$TMP/data/guard.log"
 : > "$TMP/data/wake-timer.log"
-timeout 8 sh "$TMP/module/service.sh"
+if timeout 8 sh "$TMP/module/service.sh"; then
+    :
+else
+    rc=$?
+    [ "$rc" -eq 124 ]
+fi
 test "$(wc -l < "$TMP/samples")" -ge 3
 test "$(cat "$TMP/timer")" = 10
 ! grep -q 'wake_timer_fired' "$TMP/data/wake-timer.log"
