@@ -5,6 +5,7 @@ DATA=/data/adb/berry_fcm_ksu
 mkdir -p "$DATA" || exit 0
 [ "$(id -u)" = 0 ] || exit 0
 LOCK="$DATA/service.lock"
+MAINTENANCE_LOCK="$DATA/maintenance.lock"
 if ! mkdir "$LOCK" 2>/dev/null; then
     old="$(cat "$LOCK/pid" 2>/dev/null)"
     case "$old" in ''|*[!0-9]*) old=0 ;; esac
@@ -173,20 +174,37 @@ while [ -e "$MODDIR/module.prop" ]; do
             "$(date '+%F %T')" "$monitor_rc" "$check_elapsed" "${summary:-snapshot=unavailable}" >> "$DATA/guard.log"
         [ -z "$result" ] || printf '[%s] %s\n' "$(date '+%F %T')" "$result" >> "$DATA/guard.log"
         if [ "$last_fix" = 0 ] || [ "$now" -lt "$last_fix" ] || [ $((now - last_fix)) -ge 300 ]; then
-            fix_started_epoch="$(date +%s 2>/dev/null)"
-            case "$fix_started_epoch" in ''|*[!0-9]*) fix_started_epoch=0;; esac
-            printf '[%s] maintenance_start pid=%s uptime=%s operation=guard_fix\n' \
-                "$(date '+%F %T')" "$$" "$now" >> "$DATA/guard.log"
-            HEARTBEAT_MODE=auto sh "$MODDIR/bin/ctl.sh" fix >> "$DATA/guard.log" 2>&1
-            fix_rc=$?
-            fix_finished_epoch="$(date +%s 2>/dev/null)"
-            case "$fix_finished_epoch" in ''|*[!0-9]*) fix_finished_epoch=0;; esac
-            fix_elapsed=unknown
-            if [ "$fix_started_epoch" -gt 0 ] && [ "$fix_finished_epoch" -ge "$fix_started_epoch" ]; then
-                fix_elapsed=$((fix_finished_epoch-fix_started_epoch))
+            if [ -d "$MAINTENANCE_LOCK" ]; then
+                old="$(cat "$MAINTENANCE_LOCK/pid" 2>/dev/null)"
+                case "$old" in ''|*[!0-9]*) old=0;; esac
+                if [ "$old" -gt 1 ] && kill -0 "$old" 2>/dev/null; then
+                    printf '[%s] maintenance_skip pid=%s reason=already_running\n' "$(date '+%F %T')" "$old" >> "$DATA/guard.log"
+                else
+                    rm -rf "$MAINTENANCE_LOCK"
+                fi
             fi
-            printf '[%s] maintenance_end pid=%s operation=guard_fix rc=%s elapsed_s=%s\n' \
-                "$(date '+%F %T')" "$$" "$fix_rc" "$fix_elapsed" >> "$DATA/guard.log"
+            if [ ! -d "$MAINTENANCE_LOCK" ] && mkdir "$MAINTENANCE_LOCK" 2>/dev/null; then
+                (
+                    trap 'rm -rf "$MAINTENANCE_LOCK"' EXIT
+                    fix_started_epoch="$(date +%s 2>/dev/null)"
+                    case "$fix_started_epoch" in ''|*[!0-9]*) fix_started_epoch=0;; esac
+                    printf '[%s] maintenance_start pid=%s uptime=%s operation=guard_fix\n' \
+                        "$(date '+%F %T')" "$" "$now" >> "$DATA/guard.log"
+                    HEARTBEAT_MODE=auto sh "$MODDIR/bin/ctl.sh" fix >> "$DATA/guard.log" 2>&1
+                    fix_rc=$?
+                    fix_finished_epoch="$(date +%s 2>/dev/null)"
+                    case "$fix_finished_epoch" in ''|*[!0-9]*) fix_finished_epoch=0;; esac
+                    fix_elapsed=unknown
+                    if [ "$fix_started_epoch" -gt 0 ] && [ "$fix_finished_epoch" -ge "$fix_started_epoch" ]; then
+                        fix_elapsed=$((fix_finished_epoch-fix_started_epoch))
+                    fi
+                    printf '[%s] maintenance_end pid=%s operation=guard_fix rc=%s elapsed_s=%s\n' \
+                        "$(date '+%F %T')" "$" "$fix_rc" "$fix_elapsed" >> "$DATA/guard.log"
+                    exit "$fix_rc"
+                ) &
+                maintenance_pid=$!
+                printf '%s\n' "$maintenance_pid" > "$MAINTENANCE_LOCK/pid"
+            fi
             last_fix="$now"
         fi
         bytes="$(wc -c < "$DATA/guard.log" 2>/dev/null)"
