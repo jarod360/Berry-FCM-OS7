@@ -9,7 +9,19 @@
 - 模块候选版本：`1.0-rc.5 / 10005`。当前尚未取得 CI 成功记录或 OriginOS 7 真机验收，不可宣称修复完成或发布。
 
 
-> **唯一产品基线 / Single Source of Truth** · 更新：2026-11-22 · 状态：SU/KSU 本地设备测试候选为 `v1.0-rc.4`；APK 仍为 `v1.0-rc.3`。新包巡检日志可用于定位空档，手机效果仍待实测。
+
+## 2026-11-22 当前任务：RC5 SU/KSU 重连状态持久化（用户指定优先 SU）
+
+- 总体产品路线仍保留 APK 优先与 KSU 双线；但本次用户明确要求先以 SU/KernelSU 的 RC5 最新提交为主，APK 相关脚本和代码暂不改。
+- 修复分支：`fix/rc5-mcs-patrol-20261122`。现有可安装 KSU 测试包仍是 RC4（`1.0-rc.4 / 10004`）；RC5（`1.0-rc.5 / 10005`）是当前源码候选，不代表已有 RC5 ZIP。
+- 本轮代码审查重点：状态文件原子保存完整性、重连前 pending 事务、广播结果保存失败、boot ID 变化后的 retry_streak/epoch 冷却、墙钟回拨，以及 stalled-timer 的原生恢复证据。实现要求是不引入数据库或第三方持久化依赖。
+- 当前代码 HEAD（文档更新前）：`57314c45b653fd8330f9310d4153cb9ca34a1f35`。新增 smoke 用例覆盖精确的广播前第三次 state 替换失败、广播后结果替换失败、pending 跨重启不重复广播、退避计数/冷却、时间回拨和 stalled-timer 600 秒冷却。
+- 目前只完成源码静态审查及本轮改动片段的 POSIX `sh -n` 检查；**完整 `fcm-monitor-smoke.sh`、`ksu-wake-smoke.sh` 尚未执行**。此前自动触发的一次验证任务在旧 socket fallback 事件断言处失败，发生在本轮持久化用例之前；后续已修正断言，但未重跑。
+- 按用户最新指示，修复阶段不触发 Actions/CI、云编译、打包或 Release。所有修复与核对完成后，再由用户手动触发最终云编译；在此之前不通知安装测试，不宣称 CI 通过。
+
+
+
+> **唯一产品基线 / Single Source of Truth** · 更新：2026-11-22 · 状态：现有可安装 SU/KSU 测试包为 `v1.0-rc.4`；当前开发分支为 RC5 候选 `v1.0-rc.5 / 10005`，尚未生成 RC5 ZIP；APK 仍为 `v1.0-rc.3`。
 > 仓库：[jarod360/Berry-FCM-OS7](https://github.com/jarod360/Berry-FCM-OS7) · 交接：[HANDOFF.md](HANDOFF.md) · 签名：[SIGNING.md](SIGNING.md)
 >
 
@@ -19,7 +31,7 @@
 - RC4 KSU 测试包为每次 GMS 巡检和守护修复分别记录开始、结束、耗时；与 wake timer 里的 armed/fired/suspend/late 记录对照，判断下次空档发生在调度、状态读取、守护修复还是服务进程阶段。
 - `dumpsys` 无当前字段时，KernelSU Root 精确观察 GMS UID 的 MCS Socket；UID0 连续缺失 60 秒并通过二次采样才进入断开恢复。APK UID2000 没有 Root Socket 可见性，不据此判断缺失。
 - GMS 原生状态为 Connected 且正数 `connectTime` 5 分钟不前进时，KernelSU 复核后可发一次目标为 GMS 的 `GCM_RECONNECT`；不 force-stop 整个 GMS。需由云端模拟测试和手机实测分别验收。
-- 当前 APK 版本为 `1.0-rc.3 / 10003`；本地 KSU 测试包为 `1.0-rc.4 / 10004`。RC4 仅用于设备试测，最近的 GitHub Actions 未通过，尚无云构建/回归通过证据、GitHub 测试 Release 或手机验收，不能宣称修复已验收。
+- 当前 APK 版本为 `1.0-rc.3 / 10003`；现有可安装 KSU 测试包为 `1.0-rc.4 / 10004`。RC5 `1.0-rc.5 / 10005` 目前仅是源码候选，尚无 RC5 ZIP；最近一次 KSU Actions 在 socket fallback 断言处失败，后续断言已修正但未重跑。尚无本轮完整回归、RC5 云构建、GitHub 测试 Release 或手机验收证据，不能宣称修复已验收。
 > **执行约束**：只在当前聊天沟通并通过 GitHub 仓库改代码、GitHub Actions 编译和验证；不跳转 Work。不擅自删旧功能；任何分歧先列证据、成本和替代方案。每次功能变更须同步更新本文件与 HANDOFF.md，避免新会话失忆。用户 Windows 本地开发目录仅为 `D:\Codex`；不擅自写 C 盘。GitHub Runner 的云端临时环境不等于在用户电脑写 C 盘。
 
 ## 1. 已确定的八项目标（来自本轮需求）
