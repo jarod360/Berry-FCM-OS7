@@ -10,15 +10,18 @@
 
 
 
-## 2026-11-22 RC5 KSU 状态持久化修复（待 CI 回归）
+## 2026-11-22 RC5 KSU 重连状态事务与重启冷却修复（待完整验证）
 
-- 本轮只处理 KernelSU Root 版 `module/bin/fcm-monitor.sh`，APK 暂不改动。
-- 重连前先持久化 `last_result=pending`；只有状态写入成功才发送广播。广播后结果写入失败时，磁盘保留 pending，不伪装成 failed；后续观察到 GMS connected 时将 pending 解析为 restored（包括设备重启后的首次在线样本）。
-- 状态文件写入拒绝目标路径为目录的情况，临时文件写入或替换失败会返回失败；巡检采样状态写入失败不再静默忽略。
-- 设备重启时保留 `retry_streak` 和 `last_try_epoch`，清除只在上一启动周期有效的 monotonic 观测。跨重启按 epoch 恢复剩余冷却；检测到墙钟回拨时，以本次启动的 monotonic 时间保守等待一个完整退避间隔，避免立即重连，也避免因墙钟长期落后而无限等待。
-- `tests/fcm-monitor-smoke.sh` 增加写入失败阻断广播、广播结果写入失败保留 pending、pending 跨重启恢复、重启后剩余冷却、墙钟回拨、恢复后 streak 清零用例。
-- `.github/workflows/build-ksu.yml` 增加手动 test-only 模式；`fix/**` 分支推送只执行 Shell/FCM/KSU 巡检回归，不执行 Go 定时器编译和 ZIP 打包。main/release 分支仍保留原构建行为。
-- 代码已推送到 RC5 修复分支；本段更新时尚未取得本轮新回归结果。**不代表 CI 通过，不代表设备验收，不生成安装包或 Release。**
+- 本轮范围按用户最新指示收敛为 KernelSU/SU Root 版；只修改 `module/bin/fcm-monitor.sh` 与 `tests/fcm-monitor-smoke.sh`，APK 暂不处理。
+- 状态写入：临时文件使用 `umask 077`；拒绝 state 目标路径为目录；检查 printf 返回值；检查临时记录为单行、固定 27 字段后才原子替换。状态保存失败时不允许继续执行依赖该状态的重连广播。
+- 重连请求：广播前先持久化 `last_result=pending`、尝试时间、次数和退避计数。广播前保存失败时不广播、不把未发生的请求记为一次持久化尝试。广播后结果保存失败时保留磁盘中的 pending，不伪装成 failed；后续观察到连接恢复再解析。
+- pending 结果的恢复判断区分普通断联恢复与 stalled-timer：普通断联后的新 connected 样本可确认恢复；stalled-timer 必须观察到 GMS 原生 connectTime 变化或 MCS endpoint 变化，不能因为状态仍显示 Connected 就误报 restored。设备重启时保留原生计时值/endpoint 作为比较基线，只清除 boot-scoped monotonic 锚点。
+- 重启与冷却：boot ID 变化时保留 `retry_streak`、`last_try_epoch` 和历史尝试次数；同一 boot 使用 monotonic，跨 boot 使用 epoch。墙钟回拨时以本次启动的 monotonic 时间保守等待完整退避间隔。自动重试退避为 30/60/120/180 秒；尚未确认结果的手动请求冷却为 60 秒；尚未确认/失败的 stalled-timer 请求冷却为 600 秒，并在重启后继续按 epoch 约束。
+- 回归用例新增/修正：精确注入第三次 state rename 失败以覆盖 `request_reconnect` 广播前保存；state 目标为目录时中止巡检；广播后 rename 失败时保留 pending；pending 重启后不重复广播并在连接证据出现时恢复；验证 27 字段记录、attempts/retry_streak、跨重启剩余冷却、墙钟回拨，以及 stalled-timer 600 秒冷却跨重启和原生计时推进后才标记 restored。
+- 参考方案：GMS 原生状态解析继续依据交接中记录的 `XXhaos/OriginOS-FCM-Fix` `GcmServiceParser` 约束；没有引入不相关的持久化框架或新依赖。
+- 当前代码 HEAD（文档更新前）：`57314c45b653fd8330f9310d4153cb9ca34a1f35`。测试与代码已推送到 RC5 修复分支，但完整 smoke 尚未执行。仅对本轮改动片段运行了 POSIX `sh -n` 语法检查；这不是完整脚本语法检查或行为测试。
+- 曾有一次此前推送自动触发的 KSU 验证任务在 socket fallback 用例失败，失败发生在新增持久化用例之前；后续 `d77df6e` 修正了该用例的事件断言。本轮按用户要求不再触发 Actions、CI、云编译、ZIP 打包或 Release；完整验证证据仍为空，手机实测也未进行。
+- `.github/workflows/build-ksu.yml` 的 RC 修复分支默认跳过 Go 定时器编译与 ZIP 打包；最终云编译应由用户在全部修复完成后手动触发，并显式选择 package。**当前不能宣称 RC5 修复完成、CI 通过或可安装包已生成。**
 
 
 ## 2026-11-22 本地 KSU RC4 测试包
