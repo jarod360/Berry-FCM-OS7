@@ -16,9 +16,17 @@
 
 
 
+## 2026-11-23 后台服务存活与采样空档修复（待测试）
+
+- 旧日志的 sample_retry first=no_current_state retry_rc=0 state=connected 属于旧 dump parser 的二次读取记录，不是 MCS socket 证据；RC5 procfs-only 路径不再有该重试。旧日志中的超长 sample_gap 表示服务采样长期没有执行，不能靠空档后重新读取状态来解决。
+- 后台服务新增陈旧 PID 锁身份验证：kill -0 只证明 PID 存在，不证明该 PID 仍是 Berry-FCM；现在还要核对 /proc/PID/cmdline 的模块服务路径。
+- 服务检查所有非根 cgroup v2 路径并尝试迁移至根组，避免只识别 /apps/* 而漏掉 /uid_*/pid_* 应用冻结组；迁移/读取失败必须留下明确日志。
+- 热安装替换旧服务时，已验证为本模块 guardian 的进程若 TERM 宽限期后仍存活，将被 KILL 回收，避免旧服务继续持锁。
+- wake smoke 已增加陈旧锁恢复和静态保护断言；尚未执行 Shell 语法检查、完整 smoke 或手机实测。不得宣称后台问题已解决。
+
 ## 2026-11-23 procfs-only 改造状态
 
-- 当前代码在独立工作分支 `work/rc5-procfs-no-dumpsys`，未合并、未构建、未发布。本轮仅同步修正 `module/service.sh` 的状态源注释，没有改变调度行为。
+- 当前代码在独立工作分支 `work/rc5-procfs-no-dumpsys`，未合并、未构建、未发布。本轮还修改了后台服务陈旧锁、cgroup 迁移和热安装旧 guardian 回收逻辑，完整测试尚未执行。
 - 作用边界：`module/bin/ctl.sh` 仍使用 `dumpsys package` 读取 Android 包的 stopped 标志，并用 `dumpsys activity broadcasts` 做接收器诊断；这是独立的包维护/诊断逻辑，不进入 `fcm-monitor.sh` 的 MCS 在线、断联、恢复或重连门控。本轮未改写这部分，避免用不可靠替代接口破坏用户主动停止应用的语义。
 - 已修正 TCP 表解析字段映射：表头 12 列，数据行 10 列；UID 位于数据行第 8 字段；5228/5229/5230 的十六进制端口为 146C/146D/146E。状态判定不再调用 dumpsys/ss。GMS UID 查询限制 5 秒、重连广播限制 10 秒，避免命令挂起阻塞主巡检；超时命令使用 Toybox 或 KernelSU BusyBox。
 - 完整负证据要求 TCP 与 TCP6 均完整、合法、UID 可信且没有 MCS 匹配；任一来源不完整时为 unknown。另一地址族出现合法 ESTABLISHED/SYN 连接仍可作为正证据。
