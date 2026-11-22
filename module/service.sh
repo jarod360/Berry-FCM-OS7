@@ -189,7 +189,7 @@ while [ -e "$MODDIR/module.prop" ]; do
                     fix_started_epoch="$(date +%s 2>/dev/null)"
                     case "$fix_started_epoch" in ''|*[!0-9]*) fix_started_epoch=0;; esac
                     printf '[%s] maintenance_start pid=%s uptime=%s operation=guard_fix\n' \
-                        "$(date '+%F %T')" "$" "$now" >> "$DATA/guard.log"
+                        "$(date '+%F %T')" "$service_pid" "$now" >> "$DATA/guard.log"
                     HEARTBEAT_MODE=auto sh "$MODDIR/bin/ctl.sh" fix >> "$DATA/guard.log" 2>&1
                     fix_rc=$?
                     fix_finished_epoch="$(date +%s 2>/dev/null)"
@@ -199,7 +199,7 @@ while [ -e "$MODDIR/module.prop" ]; do
                         fix_elapsed=$((fix_finished_epoch-fix_started_epoch))
                     fi
                     printf '[%s] maintenance_end pid=%s operation=guard_fix rc=%s elapsed_s=%s\n' \
-                        "$(date '+%F %T')" "$" "$fix_rc" "$fix_elapsed" >> "$DATA/guard.log"
+                        "$(date '+%F %T')" "$service_pid" "$fix_rc" "$fix_elapsed" >> "$DATA/guard.log"
                     exit "$fix_rc"
                 ) &
                 maintenance_pid=$!
