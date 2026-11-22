@@ -17,6 +17,13 @@ public final class MonitorStatusSmoke {
         expect(MonitorStatus.State.CONNECTING,true,true,true,10,false,true,"connecting");
         expect(MonitorStatus.State.DISCONNECTED,true,true,true,10,false,true,"disconnected");
         expect(MonitorStatus.State.UNKNOWN,true,true,true,10,false,true,"unknown");
+        if (!MonitorStatus.hasStateEvidence("gms_socket")
+                || !MonitorStatus.hasStateEvidence("gms_socket_fallback")
+                || MonitorStatus.hasStateEvidence("unavailable"))
+            throw new AssertionError("state evidence sources");
+        if (!"GMS MCS TCP 已建立（FCM 认证未证实）".equals(
+                MonitorStatus.label(MonitorStatus.State.CONNECTED, "gms_socket")))
+            throw new AssertionError("socket evidence label");
         if (!"6分 40秒".equals(MonitorStatus.duration(400))) throw new AssertionError("duration");
         if (!"1天 1小时 1分 1秒".equals(MonitorStatus.duration(90061))) throw new AssertionError("duration days");
         long[] notificationSeconds = {0, 59, 60, 3599, 3600, 5794};

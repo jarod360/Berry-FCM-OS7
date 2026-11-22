@@ -1,6 +1,10 @@
 #!/bin/sh
 set -eu
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
+grep -q 'MODULE_HOT_INSTALL_REQUEST=true' "$ROOT/module/customize.sh"
+grep -q 'MODULE_HOT_RUN_SCRIPT=hotinstall.sh' "$ROOT/module/customize.sh"
+test -f "$ROOT/module/hotinstall.sh"
+grep -q 'starting updated background monitor service' "$ROOT/module/hotinstall.sh"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/data" "$TMP/module/bin" "$TMP/bin"
@@ -60,7 +64,14 @@ test -s "$TMP/sleeps"
 grep -q '定时器触发' "$TMP/data/guard.log"
 grep -q 'wake_timer_armed .*delay_s=180' "$TMP/data/wake-timer.log"
 grep -q 'wake_timer_fired .*elapsed_s=180 suspend_s=150 late_s=0' "$TMP/data/wake-timer.log"
+grep -q 'timer_worker_started service_pid=.*interval_min=3' "$TMP/data/wake-timer.log"
+grep -q 'timer_worker_exited service_pid=.*rc=1' "$TMP/data/wake-timer.log"
 grep -q 'wake_gms_check_finished rc=0 state=connected sample_epoch=1234 recovery=not_disconnected' "$TMP/data/guard.log"
+grep -q 'service_started pid=.*wake_mode=timed enabled=1 cgroup_ready=1' "$TMP/data/guard.log"
+grep -q 'fcm_check_start pid=.*wake=1 mode=timed' "$TMP/data/guard.log"
+grep -q 'fcm_check_end rc=0 elapsed_s=.*state=connected sample_epoch=1234 recovery=not_disconnected' "$TMP/data/guard.log"
+grep -q 'maintenance_start pid=.*operation=guard_fix' "$TMP/data/guard.log"
+grep -q 'maintenance_end pid=.*operation=guard_fix rc=0 elapsed_s=' "$TMP/data/guard.log"
 grep -q 'fixture permission denied' "$TMP/data/wake-timer.log"
 test ! -d "$TMP/data/service.lock"
 

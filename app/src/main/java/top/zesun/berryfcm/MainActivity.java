@@ -112,21 +112,28 @@ public final class MainActivity extends Ui {
         long age = FcmMonitorService.sampleAgeSeconds(this);
         String lastError = FcmMonitorService.currentError(this);
         String observed = snapshot.optString("fcm_state", "never_seen");
-        boolean nativeState = "gms".equals(snapshot.optString("fcm_source"));
+        String stateSource = snapshot.optString("fcm_source");
+        boolean stateEvidence = MonitorStatus.hasStateEvidence(stateSource);
         MonitorStatus.State verdict = MonitorStatus.resolve(true, enabled, true,
-                stamp > 0 ? age : -1, !lastError.isEmpty(), nativeState, observed);
-        state.setText(verdict.label);
+                stamp > 0 ? age : -1, !lastError.isEmpty(), stateEvidence, observed);
+        state.setText(MonitorStatus.label(verdict, stateSource));
         state.setTextColor(statusColor(verdict));
 
         String description = "后台监控已开启 · 应用守护" + (prefs.guardEnabled() ? "已开启" : "未开启")
                 + "\n最近检查：" + (age >= 0 ? age + " 秒前" : "尚无本次检查结果");
-        if (age >= 0 && age <= 90 && nativeState && lastError.isEmpty()) {
-            long nativeSeconds = snapshot.optLong("fcm_native_duration", -1);
-            if ("connected".equals(observed)) {
-                description += "\n" + MonitorStatus.connectedDuration(
-                        nativeSeconds, snapshot.optLong("fcm_observed_up_seconds", -1));
-            } else if (nativeSeconds >= 0) {
-                description += "\n当前状态计时：" + MonitorStatus.duration(nativeSeconds);
+        if (age >= 0 && age <= 90 && stateEvidence && lastError.isEmpty()) {
+            if ("gms".equals(stateSource)) {
+                long nativeSeconds = snapshot.optLong("fcm_native_duration", -1);
+                if ("connected".equals(observed)) {
+                    description += "\n" + MonitorStatus.connectedDuration(
+                            nativeSeconds, snapshot.optLong("fcm_observed_up_seconds", -1));
+                } else if (nativeSeconds >= 0) {
+                    description += "\n当前状态计时：" + MonitorStatus.duration(nativeSeconds);
+                }
+            } else if ("gms_socket".equals(stateSource)) {
+                description += "\n依据 GMS UID 的 MCS TCP 正向证据；不代表消息送达。";
+            } else if ("gms_socket_fallback".equals(stateSource)) {
+                description += "\n依据 UID0 连续 60 秒 MCS TCP 缺失并经二次采样确认。";
             }
         }
         if (!lastError.isEmpty()) description += "\n后台将自动重试，详情见监控详情。";

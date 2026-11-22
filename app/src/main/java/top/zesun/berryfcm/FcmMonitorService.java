@@ -315,12 +315,15 @@ public final class FcmMonitorService extends Service {
         if (!prefs.monitorEnabled()) return "应用守护已开启";
         JSONObject snapshot = lastSnapshot(this);
         long age = sampleAgeSeconds(this);
-        boolean nativeState = "gms".equals(snapshot.optString("fcm_source"));
+        String stateSource = snapshot.optString("fcm_source");
+        boolean stateEvidence = MonitorStatus.hasStateEvidence(stateSource);
         MonitorStatus.State state = MonitorStatus.resolve(true, true, isRunning(), age,
-                !currentError(this).isEmpty(), nativeState,
+                !currentError(this).isEmpty(), stateEvidence,
                 snapshot.optString("fcm_state", "unknown"));
         if (state == MonitorStatus.State.CONNECTED) {
             long seconds = snapshot.optLong("fcm_native_duration", -1);
+            if ("gms_socket".equals(stateSource))
+                return "MCS TCP 已建立 · FCM 认证未证实";
             if (seconds > 0)
                 return "FCM 已连接 · GMS 计时：" + MonitorStatus.notificationDuration(seconds);
             if (seconds == 0) return "FCM 已连接 · GMS 计时待确认";
@@ -332,9 +335,10 @@ public final class FcmMonitorService extends Service {
         if (state == MonitorStatus.State.DISCONNECTED || state == MonitorStatus.State.CONNECTING) {
             long seconds = snapshot.optLong("fcm_native_duration", -1);
             if (seconds >= 60)
-                return state.label + " · 持续：" + MonitorStatus.notificationDuration(seconds);
+                return MonitorStatus.label(state, stateSource) + " · 持续：" + MonitorStatus.notificationDuration(seconds);
+            return MonitorStatus.label(state, stateSource);
         }
-        return state.label;
+        return MonitorStatus.label(state, stateSource);
     }
 
     private void refreshNotification() {
@@ -474,12 +478,12 @@ public final class FcmMonitorService extends Service {
      * until a fresh native connected observation has been recorded. */
     private synchronized void updateConfirmationWindow(JSONObject sample) {
         String state = sample.optString("fcm_state", "unknown");
-        if ("connected".equals(state) && "gms".equals(sample.optString("fcm_source"))) {
+        if ("connected".equals(state) && MonitorStatus.hasStateEvidence(sample.optString("fcm_source"))) {
             releaseConfirmationWakeLock();
             confirmationUsed = false;
             return;
         }
-        boolean abnormal = "gms".equals(sample.optString("fcm_source"))
+        boolean abnormal = MonitorStatus.hasStateEvidence(sample.optString("fcm_source"))
                 && ("disconnected".equals(state) || "connecting".equals(state))
                 && new AppPrefs(this).autoReconnect();
         if (!new AppPrefs(this).autoReconnect()
@@ -737,7 +741,7 @@ public final class FcmMonitorService extends Service {
                     if ("ready".equals(recoveryGate())
                             && sampleAgeSeconds(this) >= 0 && sampleAgeSeconds(this) <= 15
                             && currentError(this).isEmpty()
-                            && "gms".equals(observed.optString("fcm_source"))
+                            && MonitorStatus.hasStateEvidence(observed.optString("fcm_source"))
                             && ("disconnected".equals(observed.optString("fcm_state"))
                                 || "connecting".equals(observed.optString("fcm_state")))) {
                         runRescueEpisode(now + 120000L);
@@ -868,7 +872,7 @@ public final class FcmMonitorService extends Service {
                     monitorPrefix(prefs, mode) + "rescue >/dev/null 2>&1 || exit 9; ");
             String decision = outcome.optString("fcm_recovery_decision");
             logRuntime(this, "rescue_finished", "decision=" + decision
-                    + "; native_connected=" + nativeConnected(outcome));
+                    + "; connected_observed=" + connectionObserved(outcome));
             if ("requested".equals(decision) || "request_failed".equals(decision)) {
                 stored.edit().putLong("rescue_started_elapsed", now).apply();
                 monitorWorker.schedule(() -> {
@@ -890,8 +894,8 @@ public final class FcmMonitorService extends Service {
                 && !Thread.currentThread().isInterrupted();
     }
 
-    private static boolean nativeConnected(JSONObject value) {
-        return "gms".equals(value.optString("fcm_source"))
+    private static boolean connectionObserved(JSONObject value) {
+        return MonitorStatus.hasStateEvidence(value.optString("fcm_source"))
                 && "connected".equals(value.optString("fcm_state"));
     }
 

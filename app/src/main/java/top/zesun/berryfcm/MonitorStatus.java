@@ -6,21 +6,32 @@ package top.zesun.berryfcm;
 final class MonitorStatus {
     enum State {
         AUTH_REQUIRED("需要授权"), DISABLED("监控未开启"), NOT_RUNNING("监控未运行"),
-        WAITING("等待有效检查"), FAILED("连接检查失败"), UNKNOWN("本次未读到 GMS 连接状态"),
+        WAITING("等待有效检查"), FAILED("连接检查失败"), UNKNOWN("暂无有效状态样本"),
         CONNECTED("FCM 已连接"), CONNECTING("FCM 正在重连（尚未连接）"),
         DISCONNECTED("FCM 已断开");
         final String label;
         State(String label) { this.label = label; }
     }
     private MonitorStatus() {}
+    static boolean hasStateEvidence(String source) {
+        return "gms".equals(source) || "gms_socket".equals(source)
+                || "gms_socket_fallback".equals(source);
+    }
+    static String label(State state, String source) {
+        if (state == State.CONNECTED && "gms_socket".equals(source))
+            return "GMS MCS TCP 已建立（FCM 认证未证实）";
+        if (state == State.DISCONNECTED && "gms_socket_fallback".equals(source))
+            return "FCM TCP 持续缺失（Root 观察）";
+        return state.label;
+    }
     static State resolve(boolean authorized, boolean enabled, boolean running,
-                         long age, boolean failed, boolean nativeState, String raw) {
+                         long age, boolean failed, boolean stateEvidence, String raw) {
         if (!authorized) return State.AUTH_REQUIRED;
         if (!enabled) return State.DISABLED;
         if (!running) return State.NOT_RUNNING;
         if (failed) return State.FAILED;
         if (age < 0 || age > 90) return State.WAITING;
-        if (!nativeState) return State.UNKNOWN;
+        if (!stateEvidence) return State.UNKNOWN;
         if ("connected".equals(raw)) return State.CONNECTED;
         if ("connecting".equals(raw)) return State.CONNECTING;
         if ("disconnected".equals(raw)) return State.DISCONNECTED;

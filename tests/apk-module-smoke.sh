@@ -495,7 +495,8 @@ must('confirmationLock.acquire(90000L)' in svc
      and svc.index('if (confirmationUsed)') < svc.index('confirmationUsed = true;')
      and 'resetConfirmationWindow()' in svc, "finite one-shot outage confirmation")
 must('updateConfirmationWindow(parsed)' in svc
-     and '"gms".equals(sample.optString("fcm_source"))' in svc, "native GMS evidence")
+     and 'MonitorStatus.hasStateEvidence(sample.optString("fcm_source"))' in svc,
+     "native GMS or explicitly qualified socket evidence")
 must(svc.count('releaseConfirmationWakeLock();') >= 3
      and svc.count('releasePersistentWakeLock();') >= 3, "lifecycle cleanup")
 must('holdForService(context)' in wd and 'handoff.acquire(90000L)' in wd

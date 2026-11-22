@@ -22,7 +22,11 @@ echo 'package:com.google.android.gms uid:10200'
 MOCK
 cat > "$TMP/bin/ss" <<'MOCK'
 #!/bin/sh
-echo 'ESTAB 0 0 192.168.1.8:45000 142.250.157.188:5228 uid:10200 ino:101'
+case "${MCS_SS_MODE:-unknown}" in
+  connected) echo 'ESTAB 0 0 192.168.1.8:45000 142.250.157.188:5228 uid:10200 ino:101';;
+  absent) echo 'ESTAB 0 0 192.168.1.8:45000 1.1.1.1:443 uid:1000 ino:202';;
+  *) echo 'ESTAB 0 0 192.168.1.8:45000 142.250.157.188:5228';;
+esac
 MOCK
 cat > "$TMP/bin/am" <<'MOCK'
 #!/bin/sh
@@ -165,13 +169,16 @@ run recovery-events | grep -q 'reconnect_failed'
 run reconnect; requests 4
 unset MCS_AM_FAIL
 printf '%s\n' 'Permission Denial' '11-18 06:25:43.757 net=1: Connected' > "$MCS_FIXTURE"
+export MCS_SS_MODE=connected
 j="$(run status)"
-assert_json "$j" fcm_state=unknown
+assert_json "$j" fcm_state=connected
+assert_json "$j" fcm_source=gms_socket
 assert_json "$j" fcm_tcp_hint=established
 assert_json "$j" fcm_native_duration=-1
 assert_json "$j" fcm_native_close_events=3
 assert_json "$j" fcm_native_reason=permission_denied
 run monitor; run reconnect; requests 4
+unset MCS_SS_MODE
 # Partial dumps are not valid, including when a current-looking field preceded a timeout.
 printf '%s\n' 'DeviceID: [fixture]' 'connected=mtalk.google.com/142.250.157.188,port=5228' 'DUMP TIMEOUT' > "$MCS_FIXTURE"
 j="$(run status)"; assert_json "$j" fcm_state=unknown; assert_json "$j" fcm_native_reason=timeout
@@ -466,3 +473,48 @@ printf '%s\n' 'DeviceID: [fixture]' 'connecting=alt7-mtalk.google.com:5228' 'pen
 j="$(run status)"; assert_json "$j" fcm_state=connecting
 run monitor; requests 1
 echo 'PASS: alternating unknown/down observations and parallel non-connected attempts'
+
+# ActivityManager can return only wrapper lines with exit code zero.
+export MCS_NEXT_FIXTURE="$TMP/next-state-dump"
+printf '%s\n' 'ACTIVITY MANAGER SERVICES' '  (service wrapper)' '  (no client detail)' > "$MCS_FIXTURE"
+printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Connected' > "$MCS_NEXT_FIXTURE"
+j="$(run status)"
+assert_json "$j" fcm_state=connected
+grep -q 'sample_retry|first=no_current_state retry_rc=0 state=connected' "$BERRY_FCM_DATA/mcs-monitor-events.log"
+unset MCS_NEXT_FIXTURE
+echo 'PASS: wrapper-only dump retries once and uses fresh GMS state'
+
+# A positive, exact UID-owned MCS socket is visible even when dumpsys returns
+# only wrappers. UID 2000 never treats an empty socket table as disconnection.
+settime 25000
+export BERRY_FCM_ADB_SHELL=1 MCS_SS_MODE=absent
+rm -f "$BERRY_FCM_DATA"/mcs-monitor.state "$BERRY_FCM_DATA"/mcs-evidence
+: > "$MCS_AM_LOG"
+printf '%s\n' 'ACTIVITY MANAGER SERVICES' '  (service wrapper)' '  (no client detail)' > "$MCS_FIXTURE"
+run monitor; requests 0
+j="$(run snapshot)"; assert_json "$j" fcm_state=unknown
+settime 25060
+run monitor; requests 0
+j="$(run snapshot)"; assert_json "$j" fcm_state=unknown
+export MCS_SS_MODE=connected
+j="$(run status)"
+assert_json "$j" fcm_state=connected
+assert_json "$j" fcm_source=gms_socket
+assert_json "$j" fcm_tcp_hint=established
+echo 'PASS: UID2000 uses positive MCS TCP evidence but never infers down from missing sockets'
+
+# Root has complete UID socket visibility: two samples after 60 seconds of
+# continuous absence can enter the existing recovery policy.
+unset BERRY_FCM_ADB_SHELL
+export MCS_SS_MODE=absent
+rm -f "$BERRY_FCM_DATA"/mcs-monitor.state "$BERRY_FCM_DATA"/mcs-evidence "$BERRY_FCM_DATA"/mcs-monitor-events.log
+: > "$MCS_AM_LOG"
+settime 25200
+run monitor; requests 0
+settime 25260
+run monitor; requests 1
+j="$(run snapshot)"
+assert_json "$j" fcm_state=disconnected
+assert_json "$j" fcm_source=gms_socket_fallback
+assert_json "$j" fcm_recovery_decision=requested
+echo 'PASS: Root repeated exact MCS socket absence triggers confirmed recovery'

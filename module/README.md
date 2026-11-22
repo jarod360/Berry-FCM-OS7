@@ -1,13 +1,14 @@
-# Berry-FCM KSU v1.0-rc.2
+# Berry-FCM KSU v1.0-rc.3
 
 KernelSU Root（UID 0）模块。模块 ID 仍为 `berry_fcm_ksu`，升级保留守护名单、开关和旧 TCP 监控历史。新 GMS 监控写入单独的 `mcs-*` 文件。
 
 ## 监控与恢复
 
 - 「设置 → 后台保活」可选随系统唤醒（默认，约每 30 秒尝试巡检）或定时巡检（1–10 分钟，默认 3 分钟）。后者保留常规巡检，并由独立的 ARM64 Root 定时器增加检查机会。定时器失败或迟到时，常规巡检继续运行。两种方式都没有持续 CPU 唤醒锁。
-- 以 GMS `GcmService` 原生状态显示已连接、连接中、断开、未知和过期。原生状态不可读时，GMS UID 的 TCP 仅提供辅助诊断，不能触发重连。
+- 优先读取 GMS `GcmService` 原生状态。原生字段缺失时，精确的 GMS UID MCS TCP 建立/连接中可作为连接证据；Root 连续 60 秒未看到精确 MCS TCP 并通过二次采样后，按断联进入恢复判断。普通或不可见的 443 Socket 不作证据。
 - 明确断开通常等 15 秒，连接中通常等 60 秒。达到条件后在同一执行窗口二次确认。跨采样空档仅将此前断联当作复查线索。
-- 确认 GMS 未被停止后，Root 定向发送 `GCM_RECONNECT`。自动和手动共用 5 / 10 / 15 分钟退避，原生状态恢复连接后清零连续重试计数。
+- 若 GMS 原生仍报告已连接，但精确原生连接时长连续 5 分钟不增长，自动守护会再采样确认，然后定向请求一次 `GCM_RECONNECT`；连接时长恢复增长后取消。此操作请求 GMS 重建 MCS 连接，不会强制停止 Google Play 服务。
+- 确认 GMS 未被停止后，Root 定向发送 `GCM_RECONNECT`。自动断联请求间隔为 30 / 60 / 120 秒，之后封顶 180 秒；手动请求至少间隔 60 秒；同一计时停滞事件的请求至少间隔 10 分钟。原生状态恢复连接后清零连续重试计数。
 - 广播完成只记为已请求。WebUI 用后续 GMS 原生采样确认连接，实际推送送达需单测。
 
 热安装时，如果 Root 服务继承了管理器的应用冻结组，服务仅迁移自身到 cgroup v2 根组，子进程继承该组。迁移失败会在 WebUI 和后台日志中显示。
@@ -15,8 +16,8 @@ KernelSU Root（UID 0）模块。模块 ID 仍为 `berry_fcm_ksu`，升级保留
 ## 安装与升级
 
 1. 确认 KernelSU 已授予本模块 Root。
-2. 从 KernelSU「模块」安装 `BerryFCM-KSU-v1.0-rc.2.zip`。
-3. 若支持热安装，按管理器提示操作；临时 Root 设备不要为了更新而贸然重启。
+2. 从 KernelSU「模块」安装 `BerryFCM-KSU-v1.0-rc.3.zip`。
+3. KernelSU 支持热安装时，BerryFCM 会停止旧监控服务并启动新服务，不需要为本模块更新重启设备。若管理器仍显示需重启，代表当前 KernelSU/管理器未完成热安装；请查看安装输出。
 4. 从 KernelSU 模块 WebUI 打开页面，先点“立即检测”，再核对 Google 原生 Diagnostics 的 `Connected` / `Close` 记录。
 5. 自动守护默认沿用原配置。先观察事件时间线和真实推送，再决定是否开启。
 
@@ -40,6 +41,8 @@ su -c 'sh /data/adb/modules/berry_fcm_ksu/bin/ctl.sh guard off'
 - `/data/adb/berry_fcm_ksu/mcs-monitor-events.log`：巡检空档 / 断联 / 重连事件
 - `/data/adb/berry_fcm_ksu/mcs-native-events.log`：筛选和去重后的 GMS 原生事件
 - `/data/adb/berry_fcm_ksu/guard.log`：守护巡检日志
+- `guard.log` 中的 `fcm_check_start` / `fcm_check_end`：逐次巡检开始/结束、耗时、采样状态和恢复决策；`maintenance_start` / `maintenance_end` 记录守护修复命令。`wake-timer.log` 还记录 timer worker 的启动/退出、armed/fired、迟到和 suspend 时长。三者对照可判断空档发生在哪一阶段。
+- 导出这两类记录：`su -c 'sh /data/adb/modules/berry_fcm_ksu/bin/ctl.sh log'`。巡检有开始没有结束，表示检查调用未返回；修复命令有开始没有结束，表示守护修复未返回；定时器只看到 `wake_timer_armed` 没有 `wake_timer_fired`，表示定时器未按期完成。以上情况都要结合后续日志判断，不能仅凭一条记录推断进程已退出。
 
 ## 保留功能
 
@@ -54,6 +57,6 @@ su -c 'sh /data/adb/modules/berry_fcm_ksu/bin/ctl.sh guard off'
 - 不修改 hosts、DNS、VPN、代理、路由或系统分区。
 - 不强制停止 / 重启 GMS，不清除数据，不声称永久保活。
 - TCP ESTABLISHED 只证明采样时观察到 GMS UID Socket；mtalk 地址匹配的 443 只是候选，不等于 MCS 已认证或消息一定送达。
-- 普通 GMS 443 不计为 FCM；DNS/UID/Socket 读取失败时状态未知。
+- 普通 GMS 443 不计为 FCM；若原生状态与 UID Socket 元信息都无法读取，页面会报告未取得有效样本，不会凭空推断断联。
 - 仅监控 Android 用户 0 的 GMS 主包 UID；厂商私有冻结、网络限制不保证可解除。
 - Doze 白名单和后台数据放行可能增加待机耗电 / 流量。

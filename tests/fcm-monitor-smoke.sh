@@ -22,7 +22,13 @@ echo 'package:com.google.android.gms uid:10200'
 MOCK
 cat > "$TMP/bin/ss" <<'MOCK'
 #!/bin/sh
-echo 'ESTAB 0 0 192.168.1.8:45000 142.250.157.188:5228 uid:10200 ino:101'
+if [ "${MCS_SS_MODE:-connected}" = unknown ]; then
+    echo 'ESTAB 0 0 192.168.1.8:45000 142.250.157.188:5228'
+elif [ "${MCS_SS_MODE:-connected}" = absent ]; then
+    echo 'ESTAB 0 0 192.168.1.8:45000 1.1.1.1:443 uid:1000 ino:202'
+else
+    echo 'ESTAB 0 0 192.168.1.8:45000 142.250.157.188:5228 uid:10200 ino:101'
+fi
 MOCK
 cat > "$TMP/bin/am" <<'MOCK'
 #!/bin/sh
@@ -74,8 +80,9 @@ printf '%s\n' 'DeviceID: [fixture]' 'connected=mtalk.google.com/[2001:db8::1],po
 j="$(run status)"; assert_json "$j" fcm_state=connected; assert_json "$j" 'fcm_remote=mtalk.google.com/[2001:db8::1]:443'
 run reconnect; requests 0
 
+export MCS_SS_MODE=unknown
 printf "%s\n" "Permission Denial" > "$MCS_FIXTURE"
-j="$(run status)"; assert_json "$j" fcm_state=unknown; assert_json "$j" fcm_tcp_hint=established
+j="$(run status)"; assert_json "$j" fcm_state=unknown; assert_json "$j" fcm_tcp_hint=unknown
 run monitor; run reconnect; requests 0
 echo "PASS: native state is authoritative; TCP alone is auxiliary"
 
@@ -98,7 +105,7 @@ j="$(run snapshot)"; assert_json "$j" fcm_recovery_decision=requested; assert_js
 run events | grep -q "|sample_gap|"
 settime 10390; run reconnect; requests 1
 settime 10660; run monitor; requests 2
-settime 10960; run monitor; requests 2
+settime 10720; run monitor; requests 2
 settime 11260; run monitor; requests 3
 printf "%s\n" "DeviceID: [fixture]" "connected=mtalk.google.com/142.250.157.188,port=5228" "connectTime=00:01/00:00" > "$MCS_FIXTURE"
 settime 11290
@@ -144,3 +151,65 @@ j="$(PATH="$TMP/bin:$TMP/compatible" /bin/sh "$MON" status)"
 assert_json "$j" fcm_state=connected
 [ ! -e "$BERRY_FCM_DATA/mcs-monitor-test-boot.lockdir" ]
 echo "PASS: native reading works with a KernelSU BusyBox lacking flock"
+
+# ActivityManager can return only wrapper lines with exit code zero.
+export MCS_NEXT_FIXTURE="$TMP/next-state-dump"
+printf '%s\n' 'ACTIVITY MANAGER SERVICES' '  (service wrapper)' '  (no client detail)' > "$MCS_FIXTURE"
+printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Connected' > "$MCS_NEXT_FIXTURE"
+j="$(run status)"
+assert_json "$j" fcm_state=connected
+grep -q 'sample_retry|first=no_current_state retry_rc=0 state=connected' "$BERRY_FCM_DATA/mcs-monitor-events.log"
+unset MCS_NEXT_FIXTURE
+echo 'PASS: wrapper-only dump retries once and uses fresh GMS state'
+
+# When a wrapper-only dump has no current fields, a Root-visible exact MCS
+# socket supplies positive connected evidence instead of leaving the card blank.
+settime 11700
+printf '%s\n' 'ACTIVITY MANAGER SERVICES' '  (service wrapper)' '  (no client detail)' > "$MCS_FIXTURE"
+export MCS_SS_MODE=connected
+j="$(run status)"
+assert_json "$j" fcm_state=connected
+assert_json "$j" fcm_source=gms_socket
+assert_json "$j" fcm_tcp_hint=established
+echo 'PASS: exact GMS MCS TCP evidence resolves wrapper-only state'
+
+# A recent explicit GMS down sample plus root-visible MCS socket absence must
+# still recover when subsequent dumps contain only ActivityManager wrappers.
+settime 11800
+printf '%s\n' 'SERVICE com.google.android.gms/.gcm.GcmService' 'Server: Not connected' > "$MCS_FIXTURE"
+run monitor; requests 4
+export MCS_SS_MODE=absent
+settime 11820
+printf '%s\n' 'ACTIVITY MANAGER SERVICES' '  (service wrapper)' '  (no client detail)' > "$MCS_FIXTURE"
+j="$(run monitor)"; requests 4
+assert_json "$(run snapshot)" fcm_state=unknown
+settime 11860
+j="$(run monitor)"; requests 5
+j="$(run snapshot)"
+assert_json "$j" fcm_state=disconnected
+assert_json "$j" fcm_source=gms_socket_fallback
+assert_json "$j" fcm_recovery_decision=requested
+grep -q '|recovery_socket_confirmed|' "$BERRY_FCM_DATA/mcs-monitor-events.log"
+grep -q '|reconnect_requested|auto UID=0 GCM_RECONNECT' "$BERRY_FCM_DATA/mcs-monitor-events.log"
+unset MCS_SS_MODE
+echo 'PASS: recent native down + root TCP absence recovers through unreadable dumps'
+
+# A frozen positive native GMS connection timer is checked twice, then receives
+# one targeted reconnect request. It does not force-stop the GMS package.
+export BERRY_FCM_DATA="$TMP/timer-data"
+mkdir -p "$BERRY_FCM_DATA"
+echo 1 > "$BERRY_FCM_DATA/enabled"
+: > "$MCS_AM_LOG"
+settime 20000
+printf '%s\n' 'DeviceID: [fixture]' 'connected=mtalk.google.com/142.250.157.188,port=5228' 'connectTime=10:00/00:00' > "$MCS_FIXTURE"
+run monitor; requests 0
+settime 20299
+run monitor; requests 0
+settime 20300
+run monitor; requests 1
+j="$(run snapshot)"; assert_json "$j" fcm_state=connected; assert_json "$j" fcm_recovery_decision=requested
+grep -q '|native_timer_stalled|GMS 原生仍报告 Connected' "$BERRY_FCM_DATA/mcs-monitor-events.log"
+grep -q '|reconnect_requested|stalled_timer UID=0 GCM_RECONNECT' "$BERRY_FCM_DATA/mcs-monitor-events.log"
+settime 20330
+run monitor; requests 1
+echo 'PASS: stalled native connection timer gets one confirmed, targeted reconnect request'

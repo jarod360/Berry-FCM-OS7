@@ -160,7 +160,7 @@ button>.ui-icon{margin-right:5px}.fcm-link>.ui-icon{color:var(--accent)}
 <article class="card"><h2><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-device"></use></svg>系统设置与快捷功能</h2><div class="button-row section-gap"><button id="autostart"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-device"></use></svg><span data-label>自启动管理</span></button><button id="notif"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-alert"></use></svg><span data-label>GMS 通知设置</span></button></div></article>
 <section class="card"><div class="head"><h2><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-history"></use></svg>检查日志</h2><div class="logtools"><button id="loadlog"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-history"></use></svg><span data-label>后台日志</span></button><button id="copy"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-code"></use></svg><span data-label>复制</span></button></div></div><pre id="log">等待操作…</pre></section>
 
-<footer>BerryFCM · KernelSU v1.0-rc.2</footer>
+<footer>BerryFCM · KernelSU v1.0-rc.3</footer>
 </section></main>
 <nav class="bottom-nav" aria-label="主导航"><div class="nav-inner"><button data-page="overview" aria-current="page"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-home"></use></svg><span data-label>概览</span></button><button data-page="monitor"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-fcm"></use></svg><span data-label>监控</span></button><button data-page="guard"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-guard"></use></svg><span data-label>守护</span></button><button data-page="settings"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-settings"></use></svg><span data-label>设置</span></button></div></nav>
 <div class="picker" id="appPicker" hidden><div class="picker-card" role="dialog" aria-modal="true" aria-label="选择守护应用"><div class="head"><h2 style="margin:0">选择守护应用 · 可多选</h2><button id="closePicker"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#bf-guard"></use></svg><span data-label>完成</span></button></div><div class="picker-tools"><input id="appSearch" placeholder="搜索应用名称或包名" autocomplete="off"></div><label class="small"><input id="includeSystem" type="checkbox" style="min-width:auto;flex:none"> 包含系统应用</label><div class="hint" id="appCount" style="margin:6px 0">正在读取应用列表…</div><div class="picker-results" id="appResults"></div></div></div>
@@ -246,7 +246,7 @@ button>.ui-icon{margin-right:5px}.fcm-link>.ui-icon{color:var(--accent)}
    $('tSample').textContent=j.fcm_sample_time>0?fullTime(j.fcm_sample_time):'暂无';
  }
  async function loadEvents(){
-   const recoveryLabels={sample_gap:"巡检空档",recovery_confirmed:"断联二次确认",connection_down:"发现断联",connection_restored:"恢复连接",reconnect_requested:"已请求重连",reconnect_failed:"重连请求失败",reconnect_skipped:"跳过重连",reboot:"设备重启"};
+   const recoveryLabels={sample_gap:"采样空档",sample_unknown:"原生状态未返回",sample_dump:"原生输出摘要",down_reconfirmed:"再次确认断联",tcp_absence_started:"TCP 缺失计时开始",tcp_absence_confirmed:"TCP 缺失确认断联",socket_connected:"TCP 观察到连接",socket_connecting:"TCP 正在连接",native_timer_stalled:"GMS 计时停滞",native_timer_check_cancelled:"计时复核后取消恢复",recovery_decision:"恢复决策",recovery_confirmed:"断联二次确认",recovery_socket_confirmed:"TCP 辅助确认断联",recovery_confirmation_unavailable:"恢复复核未通过",connection_down:"发现断联",connection_restored:"恢复连接",reconnect_requested:"已请求重连",reconnect_failed:"重连请求失败",reconnect_skipped:"跳过重连",reboot:"设备重启"};
    const nativeLabels={gms_connected:"连接成功",gms_close:"连接关闭",gms_network_attempt:"尝试连接",gms_failed:"连接失败",gms_heartbeat_delay:"心跳闹钟延迟"};
    for(const [action,id,labels] of [["native-events","nativeEvents",nativeLabels],["events","fcmEvents",recoveryLabels]]){
      try{
@@ -301,9 +301,14 @@ button>.ui-icon{margin-right:5px}.fcm-link>.ui-icon{color:var(--accent)}
    row('proc',j.gcm_persistent===1?'good':'bad',j.gcm_persistent===1?'运行中':'未运行');
    const fstate=j.fcm_state||'unknown',connected=fstate==='connected';
    const down=fstate==='disconnected'||fstate==='connecting';
-   const labels={connected:'FCM 已连接',connecting:'FCM 正在重连（尚未连接）',disconnected:'FCM 已断开',unknown:'暂时无法确认 FCM 状态',stale:'等待有效检查'};
+   const labels={connected:'FCM 已连接',connecting:'FCM 正在重连（尚未连接）',disconnected:'FCM 已断开',unknown:'本次没有有效连接样本',stale:'等待有效检查'};
+   const socketObserved=j.fcm_source==='gms_socket';
+   const socketFallback=j.fcm_source==='gms_socket_fallback';
    const failed=j.fcm_check_exit!==0&&j.fcm_check_exit!==13;
-   const label=failed?'连接检查失败':(labels[fstate]||labels.unknown),color=connected?'good':fstate==='disconnected'?'bad':'warn';
+   const stateLabel=connected&&socketObserved?'GMS MCS TCP 已建立（FCM 认证未证实）'
+     :fstate==='disconnected'&&socketFallback?'FCM TCP 持续缺失（Root 观察）'
+     :(labels[fstate]||labels.unknown);
+   const label=failed?'连接检查失败':stateLabel,color=connected?'good':fstate==='disconnected'?'bad':'warn';
    row('mcs',color,connected&&j.fcm_transport?label+' · '+j.fcm_transport:label);
    row('miss',color,connected?'0 秒':down&&j.fcm_native_duration>=0?durationText(j.fcm_native_duration):'—');
    row('recv',j.receivers>0?'good':'warn',String(j.receivers));
@@ -315,7 +320,7 @@ button>.ui-icon{margin-right:5px}.fcm-link>.ui-icon{color:var(--accent)}
    $("bridge").textContent="KernelSU Root";
    $("bridgeNote").textContent=failed?`UID 0 已授权，连接检查退出码：${j.fcm_check_exit}。详见检查日志。`:"UID 0 已授权";
    $('overviewStatus').dataset.state=$('verdict').dataset.state;
-   const canRecover=down&&j.fcm_source==='gms'&&!failed&&j.gms_stopped!==1;
+   const canRecover=down&&(j.fcm_source==='gms'||socketObserved||socketFallback)&&!failed&&j.gms_stopped!==1;
    const recent=j.fcm_sample_time>0?fullTime(j.fcm_sample_time):'暂无';
    const nativeSeconds=Number(j.fcm_native_duration);
    const observedSeconds=Number(j.fcm_observed_up_seconds);
@@ -325,15 +330,15 @@ button>.ui-icon{margin-right:5px}.fcm-link>.ui-icon{color:var(--accent)}
    const background=j.guard===1?'后台监控已开启':'后台监控未开启';
    const detail=failed?$("bridgeNote").textContent
      :j.fcm_check_exit===13?"后台正在检查，当前显示最近采样。"
-     :connected?''
+     :connected?(socketObserved?'原生状态字段暂缺；UID0 已观察到精确的 GMS MCS TCP 连接。TCP 建立不等于消息送达。':'')
      :fstate==='stale'?'采样已过期。深睡期间巡检可能延迟。'
-     :down?'退避剩余：'+durationText(j.fcm_retry_in)
+     :down?(socketFallback?'原生状态字段暂缺；UID0 连续未看到 GMS MCS TCP。':socketObserved?'原生字段暂缺；依据 GMS UID 的 MCS TCP 连接尝试判断。':'')+'退避剩余：'+durationText(j.fcm_retry_in)
      :(reasons[j.fcm_native_reason]||'等待 GMS 原生读数')+'。'+(hints[j.fcm_tcp_hint]||'');
    $('overviewMeta').textContent=[background,'最近检查：'+recent,duration,detail].filter(Boolean).join('\n');
    $('connNote').textContent=['最近检查：'+recent,duration,background,
      connected&&j.fcm_transport?'连接方式：'+j.fcm_transport.toUpperCase().replace('TCP','TCP '):'',detail].filter(Boolean).join('\n');
    $('reconnect').hidden=!canRecover;
-   $('reconnectHint').textContent=canRecover?'仅向 Google 推送请求恢复，结果见下方记录。'
+   $('reconnectHint').textContent=canRecover?(socketFallback?'原生状态字段暂缺；UID0 连续缺少 GMS MCS TCP，可请求恢复。':socketObserved?'已看到 GMS MCS TCP 仍在连接，可请求恢复。':'仅向 Google 推送请求恢复，结果见下方记录。')
      :connected?'当前已连接，无需恢复。':'尚未确认断开，可先点「立即检查」。';
    row('doze',j.doze===1?'good':'warn',j.doze===1?'已放行':j.doze===0?'未放行':'无法读取');
    row('data',j.data_saver===1?'warn':j.data_saver===0?'good':'warn',j.data_saver===1?'已启用':j.data_saver===0?'未启用':'未知');
