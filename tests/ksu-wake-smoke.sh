@@ -67,6 +67,10 @@ timeout 8 sh "$TMP/module/service.sh"
 n=0
 while [ ! -e "$TMP/fix.done" ] && [ "$n" -lt 60 ]; do /bin/sleep 0.1; n=$((n + 1)); done
 test -e "$TMP/fix.done"
+n=0
+while ! grep -q 'maintenance_end pid=.*operation=guard_fix rc=0 elapsed_s=' "$TMP/data/guard.log" && [ "$n" -lt 60 ]; do /bin/sleep 0.1; n=$((n + 1)); done
+grep -q 'maintenance_end pid=.*operation=guard_fix rc=0 elapsed_s=' "$TMP/data/guard.log"
+test ! -d "$TMP/data/maintenance.lock"
 test -e "$TMP/samples_during_fix"
 test "$(cat "$TMP/data/wake-status")" = fallback
 test "$(wc -l < "$TMP/samples")" -ge 3
@@ -98,5 +102,8 @@ test "$(wc -l < "$TMP/samples")" -ge 3
 test "$(cat "$TMP/timer")" = 10
 ! grep -q 'wake_timer_fired' "$TMP/data/wake-timer.log"
 ! kill -0 "$(cat "$TMP/alarm-pid")" 2>/dev/null
+n=0
+while [ -d "$TMP/data/maintenance.lock" ] && [ "$n" -lt 60 ]; do /bin/sleep 0.1; n=$((n + 1)); done
+test ! -d "$TMP/data/maintenance.lock"
 test ! -d "$TMP/data/service.lock"
 echo 'PASS: timer signals GMS checks; failed or blocked timer leaves passive polling active'
