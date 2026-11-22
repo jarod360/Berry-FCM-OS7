@@ -47,12 +47,12 @@ jobs:
           PY
           node --check /tmp/berryfcm-webui.js
       - uses: actions/setup-go@v5
-        if: github.event_name != 'workflow_dispatch' || inputs.package == true
+        if: (github.event_name != 'workflow_dispatch' && !startsWith(github.ref, 'refs/heads/fix/')) || inputs.package == true
         with:
           go-version: '1.26.3'
           cache: false
       - name: Build ARM64 wake timer
-        if: github.event_name != 'workflow_dispatch' || inputs.package == true
+        if: (github.event_name != 'workflow_dispatch' && !startsWith(github.ref, 'refs/heads/fix/')) || inputs.package == true
         env:
           GOOS: linux
           GOARCH: arm64
@@ -61,7 +61,7 @@ jobs:
           go build -trimpath -ldflags '-s -w' -o module/bin/wake-timer-arm64 module-src/wake-timer.go
           test -x module/bin/wake-timer-arm64
       - name: Package KernelSU module
-        if: github.event_name != 'workflow_dispatch' || inputs.package == true
+        if: (github.event_name != 'workflow_dispatch' && !startsWith(github.ref, 'refs/heads/fix/')) || inputs.package == true
         id: package
         run: |
           test -f module/module.prop
@@ -75,7 +75,7 @@ jobs:
           cd module
           zip -qr "../dist/BerryFCM-KSU-v$version.zip" .
       - uses: actions/upload-artifact@v4
-        if: github.event_name != 'workflow_dispatch' || inputs.package == true
+        if: (github.event_name != 'workflow_dispatch' && !startsWith(github.ref, 'refs/heads/fix/')) || inputs.package == true
         with:
           name: ${{ steps.package.outputs.name }}
           path: dist/${{ steps.package.outputs.name }}.zip
