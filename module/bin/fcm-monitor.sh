@@ -73,10 +73,10 @@ save_state() {
     tmp="$STATE.$$"
     [ ! -d "$STATE" ] || return 1
     ( umask 077
-      printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\\n' \\
-        "$b" "$state" "$conn_key" "$conn_since" "$conn_since_mono" "$last_seen" "$missing_since" "$missing_epoch" \\
-        "$last_try_mono" "$last_try_epoch" "$attempts" "$last_result" "$last_restore" "$outages" \\
-        "$transport" "$remote" "$sample_epoch" "$last_try_reason" "$reconnects" "$last_down" "$down_observed" "$retry_streak" "$outage_hint_mono" \\
+      printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
+        "$b" "$state" "$conn_key" "$conn_since" "$conn_since_mono" "$last_seen" "$missing_since" "$missing_epoch" \
+        "$last_try_mono" "$last_try_epoch" "$attempts" "$last_result" "$last_restore" "$outages" \
+        "$transport" "$remote" "$sample_epoch" "$last_try_reason" "$reconnects" "$last_down" "$down_observed" "$retry_streak" "$outage_hint_mono" \
         "$native_timer_duration" "$native_timer_since" "$native_timer_last_request" "$native_timer_key" > "$tmp"
     ) || { rm -f "$tmp"; return 1; }
     [ -s "$tmp" ] && [ ! -d "$STATE" ] || { rm -f "$tmp"; return 1; }
@@ -808,6 +808,7 @@ status_json() {
     fi
     auto=0; auto_enabled && auto=1
     interval="$(retry_interval)"
+    nowm="$(num "$(monotime)")"
     retry_in="$(cooldown_remaining "$interval")"
     observed_up=-1
     if [ "$state" = connected ] && [ -n "$conn_key" ] &&
