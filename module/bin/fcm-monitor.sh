@@ -62,7 +62,16 @@ load_state() {
     case "$last_try_reason" in none|auto|manual|rescue|stalled_timer) : ;; *) last_try_reason=none;; esac
     if [ -n "$prev_b" ] && [ "$prev_b" != "$b" ]; then
         state=never_seen; conn_key=; conn_since=0; conn_since_mono=0; missing_since=0; missing_epoch=0
-        last_try_mono=0; transport=; remote=; sample_epoch=0; down_observed=0; outage_hint_mono=0
+        last_try_mono=0
+        if [ "$last_try_epoch" -gt 0 ]; then
+            boot_now_epoch="$(num "$(now_epoch)")"
+            if [ "$boot_now_epoch" -le 0 ] || [ "$boot_now_epoch" -lt "$last_try_epoch" ]; then
+                # Wall clock rolled back across reboot: start one full cooldown
+                # on this boot's monotonic clock instead of blocking forever.
+                last_try_mono="$(num "$(monotime)")"
+            fi
+        fi
+        transport=; remote=; sample_epoch=0; down_observed=0; outage_hint_mono=0
         native_timer_duration=0; native_timer_since=0; native_timer_last_request=0; native_timer_key=
         : > "$LEARNED_IPS"
         record_event reboot '设备重启：清除上一启动周期的连接计时，保留历史事件'
@@ -600,10 +609,13 @@ EOF_SOCKET
     fi
     case "$observed" in
       connected)
+        if { [ "$last_result" = pending ] && [ "$last_try_epoch" -gt 0 ]; } ||
+             { [ "$last_result" = requested ] && [ "$last_try_epoch" -ge "$previous_missing_epoch" ] && [ "$last_try_epoch" -gt 0 ]; }; then
+            last_result=restored
+        fi
         if [ "$previous_down_state" = connecting ] || [ "$previous_down_state" = disconnected ] ||
            [ "$previous_down_observed" -gt 0 ]; then
             last_restore="$nowe"
-            if { [ "$last_result" = requested ] || [ "$last_result" = pending ]; } && [ "$last_try_epoch" -ge "$previous_missing_epoch" ] && [ "$last_try_epoch" -gt 0 ]; then last_result=restored; fi
             if [ "$gap_detected" = 1 ] || [ "$previous_down_state" = unknown ]; then
                 if [ "$source" = gms_socket ]; then
                     record_event connection_restored 'UID0 重新观察到 GMS MCS TCP；本次 GMS 原生状态字段仍未读到'
