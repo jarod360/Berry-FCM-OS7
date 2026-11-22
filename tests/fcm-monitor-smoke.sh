@@ -291,6 +291,7 @@ settime 20901
 printf '%s\n' 'DeviceID: [fixture]' 'connected=mtalk.google.com/142.250.157.188,port=5228' 'connectTime=10:01/00:00' > "$MCS_FIXTURE"
 run monitor; requests 2
 j="$(run snapshot)"; assert_json "$j" fcm_last_result=restored
+test "$(awk -F '|' '{print $13}' "$BERRY_FCM_DATA/mcs-monitor.state")" -gt 0
 echo 'PASS: stalled timer cooldown survives reboot and resolves only after native progress'
 
 # A broken state target aborts sampling before recovery; no broadcast may run.
@@ -356,6 +357,7 @@ settime 31002
 j="$(run status)"
 assert_json "$j" fcm_last_result=restored
 assert_json "$j" fcm_retry_streak=0
+test "$(awk -F '|' '{print $13}' "$BERRY_FCM_DATA/mcs-monitor.state")" -gt 0
 echo 'PASS: failed result persistence remains pending across reboot until native recovery evidence'
 
 # A reboot must retain the retry streak and enforce the remaining epoch cooldown.
