@@ -389,7 +389,7 @@ run monitor
 requests 1
 test "$(awk -F '|' '{print $11}' "$BERRY_FCM_DATA/mcs-monitor.state")" = 1
 test "$(awk -F '|' '{print $12}' "$BERRY_FCM_DATA/mcs-monitor.state")" = pending
-test "$(awk -F '|' '{print $23}' "$BERRY_FCM_DATA/mcs-monitor.state")" = 1
+test "$(awk -F '|' '{print $22}' "$BERRY_FCM_DATA/mcs-monitor.state")" = 1
 j="$(run snapshot)"; assert_json "$j" fcm_last_result=pending
 rm -f "$MCS_FAIL_STATE_MV_MARKER"
 unset MCS_FAIL_STATE_MV
@@ -421,7 +421,7 @@ run monitor
 requests 1
 awk -F '|' 'NF != 27 { exit 1 } END { if (NR != 1) exit 1 }' "$BERRY_FCM_DATA/mcs-monitor.state"
 test "$(awk -F '|' '{print $10}' "$BERRY_FCM_DATA/mcs-monitor.state")" -gt 0
-test "$(awk -F '|' '{print $23}' "$BERRY_FCM_DATA/mcs-monitor.state")" = 1
+test "$(awk -F '|' '{print $22}' "$BERRY_FCM_DATA/mcs-monitor.state")" = 1
 echo boot-two > "$TMP/bootid"
 setboot 1 33001
 run monitor
