@@ -1,5 +1,13 @@
 # Berry-FCM-OS7：统一产品目标、功能基线与开发计划
 
+## 2026-11-22 KSU 巡检 / GMS 状态修复候选
+
+- 新增 GMS MCS 服务块字段 `Is client connected: true/false` 的严格解析，参考开源 OriginOS-FCM-Fix 的实现；仅信任目标服务块，冲突或缺字段保持 unknown。
+- 将 `ctl.sh fix` 从 FCM 主巡检线程中隔离，避免 stopped 守护或 GMS 心跳操作拖住 MCS 采样；维护事务通过独立锁防止并发。
+- 回归覆盖显式 GMS 连接状态、持续 TCP 缺失兜底和慢速维护期间巡检连续性。
+- 当前分支 `fix/rc3-mcs-patrol-20261122`，模块版本候选 `1.0-rc.5 / 10005`。CI 和 OriginOS 7 真机测试尚未通过，不可发布为稳定修复。
+
+
 > **唯一产品基线 / Single Source of Truth** · 更新：2026-11-22 · 状态：原生状态兜底与 SU/KSU 巡检诊断在 `v1.0-rc.3` 进行云端验证；手机空档仍待新包日志实证。
 > 仓库：[jarod360/Berry-FCM-OS7](https://github.com/jarod360/Berry-FCM-OS7) · 交接：[HANDOFF.md](HANDOFF.md) · 签名：[SIGNING.md](SIGNING.md)
 >
